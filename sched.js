@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜管理後台：專項排課看板 sched.js v2.3（2026/10/26）
+ * 理論上匹克球｜管理後台：專項排課看板 sched.js v2.4（2026/10/26：預估營收依專項費用、程度名稱不重複 L）
  * 手機為主：上方選月份、據點 → 每天一張卡、每個時段一列球面格子 → 下方專項列
  *   點專項 → 點格子放上去；點已放的格子 → 指定教練、人數、換專項、套用每週、清除
  *   格子：空（可排）／球敘草稿（沒人報名，可轉；發布時取消那場草稿）／鎖定（已有課程、已開放或有人報名的球敘、只限球敘的球面）
@@ -22,10 +22,10 @@
   const monthsAhead = () => { const out = []; let y = +today().slice(0, 4); let mo = +today().slice(5, 7); for (let i = 0; i < 4; i++) { out.push(y + '-' + ('0' + mo).slice(-2)); mo += 1; if (mo > 12) { mo = 1; y += 1; } } return out; };
   const nextMonth = () => monthsAhead()[1];
   const venueKind = (vid) => { const v = PB.get('1_據點', vid) || {}; return str(v['據點類別']) || (/國小|國中|高中|大學|科大|學校|中學/.test(str(v['據點名稱'])) ? '學校' : '球館'); };
-  const price = (vid) => { const p = PB.cfg.specPrice || { 學校: 1000, 球館: 1200 }; return num(p[venueKind(vid)]) || 1000; };
+  const price = (vid, specId) => { const own = num((PB.get('0_專項', specId) || {})['費用']); if (own > 0) return own; const p = PB.cfg.specPrice || { 學校: 1000, 球館: 1200 }; return num(p[venueKind(vid)]) || 1000; }; // v2.4：專項有填費用就用它
   const specs = () => PB.rows('0_專項').filter((s) => s['是否啟用'] !== false).sort((a, b) => byKey(('000' + num((PB.get('0_程度', a['程度']) || {})['排序'])).slice(-3) + str(a['專項名稱']), ('000' + num((PB.get('0_程度', b['程度']) || {})['排序'])).slice(-3) + str(b['專項名稱'])));
   const lvIdx = (lv) => { const list = uniq(specs().map((s) => str(s['程度']))); const i = list.indexOf(str(lv)); return i < 0 ? 0 : i % 3; };
-  const lvShort = (lv) => { const r = PB.get('0_程度', lv); return r ? (str(r['排序']) ? 'L' + num(r['排序']) : '') + ' ' + str(r['程度名稱']) : '未分程度'; };
+  const lvShort = (lv) => { const r = PB.get('0_程度', lv); if (!r) return '未分程度'; const nm = str(r['程度名稱']); return /^L\d/.test(nm) || !str(r['排序']) ? nm : 'L' + num(r['排序']) + ' ' + nm; }; // v2.4：程度名稱已含 L1～L3 就不重複加
   const coachList = () => PB.rows('1_人員_教練').filter((c) => ['在職', ''].indexOf(str((PB.get('1_人員', c['人員ID']) || {})['在職狀態'])) >= 0).map((c) => ({ v: str(c['人員ID']), l: m.staffName(c['人員ID']) })).sort((a, b) => a.l.localeCompare(b.l, 'zh-Hant'));
 
   /** 這個據點有課程用途的時段（使用中） */
@@ -125,7 +125,7 @@
       out.byVenue[vid] = (out.byVenue[vid] || 0) + 1;
       const mn = num(x.人數下限) || 5;
       const mx = num(x.人數上限) || 6;
-      out.min += mn; out.max += mx; out.revMin += mn * price(vid); out.revMax += mx * price(vid);
+      out.min += mn; out.max += mx; out.revMin += mn * price(vid, x.專項); out.revMax += mx * price(vid, x.專項);
       if (c.games) out.conv += 1;
       const avail = (PB.ix.availBySlot[str(x.時段)] || []).find((a) => day(a['日期']) === x.日期);
       if (!avail || str(avail['狀態']) !== '可用') { out.notReady += 1; out.issues.push({ k: k, t: where + '：這天的可用日還沒確認', soft: true }); }
@@ -198,7 +198,7 @@
         ui.btn('發布', 'sbPublish', {}, 'pri sm') + '</div>' +
         '<div class="sb-tabs">' + vs.map((x) => { const n = An.byVenue[str(x['據點ID'])] || 0; return '<button class="chip' + (str(x['據點ID']) === S.venue ? ' on' : '') + '" data-act="sbVenue" data-v="' + esc(x['據點ID']) + '">' + esc(x['據點名稱']) + (n ? '<span class="c">' + n + '</span>' : '') + '</button>'; }).join('') + '</div>' +
         '<button class="sb-strip" data-act="sbStats"><span>專項<b>' + An.n + '</b></span><span>名額<b>' + An.max + '</b></span><span>單日最多教練<b>' + An.peak + '</b></span><span class="' + (An.hard ? 'bad' : An.unnamed ? 'warn' : '') + '">待處理<b>' + (An.hard + An.unnamed) + '</b></span></button></div>';
-      let board = '<div class="sb-legend"><span><i class="lg lg-new"></i>專項課</span><span><i class="lg lg-gath"></i>球敘草稿（可轉）</span><span><i class="lg lg-lock"></i>鎖定</span><span><i class="lg lg-empty"></i>空</span><span>' + esc(venueKind(S.venue)) + ' ' + money(price(S.venue)) + '／人</span></div>';
+      let board = '<div class="sb-legend"><span><i class="lg lg-new"></i>專項課</span><span><i class="lg lg-gath"></i>球敘草稿（可轉）</span><span><i class="lg lg-lock"></i>鎖定</span><span><i class="lg lg-empty"></i>空</span><span>' + esc(venueKind(S.venue)) + ' ' + money(price(S.venue)) + '／人（專項有填費用者依專項）</span></div>';
       if (v && str(v['注意事項'])) board += '<div class="note" style="margin-bottom:8px">' + esc(v['注意事項']) + '</div>';
       if (!dates.length) board += '<div class="card">' + ui.empty(S.month + ' 沒有可用日', '請先在主檔「時段」產生並確認可用日') + '</div>';
       dates.forEach((d) => {
