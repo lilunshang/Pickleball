@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜內部網頁共用程式 common.js v2.0（2026/10/26）
+ * 理論上匹克球｜內部網頁共用程式 common.js v2.3（2026/10/26）
  *   PB.api   呼叫 GAS（登入、載入、操作）
  *   PB.db    資料（開頁一次載入；操作後就地更新）
  *   PB.m     業務計算（付款狀態、班級人數、球敘名額、學員堂數…，與學員 OA 同規則）
@@ -77,6 +77,9 @@
     db: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
     phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>',
     check: '<path d="M20 6L9 17l-5-5"/>',
+    chev: '<path d="M9 6l6 6-6 6"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    coin: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.4 0-2.5.8-2.5 2s1.1 1.6 2.5 2 2.5.9 2.5 2-1.1 2-2.5 2c-1 0-2-.5-2.5-1.5M12 6.5v1.5M12 16v1.5"/>',
   };
   PB.icon = (n) => '<svg class="i" viewBox="0 0 24 24" aria-hidden="true">' + (ICON[n] || '') + '</svg>';
 
@@ -252,6 +255,7 @@
     ix.slotByVenue = groupBy(R('1_據點_時段'), '據點');
     ix.courtByVenue = groupBy(R('1_據點_場地'), '據點');
     ix.availBySlot = groupBy(R('1_據點_可用日'), '時段');
+    ix.creditByPayer = groupBy(R('3_抵用金流水'), '付款人');
     ix.recCache = {};
     ix.sigCache = {};
     if (PB.onRebuild) PB.onRebuild();
@@ -275,7 +279,7 @@
   m.sesLabel = (s) => {
     if (!s) return '';
     const c = PB.get('2_課程班級', s['班級']);
-    return fmtD(s['日期']) + ' ' + m.hm(s['開始時間']) + '｜' + m.classLabel(c) + (s['第幾堂'] ? ' 第' + s['第幾堂'] + '堂' : '');
+    return fmtD(s['日期']) + ' ' + m.hm(s['開始時間']) + '｜' + m.classLabel(c) + (s['第幾堂'] && !m.isSingle(c) ? ' 第' + s['第幾堂'] + '堂' : '');
   };
   /** 參照欄位的顯示文字 */
   m.label = (t, r) => {
@@ -291,11 +295,12 @@
       case '0_程度': return str(r['程度名稱']);
       case '0_課程類型': return str(r['課程類型']);
       case '0_課程模板': return str(r['模板名稱']);
+      case '0_專項': return str(r['專項名稱']) + (str(r['程度']) ? '｜' + m.levelName(r['程度']) : '');
       case '0_角色': return str(r['角色名稱']);
       case '0_教練費率': return m.staffName(r['教練']) + '｜' + m.typeName(r['課程類型']) + '｜' + str(r['基準']);
       case '1_合作夥伴': return str(r['名稱']);
       case '3_合作方案': return str(r['方案名稱']);
-      case '2_課程班級': return m.classLabel(r) + '｜' + m.venueName(r['據點']) + '｜' + m.classWhen(r);
+      case '2_課程班級': return m.isSingle(r) ? '專項｜' + m.singleLabel(r) + '｜' + m.venueName(r['據點']) : m.classLabel(r) + '｜' + m.venueName(r['據點']) + '｜' + m.classWhen(r);
       case '2_球敘場次': return fmtD(r['日期']) + ' ' + m.hm(r['開始時間']) + '｜' + m.venueName(r['據點']) + '｜' + m.gameLabel(r);
       case '2_上課場次': return m.sesLabel(r);
       default: return str(r[db.keys[t]]);
@@ -308,26 +313,28 @@
   m.rec = (rid) => {
     if (ix.recCache[rid]) return ix.recCache[rid];
     const r = PB.get('3_應收帳款', rid) || {};
-    let confirmed = 0, pending = 0, refund = 0, wrong = 0;
+    let confirmed = 0, pending = 0, refund = 0, wrong = 0, credit = 0;
     (ix.payByRec[str(rid)] || []).forEach((p) => {
       const st = str(p['對帳狀態']);
       const a = num(p['金額']);
       if (IGNORE().indexOf(st) >= 0) { if (st === '有誤') wrong += a; return; }
-      if (a < 0) refund += a;
+      if (a < 0 && str(p['付款方式']) === '轉抵用金') credit += a;
+      else if (a < 0) refund += a;
       else if (st === '待確認') pending += a;
       else confirmed += a;
     });
     const due = num(r['應收金額']);
-    const net = confirmed + pending + refund;
+    const net = confirmed + pending + refund + credit;
     const voided = r['作廢'] === true;
     const left = voided ? 0 : Math.max(0, due - net);
     let status = '未收';
     if (voided) status = '作廢';
+    else if (credit < 0 && net <= 0) status = '已轉抵用金';
     else if (refund < 0 && net <= 0) status = '已退款';
     else if (due > 0 && net >= due) status = pending > 0 ? '已付（待對帳）' : '已收';
     else if (net > 0) status = '部分付款';
     else if (due === 0) status = '免付';
-    return (ix.recCache[rid] = { due, confirmed, pending, refund, wrong, net, left, status, voided });
+    return (ix.recCache[rid] = { due, confirmed, pending, refund, credit, wrong, net, left, status, voided });
   };
   /** 一筆報名的帳務合計（不含作廢）；firstPaid＝首堂／全額已付清（待確認算已付） */
   m.sigPay = (sid) => {
@@ -344,11 +351,19 @@
     return (ix.sigCache[sid] = o);
   };
   m.payBadge = (st) => {
-    const k = { 已收: 'ok', 已付清: 'ok', '已付（待對帳）': 'info', 部分付款: 'warn', 未收: 'bad', 未付: 'bad', 已退款: '', 作廢: '', 免付: 'ok', 尚無應收: '' }[st];
+    const k = { 已收: 'ok', 已付清: 'ok', '已付（待對帳）': 'info', 部分付款: 'warn', 未收: 'bad', 未付: 'bad', 已退款: '', 已轉抵用金: 'info', 作廢: '', 免付: 'ok', 尚無應收: '' }[st];
     return '<span class="badge ' + (k || '') + '">' + esc(st) + '</span>';
   };
 
   // ---- 班級 ----
+  /** 單堂專項課：有填專項，或課程類型＝單堂專項 */
+  m.isSingle = (c) => {
+    if (!c) return false;
+    if (str(c['專項'])) return true;
+    const t = PB.get('0_課程類型', c['課程類型']);
+    return !!t && str(t['課程類型']) === (C.singleType || '單堂專項');
+  };
+  m.specName = (id) => { const s = PB.get('0_專項', id); return s ? str(s['專項名稱']) : ''; };
   m.cls = (c) => {
     if (typeof c === 'string') c = PB.get('2_課程班級', c);
     if (!c) return null;
@@ -364,19 +379,28 @@
     const min = num(c['人數下限']) || C.classMin || 5;
     const paid = active.filter((r) => m.sigPay(r['報名ID']).firstPaid).length;
     const start = day(c['開課日期']);
-    const decide = start ? addDays(start, -(C.confirmDays || 7)) : '';
+    const single = m.isSingle(c);
+    const decide = start ? addDays(start, -(single ? (C.singleDecideDays || 3) : (C.confirmDays || 7))) : '';
+    const decideAt = single && decide ? decide + ' ' + (C.singleDecideTime || '12:00') : '';
     const st = str(c['課程狀態']);
+    const openAt = str(c['開放報名時間']).slice(0, 16);
     return {
+      single: single, decideAt: decideAt, openAt: openAt, notOpen: !!openAt && openAt > nowText(),
+      need: Math.max(0, min - paid),
+      // 單堂：決定時間已過仍籌備中（排程沒處理到）
+      late: single && st === '籌備中' && !!decideAt && nowText() >= decideAt,
       c: c, sigs: sigs, active: active, hold: hold, wait: wait, ses: ses, live: live,
       done: live.filter((s) => str(s['場次狀態']) === '已完成').length,
       total: num(c['總堂數']) || live.length,
       next: live.find((s) => str(s['場次狀態']) === '預定' && day(s['日期']) >= t) || null,
       limit: limit, min: min, paid: paid, used: active.length + hold.length, decide: decide,
-      canDecide: st === '籌備中' && !!start && (t >= decide || paid >= limit),
+      canDecide: st === '籌備中' && !!start && (single || t >= decide || paid >= limit),
       pending: !!str(c['開班動作']) && !str(c['開班處理時間']),
       st: st,
     };
   };
+  /** 單堂專項課的短標題：11/7（六）08:00 握拍與正手 */
+  m.singleLabel = (c) => (c ? fmtD(c['開課日期']) + ' ' + m.hm(c['開始時間']) + ' ' + str(c['課程名稱']) : '');
   m.classBadge = (st) => '<span class="badge ' + ({ 籌備中: 'warn', 確定開課: 'brand', 進行中: 'ok', 已結束: '', 未成班: 'bad', 取消: 'bad' }[st] || '') + '">' + esc(st || '未設定') + '</span>';
 
   // ---- 球敘 ----
@@ -418,7 +442,8 @@
     const sigs = (ix.sigByStu[id] || []).slice().sort((a, b) => byKey(str(b['報名時間']), str(a['報名時間'])));
     const family = ix.stuByGuardian[id] || [];
     const guardian = str(s['管理人']) ? PB.get('1_學員', s['管理人']) : null;
-    return { s: s, id: id, lessons: lessons, owed: owed, payRecs: payRecs, sigs: sigs, family: family, guardian: guardian, att: ix.attByStu[id] || [] };
+    const credits = (ix.creditByPayer[id] || []).slice().sort((a, b) => byKey(str(b['建立時間']), str(a['建立時間'])));
+    return { s: s, id: id, lessons: lessons, owed: owed, payRecs: payRecs, sigs: sigs, family: family, guardian: guardian, att: ix.attByStu[id] || [], credits: credits, credit: sum(credits, (x) => x['金額']) };
   };
   m.phone = (s) => { const p = str(s && s['電話']) || str(s && s['管理人'] && (PB.get('1_學員', s['管理人']) || {})['電話']); return p; };
   m.sigTarget = (r) => (str(r['報名類型']) === '課程' ? m.label('2_課程班級', PB.get('2_課程班級', r['班級'])) : m.label('2_球敘場次', PB.get('2_球敘場次', r['球敘'])));
@@ -445,6 +470,44 @@
       return '<div class="err-box">「' + esc(where || '這個區塊') + '」顯示失敗：' + esc(e.message) + '。其他功能不受影響，請截圖回報特助。</div>';
     }
   };
+  /**
+   * 分區清單（待處理等）：上方選單選一區只看那一區；「全部」時每區可展開／收合（記在這台裝置）
+   * groups：[{ id, title, count, hint, right, body:()=>HTML }]（count 0 的不列出，除非正在選它）
+   * o：{ param:'g', key:'queue' }；body 只有展開時才計算
+   */
+  ui.groups = (groups, p, o) => {
+    o = o || {};
+    const k = o.param || 'g';
+    const sel = str(p[k]);
+    const saved = groupOpen(o.key);
+    const shown = groups.filter((g) => g.count > 0 || g.id === sel);
+    if (!shown.length) return '';
+    const total = groups.reduce((n, g) => n + (g.count || 0), 0);
+    const chip = (id, label, n) => '<button class="chip' + (id === sel ? ' on' : '') + '" data-act="param" data-k="' + k + '" data-v="' + esc(id) + '">' + esc(label) + (n !== undefined ? '<span class="c">' + n + '</span>' : '') + '</button>';
+    const menu = o.menu === false ? '' : '<div class="chips grp-menu">' + chip('', '全部', total) + shown.map((g) => chip(g.id, g.title, g.count)).join('') + '</div>';
+    const one = shown.find((g) => g.id === sel);
+    const head = (g, isOpen, toggle) => '<div class="sec grp-h' + (toggle ? ' click' : '') + '"' + (toggle ? ' data-act="grpToggle" data-key="' + esc(o.key) + '" data-id="' + esc(g.id) + '" role="button" aria-expanded="' + isOpen + '"' : '') + '>' +
+      (toggle ? '<span class="grp-arrow' + (isOpen ? ' on' : '') + '">' + PB.icon('chev') + '</span>' : '') + '<h2>' + esc(g.title) + '</h2><span class="cnt">' + g.count + ' ' + (o.unit || '件') + '</span>' + (g.meta ? '<span class="grp-meta">' + g.meta + '</span>' : '') + '<span class="sp"></span>' + (isOpen && g.right ? '<span onclick="event.stopPropagation()">' + g.right + '</span>' : '') + '</div>';
+    const body = (g) => (g.hint ? '<div class="s mut grp-hint">' + esc(g.hint) + '</div>' : '') + ui.safe(g.body, g.title);
+    if (one) return menu + head(one, true, false) + (one.count ? body(one) : '<div class="card">' + ui.empty('這區都處理完了', '') + '</div>');
+    const open = o.forceOpen ? shown.map((g) => g.id) : saved || [shown[0].id]; // 第一次使用：展開第一區
+    return menu + '<div class="grp-bar"><button class="btn sm ghost" data-act="grpAll" data-key="' + esc(o.key) + '" data-ids="' + esc(shown.map((g) => g.id).join(',')) + '" data-v="1">全部展開</button><button class="btn sm ghost" data-act="grpAll" data-key="' + esc(o.key) + '" data-ids="" data-v="0">全部收合</button></div>' +
+      shown.map((g) => { const isOpen = open.indexOf(g.id) >= 0; return '<div class="grp' + (isOpen ? ' on' : '') + '">' + head(g, isOpen, true) + (isOpen ? body(g) : '') + '</div>'; }).join('');
+  };
+  function groupOpen(key) {
+    try { const v = LS.get('pb:open:' + PB.appId + ':' + key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function groupSave(key, list) { LS.set('pb:open:' + PB.appId + ':' + key, JSON.stringify(list)); }
+  PB.acts.param = (d) => PB.setParam(d.k, d.v);
+  PB.acts.grpToggle = (d) => {
+    const cur = document.querySelectorAll('.grp.on [data-act="grpToggle"]');
+    const list = groupOpen(d.key) || Array.from(cur).map((el) => el.dataset.id);
+    const i = list.indexOf(d.id);
+    if (i >= 0) list.splice(i, 1); else list.push(d.id);
+    groupSave(d.key, list);
+    PB.render();
+  };
+  PB.acts.grpAll = (d) => { groupSave(d.key, d.v === '1' ? split(d.ids.replace(/,/g, ' , ')) : []); PB.render(); };
   ui.empty = (title, sub) => '<div class="empty"><b>' + esc(title) + '</b>' + esc(sub || '') + '</div>';
   ui.btn = (label, act, data, cls, icon) => '<button class="btn ' + (cls || '') + '" data-act="' + act + '"' + Object.keys(data || {}).map((k) => ' data-' + k + '="' + esc(data[k]) + '"').join('') + '>' + (icon ? PB.icon(icon) : '') + esc(label) + '</button>';
   ui.tel = (p) => (p ? '<a href="tel:' + esc(p) + '" class="nowrap">' + esc(p) + '</a>' : '<span class="mut">沒有電話</span>');
@@ -578,6 +641,7 @@
     const t = f.t;
     if (t === 'long') return wrap('<textarea id="' + id + '" name="' + esc(f.k) + '">' + esc(val) + '</textarea>');
     if (t === 'bool') return '<div class="fld" data-k="' + esc(f.k) + '"' + hide + '><label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" name="' + esc(f.k) + '"' + (val === true || val === 'true' ? ' checked' : '') + '> ' + esc(f.label || f.k) + '</label>' + hint + '</div>';
+    if (t === 'ref' && f.ref === '1_據點_時段') return wrap(slotPicker(f, val, vals, id));
     if (t === 'enum' || t === 'ref') {
       const opts = t === 'ref' ? refOptions(f, vals) : (f.dep ? (PB.enums[f.opts] || {})[vals[f.dep]] || [] : OPT(f)).map((o) => ({ v: o, l: o }));
       const cur = split(val);
@@ -594,6 +658,37 @@
     const type = { num: 'number', money: 'number', date: 'date', time: 'time', dt: 'datetime-local', phone: 'tel' }[t] || 'text';
     const shown = t === 'dt' ? str(val).replace(' ', 'T') : t === 'time' ? str(val).slice(0, 5) : val;
     return wrap('<input id="' + id + '" type="' + type + '" name="' + esc(f.k) + '" value="' + esc(shown) + '"' + (type === 'number' ? ' step="any" inputmode="decimal"' : '') + (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') + '>');
+  }
+  /**
+   * 時段選擇：依星期分列，每列是該天的時段按鈕（只列「使用中」與已選的時段）
+   * 多選 → data-multi（checkbox）；單選 → data-radio（radio）
+   */
+  const WEEK = '一二三四五六日';
+  function slotPicker(f, val, vals, id) {
+    const cur = split(val);
+    const venue = str(vals['據點']);
+    const k = db.keys['1_據點_時段'];
+    let rows = PB.rows('1_據點_時段');
+    if (f.where) Object.keys(f.where).forEach((c) => { const w = f.where[c]; const v = w.charAt(0) === '$' ? vals[w.slice(1)] : w; rows = rows.filter((r) => !v || str(r[c]) === str(v)); });
+    if (f.has) Object.keys(f.has).forEach((c) => { rows = rows.filter((r) => !str(r[c]) || split(r[c]).indexOf(f.has[c]) >= 0); });
+    rows = rows.filter((r) => ['使用中', ''].indexOf(str(r['狀態'])) >= 0 || cur.indexOf(str(r[k])) >= 0);
+    rows.sort((a, b) => byKey(WEEK.indexOf(str(a['星期'])) + str(a['開始時間']) + m.venueName(a['據點']), WEEK.indexOf(str(b['星期'])) + str(b['開始時間']) + m.venueName(b['據點'])));
+    const kind = f.multi ? 'checkbox' : 'radio';
+    const name = id + '_s';
+    const days = uniq(rows.map((r) => str(r['星期'])));
+    const sum = '<div class="slot-sum">' + slotSummary(cur) + '</div>';
+    if (!rows.length) return '<div class="slots" id="' + id + '" data-' + (f.multi ? 'multi' : 'radio') + '="' + esc(f.k) + '"><span class="mut">' + (venue || !f.where ? '沒有可選的時段（只列「使用中」）' : '請先選據點') + '</span></div>';
+    return '<div class="slots" id="' + id + '" data-' + (f.multi ? 'multi' : 'radio') + '="' + esc(f.k) + '"' + (f.max ? ' data-max="' + f.max + '"' : '') + '>' + sum +
+      days.map((d) => '<div class="slot-row"><div class="slot-d">週' + esc(d || '?') + '</div><div class="slot-c">' + rows.filter((r) => str(r['星期']) === d).map((r) => {
+        const v = str(r[k]);
+        const courts = split(r['使用場地']).length;
+        const sub = [venue ? '' : m.venueName(r['據點']), courts ? courts + ' 面' : '', str(r['狀態']) && str(r['狀態']) !== '使用中' ? str(r['狀態']) : ''].filter(Boolean).join('・');
+        return '<label class="slot"><input type="' + kind + '" name="' + name + '" value="' + esc(v) + '"' + (cur.indexOf(v) >= 0 ? ' checked' : '') + '><span><b>' + esc(m.hm(r['開始時間'], r['結束時間'])) + '</b>' + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span></label>';
+      }).join('') + '</div></div>').join('') + '</div>';
+  }
+  function slotSummary(ids) {
+    const list = ids.map((x) => PB.get('1_據點_時段', x)).filter(Boolean);
+    return list.length ? '已選 ' + list.length + ' 個：' + esc(list.map((r) => '週' + str(r['星期']) + ' ' + m.hm(r['開始時間'], r['結束時間'])).join('、')) : '<span class="mut">尚未選擇</span>';
   }
   function displayVal(f, v) {
     if (f.t === 'ref') return split(v).map((id) => m.label(f.ref, PB.get(f.ref, id)) || id).join('、');
@@ -614,6 +709,8 @@
       if (box.querySelector('.ro')) return;
       const multi = box.querySelector('[data-multi]');
       if (multi) { v[f.k] = Array.from(multi.querySelectorAll('input:checked')).map((i) => i.value); return; }
+      const radio = box.querySelector('[data-radio]');
+      if (radio) { const c = radio.querySelector('input:checked'); v[f.k] = c ? c.value : ''; return; }
       const inp = box.querySelector('input,select,textarea');
       if (!inp) return;
       if (inp.type === 'checkbox') v[f.k] = inp.checked;
@@ -661,7 +758,17 @@
         });
       });
     };
-    el.addEventListener('change', (e) => { fillFrom(e); refresh(); });
+    // 時段選擇：上限、已選摘要
+    const slotChange = (e) => {
+      const box = e.target.closest && e.target.closest('.slots');
+      if (!box) return;
+      const max = Number(box.dataset.max || 0);
+      const on = Array.from(box.querySelectorAll('input:checked'));
+      if (max && on.length > max) { e.target.checked = false; ui.toast('最多選 ' + max + ' 個', 'bad'); }
+      const sum = box.querySelector('.slot-sum');
+      if (sum) sum.innerHTML = slotSummary(Array.from(box.querySelectorAll('input:checked')).map((i) => i.value));
+    };
+    el.addEventListener('change', (e) => { slotChange(e); fillFrom(e); refresh(); });
     el.addEventListener('input', (e) => { if (e.target.tagName === 'SELECT') refresh(); });
     refresh();
   }

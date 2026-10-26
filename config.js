@@ -1,7 +1,7 @@
 ﻿// 內部網頁設定：這兩個值本來就是公開的，可以放在網頁裡（Token、Secret 一律不可放這裡）
 window.APP_CONFIG = {
   // 內部系統 API（Apps Script 網頁應用程式網址，…/exec）
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbwVc-Wm8_HYTP0F7uTzqPn3dp2ZK6qeO2q1Z0j85TOutKnPWu2VyuJVUBEvCHS4y7j0/exec',
+  GAS_URL: '填入內部系統 API 的網頁應用程式網址',
   // Google Cloud → API 和服務 → 憑證 → OAuth 用戶端 ID（網頁應用程式）
-  GOOGLE_CLIENT_ID: '785168288896-o15vkt3lg09vndu5ao9t6kksd8c6oskd.apps.googleusercontent.com',
+  GOOGLE_CLIENT_ID: '填入 OAuth 用戶端 ID（xxxx.apps.googleusercontent.com）',
 };

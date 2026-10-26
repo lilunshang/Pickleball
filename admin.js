@@ -1,8 +1,9 @@
 ﻿/**
- * 理論上匹克球｜管理後台 admin.js v2.0（2026/10/25）
+ * 理論上匹克球｜管理後台 admin.js v2.3（2026/10/26）
  * 特助、主理人：總覽 Dashboard、管理待處理、財務（人員月結、分潤、支出、應收）、主檔設定
  * Dashboard 全部在瀏覽器計算（換月份不發請求）；口徑：
  *   球敘收入＝當月球敘的報名實收（含待對帳、扣退款）　課程收入＝當月扣堂數 × 每堂單價（與 F02 相同）
+ *   v2.3 專項課收入＝當月已完成場次的報名實收（抵用金是預收：轉入時從原課扣掉，折抵時才算進新課）
  *   成本＝場地成本（場次分攤）＋教練費（已完成場次）＋場主費（有簽到的排班）＋其他支出（不含場租／教練費／場主費細目）
  */
 (function () {
@@ -53,7 +54,7 @@
     if (memo[mon]) return memo[mon];
     const inM = (v) => day(v).slice(0, 7) === mon;
     const V = {};
-    const v = (id) => (V[id || '—'] = V[id || '—'] || { id: id, gN: 0, gHeads: 0, gIn: 0, gRev: 0, sN: 0, sAtt: 0, cRev: 0, venue: 0, coach: 0, host: 0, other: 0 });
+    const v = (id) => (V[id || '—'] = V[id || '—'] || { id: id, gN: 0, gHeads: 0, gIn: 0, gRev: 0, sN: 0, sAtt: 0, cRev: 0, spRev: 0, spN: 0, venue: 0, coach: 0, host: 0, other: 0 });
     const types = {};
     const games = PB.rows('2_球敘場次').filter((g) => inM(g['日期']) && ['取消', '草稿'].indexOf(str(g['狀態'])) < 0);
     games.forEach((g) => {
@@ -72,6 +73,12 @@
       const x = v(str(s['據點']));
       x.venue += num(s['場地成本']);
       if (str(s['場次狀態']) === '已完成') {
+        const c = PB.get('2_課程班級', s['班級']);
+        if (m.isSingle(c)) {
+          // 單堂專項：上完才認列，金額＝這堂所有報名的實收
+          const rev = sum(PB.ix.sigByClass[str(s['班級'])] || [], (r) => m.sigPay(r['報名ID']).net);
+          x.spRev += rev; x.cRev += rev; x.spN += 1;
+        }
         x.sN += 1;
         x.coach += num(s['教練費']);
         x.sAtt += (PB.ix.attBySes[str(s['場次ID'])] || []).filter((a) => /出席/.test(str(a['狀態']))).length;
@@ -79,6 +86,7 @@
     });
     PB.rows('3_堂數流水').filter((l) => inM(l['日期']) && LESSON_USE.indexOf(str(l['類型'])) >= 0).forEach((l) => {
       const c = lessonClass(l);
+      if (m.isSingle(c)) return; // 專項課在上面依場次實收計算，不重複
       v(c ? str(c['據點']) : '').cRev += Math.abs(num(l['堂數'])) * unitPrice(c);
     });
     PB.rows('3_支出').filter((e) => inM(e['日期']) && NOT_OTHER.indexOf(str(e['細目'])) < 0).forEach((e) => { v(str(e['據點'])).other += num(e['金額']); });
@@ -100,7 +108,27 @@
       cashOut: sum(pays.filter((p) => num(p['金額']) < 0), (p) => p['金額']),
       pending: sum(pays.filter((p) => str(p['對帳狀態']) === '待確認'), (p) => p['金額']),
       newStu: newStu.length, conv: conv.length, rent: rent,
+      cancels: cancelStats(mon),
     });
+  }
+  /** 取消原因統計（依取消時間的月份）：學員選的原因 × 課程／球敘，另列系統原因 */
+  function cancelStats(mon) {
+    const list = PB.rows('2_報名').filter((r) => str(r['報名狀態']) === '已取消' && str(r['取消時間']).slice(0, 7) === mon);
+    const why = {};
+    const sys = {};
+    list.forEach((r) => {
+      const k = str(r['學員取消原因']) || '（未填）';
+      const o = (why[k] = why[k] || { k: k, 課程: 0, 專項: 0, 球敘: 0, n: 0 });
+      const c = str(r['報名類型']) === '課程' ? PB.get('2_課程班級', r['班級']) : null;
+      o[str(r['報名類型']) === '球敘' ? '球敘' : m.isSingle(c) ? '專項' : '課程'] += 1;
+      o.n += 1;
+      const sk = str(r['取消原因']) || '（未填）';
+      sys[sk] = (sys[sk] || 0) + 1;
+    });
+    return { n: list.length, why: Object.keys(why).map((k) => why[k]).sort((a, b) => (a.k === '（未填）') - (b.k === '（未填）') || b.n - a.n), sys: sys };
+  }
+  function creditTotal() {
+    return sum(PB.rows('3_抵用金流水'), (r) => r['金額']);
   }
   function owedNow() {
     return sum(PB.rows('3_應收帳款').filter((r) => r['作廢'] !== true), (r) => m.rec(r['應收ID']).left);
@@ -139,18 +167,27 @@
         tile('營運損益', money(T.pl), '收入 − 成本（場次口徑）', T.pl < 0 ? 'neg' : 'pos') +
         tile('本月實收', money(S.cashIn + S.cashOut), (S.cashOut ? '退款 ' + money(S.cashOut) + '・' : '') + (S.pending ? '待對帳 ' + money(S.pending) : '全部已對帳')) +
         tile('球敘', (T.gN || 0) + ' 場', '報名 ' + (T.gHeads || 0) + ' 人次・平均 ' + (T.gN ? (T.gHeads / T.gN).toFixed(1) : '—') + '・簽到 ' + pct(T.gIn || 0, T.gHeads || 0)) +
-        tile('課程', (T.sN || 0) + ' 堂', '出席 ' + (T.sAtt || 0) + ' 人次（已點名）') +
+        tile('課程', (T.sN || 0) + ' 堂', '出席 ' + (T.sAtt || 0) + ' 人次（已點名）' + (T.spN ? '・專項 ' + T.spN + ' 堂 ' + money(T.spRev) : '')) +
         tile('新學員', S.newStu + ' 位', '報名課程 ' + S.conv + ' 位（' + pct(S.conv, S.newStu) + '）') +
         tile('目前未收', money(owedNow()), '全部未作廢應收', owedNow() > 0 ? 'neg' : '') +
+        (PB.has('3_抵用金流水') ? tile('抵用金（預收）', money(creditTotal()), '學員還沒用掉的抵用金；折抵時才算收入') : '') +
         '</div>' +
         sec('近 6 個月', '') + barChart(trend) +
         sec('各據點', mon) + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>據點</th><th class="num">球敘</th><th class="num">人次</th><th class="num">球敘收入</th><th class="num">上課</th><th class="num">課程收入</th><th class="num">場地成本</th><th class="num">教練費</th><th class="num">場主費</th><th class="num">其他</th><th class="num">損益</th></tr></thead><tbody>' + (vrows || '<tr><td colspan="11" class="mut">這個月沒有資料</td></tr>') +
         '</tbody><tfoot><tr><td>合計</td><td class="num">' + (T.gN || 0) + '</td><td class="num">' + (T.gHeads || 0) + '</td><td class="num">' + money(T.gRev) + '</td><td class="num">' + (T.sN || 0) + '</td><td class="num">' + money(T.cRev) + '</td><td class="num">' + money(T.venue) + '</td><td class="num">' + money(T.coach) + '</td><td class="num">' + money(T.host) + '</td><td class="num">' + money(T.other) + '</td><td class="num">' + money(T.pl) + '</td></tr></tfoot></table></div>' +
         '<div class="grid2" style="margin-top:12px"><div>' + sec('球敘類型', '') + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>類型</th><th class="num">場次</th><th class="num">人次</th><th class="num">平均</th><th class="num">收入</th></tr></thead><tbody>' + (types || '<tr><td colspan="5" class="mut">—</td></tr>') + '</tbody></table></div></div>' +
         '<div>' + sec('口徑說明', '') + '<div class="card" style="padding:10px 14px;font-size:.84rem;color:var(--mut)"><ul style="margin:0;padding-left:18px">' +
-        '<li>球敘收入：當月球敘的報名實收（含待對帳、扣除退款），依球敘日期</li><li>課程收入：當月教練確認上課扣的堂數 × 每堂單價（班級費用 ÷ 總堂數），與分潤試算相同</li><li>場地成本為場次分攤（換算單價 × 面時數）；本月實際場租應付 ' + money(S.rent) + '（支出，F03）</li><li>教練費只算已完成場次；場主費只算有簽到的排班</li><li>其他支出不含場租、教練費、場主費細目，避免重複</li></ul></div></div></div>';
+        '<li>球敘收入：當月球敘的報名實收（含待對帳、扣除退款），依球敘日期</li><li>課程收入：期制班＝當月教練確認上課扣的堂數 × 每堂單價（班級費用 ÷ 總堂數），與分潤試算相同；專項課＝當月已上完的場次的報名實收</li><li>抵用金是預收：轉入時從原課程收入扣掉，折抵時才算進新課程</li><li>場地成本為場次分攤（換算單價 × 面時數）；本月實際場租應付 ' + money(S.rent) + '（支出，F03）</li><li>教練費只算已完成場次；場主費只算有簽到的排班</li><li>其他支出不含場租、教練費、場主費細目，避免重複</li></ul></div></div></div>' +
+        cancelCard(S.cancels, mon);
     },
   };
+  function cancelCard(cs, mon) {
+    const rows = cs.why.map((o) => '<tr><td>' + esc(o.k) + '</td><td class="num">' + o.專項 + '</td><td class="num">' + o.課程 + '</td><td class="num">' + o.球敘 + '</td><td class="num"><b>' + o.n + '</b></td><td style="min-width:90px"><div class="bar" style="width:100%"><i style="width:' + Math.round((o.n / Math.max(1, cs.n)) * 100) + '%"></i></div></td></tr>').join('');
+    const sys = Object.keys(cs.sys).map((k) => esc(k) + ' ' + cs.sys[k]).join('・');
+    return sec('取消原因', mon + '・' + cs.n + ' 筆') + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>學員說的原因</th><th class="num">專項課</th><th class="num">期制課</th><th class="num">球敘</th><th class="num">合計</th><th></th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="6" class="mut">這個月沒有取消</td></tr>') + '</tbody></table></div>' +
+      '<p class="mut" style="font-size:.8rem">依取消時間的月份。「學員說的原因」由學員在 LINE 取消時選，或客服後台取消時選（' + esc((PB.enums.學員取消原因 || []).join('／')) + '）。' + (sys ? '系統分類：' + sys : '') + '</p>';
+  }
   PB.inputs.dashMonth = (v) => PB.setParam('m', v);
   A.venueDrill = (d) => {
     const mon = d.m;
@@ -231,23 +268,25 @@
 
   const Queue = {
     id: 'queue', label: '待處理', icon: 'inbox', badge: qCount,
-    render() {
+    render(p) {
       const opsN = {
         待對帳: PB.rows('3_收款明細').filter((p) => str(p['對帳狀態']) === '待確認').length,
-        待確認成班: PB.rows('2_課程班級').filter((c) => { const x = m.cls(c); return x && (x.canDecide || x.pending); }).length,
+        待確認成班: PB.rows('2_課程班級').filter((c) => { const x = m.cls(c); return x && !x.single && (x.canDecide || x.pending); }).length,
+        專項課過決定時間: PB.rows('2_課程班級').filter((c) => { const x = m.cls(c); return x && x.late && day(c['開課日期']) >= today(); }).length,
         球敘草稿: PB.rows('2_球敘場次').filter((g) => str(g['狀態']) === '草稿' && day(g['日期']) >= today()).length,
         待確認可用日: PB.rows('1_據點_可用日').filter((a) => str(a['狀態']) === '待確認' && day(a['日期']) >= today()).length,
       };
       const opsLine = Object.keys(opsN).filter((k) => opsN[k]).map((k) => k + ' ' + opsN[k]).join('・');
-      const parts = Q.map((d) => ui.safe(() => {
-        const items = d.items();
-        if (!items.length) return '';
-        return sec(d.title, items.length + ' 件', d.link ? ui.btn(d.link.label, 'goTab', { go: d.link.go, tab: d.link.p.tab }, 'sm ghost') : '') + card(items.slice(0, 40).map(d.row).join(''));
-      }, d.title)).join('');
+      const parts = ui.groups(Q.map((d, i) => {
+        let items = [];
+        try { items = d.items(); } catch (e) { return { id: 'q' + i, title: d.title, count: 1, body: () => { throw e; } }; }
+        return { id: d.id || 'q' + i, title: d.title, count: items.length, right: d.link ? ui.btn(d.link.label, 'goTab', { go: d.link.go, tab: d.link.p.tab }, 'sm ghost') : '', body: () => card(items.slice(0, 40).map(d.row).join('')) };
+      }), p, { key: 'queue' });
       return '<div class="ptop"><h1>管理待處理</h1></div>' +
         (opsLine ? '<div class="note" style="margin-bottom:8px">營運工作台：' + esc(opsLine) + (PB.cfg.opsUrl ? '　<a href="' + esc(PB.cfg.opsUrl) + '#/queue">前往處理</a>' : '') + '</div>' : '') +
         (parts || card(ui.empty('沒有待處理的事', '')));
     },
+    after(page) { const c = page.querySelector('.grp-menu .chip.on'); if (c && c.parentNode.scrollWidth > c.parentNode.clientWidth) c.parentNode.scrollLeft = c.offsetLeft - 16; },
   };
   A.goTab = (d) => PB.go(d.go, { tab: d.tab });
   A.staffOk = (d) => PB.run('staffApprove', { ids: [d.id] }, { confirm: { title: '核准人員', text: esc(m.staffName(d.id)) + ' 的官方帳號功能會立即開通。', ok: '核准' } });
@@ -263,14 +302,14 @@
   // ================================================================
   // 財務
   // ================================================================
-  const FIN_TABS = ['人員月結', '分潤結算', '支出', '應收總覽'];
+  const FIN_TABS = ['人員月結', '分潤結算', '支出', '應收總覽', '抵用金'];
   const Finance = {
     id: 'finance', label: '財務', icon: 'cash',
     render(p) {
       const tab = FIN_TABS.indexOf(p.tab) >= 0 ? p.tab : FIN_TABS[0];
       const mon = p.m || defaultSettleMonth();
-      const head = '<div class="ptop"><h1>財務</h1><span class="sp"></span>' + (tab !== '應收總覽' ? monthSelect(mon, 'finMonth') : '') + '</div><div class="tabs">' + FIN_TABS.map((t) => '<button class="' + (t === tab ? 'on' : '') + '" data-act="finTab" data-v="' + t + '">' + t + '</button>').join('') + '</div>';
-      return head + ui.safe(() => ({ 人員月結: settleTab, 分潤結算: profitTab, 支出: expenseTab, 應收總覽: arTab })[tab](mon, p), tab);
+      const head = '<div class="ptop"><h1>財務</h1><span class="sp"></span>' + (['應收總覽', '抵用金'].indexOf(tab) < 0 ? monthSelect(mon, 'finMonth') : '') + '</div><div class="tabs">' + FIN_TABS.map((t) => '<button class="' + (t === tab ? 'on' : '') + '" data-act="finTab" data-v="' + t + '">' + t + '</button>').join('') + '</div>';
+      return head + ui.safe(() => ({ 人員月結: settleTab, 分潤結算: profitTab, 支出: expenseTab, 應收總覽: arTab, 抵用金: creditTab })[tab](mon, p), tab);
     },
   };
   function defaultSettleMonth() {
@@ -375,6 +414,27 @@
       '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>建立</th><th>付款人</th><th>項目</th><th class="num">應收</th><th class="num">已付</th><th class="num">未收</th><th>狀態</th><th>期限</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8" class="mut">沒有資料</td></tr>') + '</tbody><tfoot><tr><td colspan="3">合計 ' + list.length + ' 筆</td><td class="num">' + money(sum(list, (r) => m.rec(r['應收ID']).due)) + '</td><td class="num">' + money(sum(list, (r) => m.rec(r['應收ID']).net)) + '</td><td class="num">' + money(sum(list, (r) => m.rec(r['應收ID']).left)) + '</td><td colspan="2"></td></tr></tfoot></table></div>' +
       '<p class="mut" style="font-size:.8rem">收款、提醒、退款請在營運工作台的學員頁處理（一人一筆帳）。</p>';
   }
+  /** 抵用金：各付款人餘額＋近期流水（查詢用；轉入、折抵、退現在營運工作台的學員頁操作） */
+  function creditTab(mon, p) {
+    if (!PB.has('3_抵用金流水')) return '<div class="note warn">還沒有「3_抵用金流水」工作表。請在 3_財務 新增，第一列欄位：流水ID、付款人、金額、類型、來源報名、對應應收、建立時間、經手人、備註。</div>';
+    const all = PB.rows('3_抵用金流水');
+    const by = PB.groupBy(all, '付款人');
+    const kw = str(p.q).toLowerCase();
+    let list = Object.keys(by).map((k) => ({ id: k, bal: sum(by[k], (r) => r['金額']), inn: sum(by[k].filter((r) => num(r['金額']) > 0), (r) => r['金額']), n: by[k].length, last: by[k].map((r) => str(r['建立時間'])).sort().pop() }));
+    if (p.all !== '1') list = list.filter((x) => x.bal !== 0);
+    if (kw) list = list.filter((x) => m.stuName(x.id).toLowerCase().indexOf(kw) >= 0);
+    list.sort((a, b) => b.bal - a.bal);
+    const rows = list.map((x) => '<tr><td>' + esc(m.stuName(x.id)) + '</td><td class="num"><b>' + money(x.bal) + '</b></td><td class="num">' + money(x.inn) + '</td><td class="num">' + x.n + '</td><td>' + esc(fmtDT(x.last)) + '</td></tr>').join('');
+    const T = { 轉入: 0, 折抵: 0, 退現: 0, 調整: 0 };
+    all.forEach((r) => { T[str(r['類型'])] = (T[str(r['類型'])] || 0) + num(r['金額']); });
+    const recent = all.slice().sort((a, b) => byKey(str(b['建立時間']), str(a['建立時間']))).slice(0, 40)
+      .map((r) => '<tr><td>' + esc(fmtDT(r['建立時間'])) + '</td><td>' + esc(m.stuName(r['付款人'])) + '</td><td>' + esc(r['類型']) + '</td><td class="num">' + money(r['金額']) + '</td><td style="white-space:normal">' + esc([PB.get('2_報名', r['來源報名']) ? m.sigTarget(PB.get('2_報名', r['來源報名'])) : '', str(r['備註'])].filter(Boolean).join('・')) + '</td><td>' + esc(m.staffName(r['經手人'])) + '</td></tr>').join('');
+    return '<div class="kpis" style="margin-bottom:12px"><div class="kpi"><div class="l">目前餘額合計（預收）</div><div class="v">' + money(sum(all, (r) => r['金額'])) + '</div></div><div class="kpi"><div class="l">累計轉入</div><div class="v">' + money(T.轉入) + '</div></div><div class="kpi"><div class="l">累計折抵</div><div class="v">' + money(-T.折抵) + '</div></div><div class="kpi"><div class="l">累計退現</div><div class="v">' + money(-T.退現) + '</div></div></div>' +
+      '<div class="ptop"><div class="chips"><button class="chip' + (p.all !== '1' ? ' on' : '') + '" data-act="param2" data-k="all" data-v="">有餘額</button><button class="chip' + (p.all === '1' ? ' on' : '') + '" data-act="param2" data-k="all" data-v="1">全部</button></div><span class="sp"></span><label class="search">' + PB.icon('search') + '<input placeholder="學員" value="' + esc(p.q || '') + '" data-input="arSearch"></label></div>' +
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>付款人</th><th class="num">餘額</th><th class="num">累計轉入</th><th class="num">筆數</th><th>最近</th></tr></thead><tbody>' + (rows || '<tr><td colspan="5" class="mut">沒有資料</td></tr>') + '</tbody></table></div>' +
+      sec('最近 40 筆', '') + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>時間</th><th>付款人</th><th>類型</th><th class="num">金額</th><th>來源／備註</th><th>經手</th></tr></thead><tbody>' + (recent || '<tr><td colspan="6" class="mut">—</td></tr>') + '</tbody></table></div>' +
+      '<p class="mut" style="font-size:.8rem">抵用金只來自已付的課費、不設到期日、可申請退現。轉入、折抵、退現請在營運工作台的學員頁操作。</p>';
+  }
   A.param2 = (d) => PB.setParam(d.k, d.v);
   let arTimer;
   PB.inputs.arSearch = (v) => { clearTimeout(arTimer); arTimer = setTimeout(() => { PB.setParam('q', v); const el = document.querySelector('[data-input="arSearch"]'); if (el) { el.focus(); el.setSelectionRange(v.length, v.length); } }, 250); };
@@ -383,7 +443,7 @@
   // 主檔設定（依 Forms 規格的通用清單＋表單）
   // ================================================================
   const D = {
-    據點: { t: '1_據點', cols: [['名稱', (r) => r['據點名稱']], ['區域', (r) => r['區域']], ['場主', (r) => m.staffName(r['場主'])], ['面數', (r) => (PB.ix.courtByVenue[str(r['據點ID'])] || []).length], ['狀態', (r) => r['狀態']]] },
+    據點: { t: '1_據點', cols: [['名稱', (r) => r['據點名稱']], ['類別', (r) => r['據點類別'] || ''], ['區域', (r) => r['區域']], ['場主', (r) => m.staffName(r['場主'])], ['面數', (r) => (PB.ix.courtByVenue[str(r['據點ID'])] || []).length], ['狀態', (r) => r['狀態']]] },
     場地: { t: '1_據點_場地', cols: [['據點', (r) => m.venueName(r['據點'])], ['場地', (r) => r['場地名稱']], ['人數', (r) => r['人數上限']], ['類型', (r) => split(r['類型']).join('、')], ['狀態', (r) => r['狀態']]], sort: (r) => m.venueName(r['據點']) },
     時段: { t: '1_據點_時段', cols: [['據點', (r) => m.venueName(r['據點'])], ['時段', (r) => m.slotLabel(r)], ['場地', (r) => split(r['使用場地']).map(m.courtName).join('、')], ['期間', (r) => fmtD(r['生效日期']) + '～' + fmtD(r['結束日期'])], ['週期', (r) => r['週期']], ['可用日', (r) => (PB.ix.availBySlot[str(r['時段ID'])] || []).filter((a) => str(a['狀態']) === '可用' && day(a['日期']) >= today()).length + ' 天'], ['狀態', (r) => r['狀態']]],
       sort: (r) => m.venueName(r['據點']) + '週' + '一二三四五六日'.indexOf(str(r['星期'])),
@@ -395,6 +455,7 @@
     合作方案: { t: '3_合作方案', cols: [['方案', (r) => r['方案名稱']], ['對象', (r) => str(r['合作對象類型']) + '：' + (str(r['合作對象類型']) === '人員' ? m.staffName(r['人員']) : str(r['合作對象類型']) === '合作夥伴' ? m.label('1_合作夥伴', PB.get('1_合作夥伴', r['合作夥伴'])) : m.venueName(r['據點']))], ['模式', (r) => str(r['合作模式']) + '・' + str(r['適用範圍'])], ['條件', (r) => planTerms(r)], ['期間', (r) => fmtD(r['生效日期']) + '～' + fmtD(r['失效日期'])]] },
     合作夥伴: { t: '1_合作夥伴', cols: [['名稱', (r) => r['名稱']], ['類型', (r) => r['類型']], ['聯絡人', (r) => r['聯絡人']], ['電話', (r) => r['電話']]] },
     程度: { t: '0_程度', cols: [['程度', (r) => r['程度名稱']], ['排序', (r) => r['排序']], ['說明', (r) => str(r['說明']).slice(0, 40)]], sort: (r) => ('000' + num(r['排序'])).slice(-3) },
+    專項: { t: '0_專項', cols: [['專項', (r) => r['專項名稱']], ['建議程度', (r) => m.levelName(r['程度'])], ['人數', (r) => (str(r['人數下限']) || '5') + '–' + (str(r['人數上限']) || '6')], ['說明', (r) => str(r['說明']).slice(0, 40)], ['啟用', (r) => (r['是否啟用'] === false ? '停用' : '啟用')]], sort: (r) => ('000' + num((PB.get('0_程度', r['程度']) || {})['排序'])).slice(-3) + str(r['專項名稱']) },
     課程類型: { t: '0_課程類型', cols: [['類型', (r) => r['課程類型']], ['標準教練費', (r) => (str(r['標準教練費']) ? money(r['標準教練費']) + '／' + str(r['計費方式']) : '')], ['請假上限', (r) => r['每期請假上限']], ['補課', (r) => (str(r['補課起算']) ? r['補課起算'] + ' + ' + (str(r['補課天數']) || 30) + ' 天' : '')]] },
     課程模板: { t: '0_課程模板', cols: [['模板', (r) => r['模板名稱']], ['類型', (r) => m.typeName(r['課程類型'])], ['人數', (r) => str(r['人數下限']) + '–' + str(r['人數上限'])], ['費用', (r) => (str(r['費用']) ? money(r['費用']) + '／' + str(r['計費方式']) : '')], ['堂數', (r) => r['總堂數']]] },
     教練費率: { t: '0_教練費率', cols: [['教練', (r) => m.staffName(r['教練'])], ['課程類型', (r) => m.typeName(r['課程類型'])], ['基準', (r) => r['基準']], ['費率', (r) => money(r['教練費']) + '／' + str(r['計價方式'])]], sort: (r) => m.staffName(r['教練']) },
@@ -514,8 +575,8 @@
   PB.app({
     app: 'admin',
     title: '管理後台',
-    version: '2.0',
-    screens: [Dash, Queue, Finance, Data],
+    version: '2.3',
+    screens: [Dash, Queue].concat(PB.schedScreen ? [PB.schedScreen] : []).concat([Finance, Data]),
     links: () => (PB.cfg.opsUrl ? [{ label: '營運工作台', url: PB.cfg.opsUrl, icon: 'swap', mobile: true }] : []),
   });
 })();
