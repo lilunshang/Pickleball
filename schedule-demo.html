@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>專項排課看板</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: one-column phone board — sticky header (month, venue tabs, live staffing strip) → date cards with court grids → fixed 專項 tray at the bottom */
+:root{
+  --bg:#EEF2F1; --surface:#FFFFFF; --ink:#13232A; --muted:#5B6C73; --line:#D3DCDE;
+  --court:#1D5C7A; --court-soft:#E1EDF2; --ball:#D8B52A;
+  --l1:#2C8975; --l1-soft:#E0F1EC; --l2:#3A6CB4; --l2-soft:#E3EBF7; --l3:#875AAE; --l3-soft:#EEE6F5;
+  --gat:#B9733C; --gat-soft:#F7ECE2; --lock:#8A979C; --lock-soft:#E6EBEC; --warn:#C24E25; --warn-soft:#FBE7DF; --ok:#2C8975;
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  --f-num:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E181D; --surface:#15232A; --ink:#E4EDEF; --muted:#93A6AD; --line:#2A3B42;
+  --court:#74B6D8; --court-soft:#1A3341; --ball:#E6C84A;
+  --l1:#5DC3AE; --l1-soft:#173A33; --l2:#83A9E8; --l2-soft:#1C2C45; --l3:#BB98DB; --l3-soft:#2E2340;
+  --gat:#E2A574; --gat-soft:#3A2819; --lock:#7D8D93; --lock-soft:#1E2B31; --warn:#F08A62; --warn-soft:#3D2117; --ok:#5DC3AE; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E181D; --surface:#15232A; --ink:#E4EDEF; --muted:#93A6AD; --line:#2A3B42;
+  --court:#74B6D8; --court-soft:#1A3341; --ball:#E6C84A;
+  --l1:#5DC3AE; --l1-soft:#173A33; --l2:#83A9E8; --l2-soft:#1C2C45; --l3:#BB98DB; --l3-soft:#2E2340;
+  --gat:#E2A574; --gat-soft:#3A2819; --lock:#7D8D93; --lock-soft:#1E2B31; --warn:#F08A62; --warn-soft:#3D2117; --ok:#5DC3AE; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.5;-webkit-tap-highlight-color:transparent}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--surface)}
+.wrap{max-width:560px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--court);outline-offset:2px}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+
+/* header */
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.hrow{display:flex;align-items:center;gap:10px;padding-block:10px 6px}
+.htitle{flex:1;min-width:0}
+.htitle h1{margin:0;font-size:18px;font-weight:900;letter-spacing:.02em}
+.htitle .sub{font-size:12px;color:var(--muted)}
+.tag{font-size:11px;font-weight:700;color:var(--gat);background:var(--gat-soft);padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:2px}
+.pub{border:0;background:var(--court);color:var(--surface);font-weight:700;padding:8px 14px;border-radius:10px}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:none;border:1px solid var(--line);background:var(--surface);padding:5px 12px;border-radius:99px;font-size:13px;white-space:nowrap}
+.tab[aria-pressed="true"]{background:var(--court);border-color:var(--court);color:var(--surface);font-weight:700}
+.tab small{opacity:.75;margin-left:4px}
+.strip{display:flex;width:100%;gap:0;border:0;border-top:1px solid var(--line);background:var(--court-soft);padding-block:7px;text-align:left}
+.strip span{flex:1;font-size:12px;color:var(--muted);text-align:center;border-right:1px solid var(--line)}
+.strip span:last-child{border-right:0}
+.strip b{display:block;font-size:16px;color:var(--ink);font-family:var(--f-num)}
+.strip .bad b{color:var(--warn)}
+
+/* board */
+main{padding-block:12px 150px;display:flex;flex-direction:column;gap:12px}
+.vnote{font-size:12.5px;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:8px 12px}
+.day{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.dayh{display:flex;align-items:baseline;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line)}
+.dayh .d{font-family:var(--f-num);font-weight:600;font-size:16px}
+.dayh .w{font-size:13px;color:var(--muted)}
+.dayh .need{margin-left:auto;font-size:12px;color:var(--muted)}
+.dayh .need b{color:var(--ink)}
+.slot{padding:10px 14px 12px}
+.slot+.slot{border-top:1px dashed var(--line)}
+.slot .t{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:6px}
+.slot .t .num{color:var(--ink);font-weight:600}
+.courts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.cell{position:relative;min-height:74px;border-radius:10px;border:1.5px dashed var(--line);background:transparent;padding:6px 6px 5px;text-align:left;display:flex;flex-direction:column;gap:1px;overflow:hidden}
+.cell .cc{font-family:var(--f-num);font-size:11px;font-weight:600;color:var(--muted)}
+.cell .nm{font-size:12.5px;font-weight:700;line-height:1.25;word-break:break-all}
+.cell .meta{font-size:11px;color:var(--muted);line-height:1.3;margin-top:auto}
+.cell.empty .nm{color:var(--muted);font-weight:500}
+.cell.new{border-style:solid}
+.cell.L1{border-color:var(--l1);background:var(--l1-soft)} .cell.L1 .cc{color:var(--l1)}
+.cell.L2{border-color:var(--l2);background:var(--l2-soft)} .cell.L2 .cc{color:var(--l2)}
+.cell.L3{border-color:var(--l3);background:var(--l3-soft)} .cell.L3 .cc{color:var(--l3)}
+.cell.gath{border:1.5px solid transparent;background:var(--gat-soft)} .cell.gath .cc{color:var(--gat)}
+.cell.gath.draft{border:1.5px dashed var(--gat)}
+.cell.lock{background:var(--lock-soft);border:1.5px solid transparent}
+.cell.lock .nm{color:var(--muted)}
+.cell .lk{position:absolute;right:6px;top:5px;font-size:10px;color:var(--lock)}
+.cell.nocoach .meta{color:var(--warn);font-weight:700}
+.cell.conf{box-shadow:inset 0 0 0 2px var(--warn)}
+.placing .cell.can{outline:2px solid var(--ball);outline-offset:-2px}
+.cell.flash{animation:fl .5s}
+@keyframes fl{from{transform:scale(.94)}to{transform:none}}
+@media (prefers-reduced-motion:reduce){.cell.flash{animation:none}}
+
+/* tray */
+.tray{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+.tray .wrap{padding-block:8px 0}
+.trayh{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);margin-bottom:6px}
+.trayh b{color:var(--ink)}
+.trayh button{border:0;background:none;color:var(--court);font-size:12px;font-weight:700;padding:2px 0}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:6px 10px;text-align:left;line-height:1.25}
+.chip small{display:block;font-size:10.5px;font-weight:700;letter-spacing:.06em}
+.chip span{font-size:13px;font-weight:700}
+.chip.L1 small{color:var(--l1)} .chip.L2 small{color:var(--l2)} .chip.L3 small{color:var(--l3)}
+.chip[aria-pressed="true"].L1{background:var(--l1);border-color:var(--l1);color:var(--surface)}
+.chip[aria-pressed="true"].L2{background:var(--l2);border-color:var(--l2);color:var(--surface)}
+.chip[aria-pressed="true"].L3{background:var(--l3);border-color:var(--l3);color:var(--surface)}
+.chip[aria-pressed="true"] small{color:var(--surface)}
+
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgba(10,20,25,.42);z-index:40}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:var(--surface);border-radius:18px 18px 0 0;max-height:86%;overflow-y:auto;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+.sheet .wrap{padding-block:6px 0}
+.grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:8px auto 6px}
+.sheet h2{font-size:18px;margin:4px 0 2px;font-weight:900;text-wrap:balance}
+.sheet .where{font-size:12.5px;color:var(--muted);margin-bottom:12px}
+.sec{margin-top:14px}
+.sec>label,.sec>.lb{display:block;font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.06em;margin-bottom:6px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.opt{border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;text-align:left;font-size:13px}
+.opt small{display:block;font-size:11px;color:var(--muted)}
+.opt[aria-pressed="true"]{border-color:var(--court);background:var(--court-soft);font-weight:700}
+.opt:disabled{opacity:.45;cursor:not-allowed}
+.opt.busy small{color:var(--warn)}
+.step{display:flex;align-items:center;gap:10px}
+.step .box{flex:1;display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:4px}
+.step .box span{font-size:12px;color:var(--muted);padding-left:8px}
+.step .box b{font-family:var(--f-num);font-size:16px;min-width:22px;text-align:center}
+.step button{border:0;background:var(--court-soft);width:32px;height:32px;border-radius:8px;font-size:18px;font-weight:700;color:var(--court)}
+.acts{display:flex;flex-direction:column;gap:8px;margin-top:18px}
+.btn{border:1.5px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 14px;font-weight:700;text-align:center}
+.btn.pri{background:var(--court);border-color:var(--court);color:var(--surface)}
+.btn.warn{color:var(--warn);border-color:var(--warn-soft)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.info{font-size:13.5px;background:var(--lock-soft);border-radius:10px;padding:10px 12px;color:var(--ink)}
+.info.w{background:var(--warn-soft)}
+.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.kv div{background:var(--court-soft);border-radius:10px;padding:8px 10px}
+.kv small{display:block;font-size:11px;color:var(--muted)}
+.kv b{font-family:var(--f-num);font-size:17px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{font-size:11px;color:var(--muted);text-align:left;font-weight:700;padding:4px 4px;border-bottom:1px solid var(--line)}
+td{padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+td.n{font-family:var(--f-num);text-align:center;white-space:nowrap}
+td .bad{color:var(--warn);font-weight:700}
+.issues{display:flex;flex-direction:column;gap:6px}
+.issue{font-size:13px;background:var(--warn-soft);border-radius:10px;padding:8px 10px}
+.issue b{color:var(--warn)}
+.okmsg{font-size:13px;color:var(--ok);font-weight:700}
+input[type=datetime-local]{width:100%;font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(120px + env(safe-area-inset-bottom,0px));z-index:60;background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:99px;font-size:13px;max-width:calc(100% - 32px);text-align:center}
+.legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:11.5px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
+</style>
+</head>
+<body>
+
+
+<header>
+  <div class="wrap">
+    <div class="hrow">
+      <div class="htitle">
+        <h1>專項排課 <span class="num">2026/11</span><span class="tag">範例資料</span></h1>
+        <div class="sub" id="subline">點下方專項，再點球面放上去</div>
+      </div>
+      <button class="pub" id="pubBtn">發布</button>
+    </div>
+    <div class="tabs" id="tabs" role="toolbar" aria-label="據點"></div>
+  </div>
+  <button class="strip" id="strip" aria-label="開啟人力與統計"></button>
+</header>
+
+<main class="wrap" id="board"></main>
+
+<div class="tray">
+  <div class="wrap">
+    <div class="trayh"><span id="trayHint">專項（點一下進入放置模式）</span><button id="trayClear" hidden>結束放置</button></div>
+    <div class="chips" id="chips"></div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true"><div class="grab"></div><div class="wrap" id="sheetBody"></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+/* ---------- 範例資料（來自 1_主檔 實際據點／時段／球面；專項、教練指派為範例） ---------- */
+const SPECS=[
+ {id:'s1',lv:'L1',name:'握拍與正手'},{id:'s2',lv:'L1',name:'反手'},{id:'s3',lv:'L1',name:'發球與接發'},{id:'s4',lv:'L1',name:'網前小球'},
+ {id:'s5',lv:'L2',name:'截擊'},{id:'s6',lv:'L2',name:'第三拍'},{id:'s7',lv:'L2',name:'站位與移動'},
+ {id:'s8',lv:'L3',name:'攻守轉換'},{id:'s9',lv:'L3',name:'雙打戰術'}];
+const LVNAME={L1:'L1 基礎',L2:'L2 進階基礎',L3:'L3 中階'};
+const COACHES=['丹丹','黃毓翔','冠廷','Lance','輪胎'];
+const UNAVAIL={'冠廷':['2026-11-08'],'Lance':['2026-11-21']};
+const B=['課程','球敘'], G=['球敘'], C=['課程'];
+const VENUES=[
+ {id:'pq',name:'埔墘國小',price:1000,slots:[{id:'pq1',wd:6,s:'08:00',e:'10:00',courts:[['A',C],['B',C],['C',G],['D',G]]}]},
+ {id:'yp',name:'永平國小',price:1000,note:'主檔登記 4 面，合約待確認是否 3 面',slots:[
+   {id:'yp1',wd:0,s:'18:00',e:'20:00',courts:[['A',B],['B',B],['C',B],['D',B]]},
+   {id:'yp2',wd:0,s:'20:00',e:'22:00',courts:[['A',B],['B',B],['C',B],['D',B]]}]},
+ {id:'tc',name:'土城國中',price:1000,note:'11 月只租到 11/1、11/15、11/29',dates:['2026-11-01','2026-11-15','2026-11-29'],slots:[
+   {id:'tc1',wd:0,s:'14:00',e:'16:00',courts:[['A',B],['B',B],['C',B],['D',B]]},
+   {id:'tc2',wd:0,s:'16:00',e:'18:00',courts:[['A',B],['B',B],['C',B],['D',B]]}]},
+ {id:'gp',name:'貫匹克',price:1200,slots:[{id:'gp1',wd:3,s:'19:00',e:'21:00',courts:[['A',B]]}]},
+ {id:'xw',name:'醒吾科大',price:1000,note:'週六或週日擇一，範例以週六顯示',slots:[{id:'xw1',wd:6,s:'16:00',e:'18:00',courts:[['A',B],['B',B],['C',B]]}]},
+ {id:'lh',name:'樂活板橋',price:1200,note:'兩面都只登記球敘用途，不能排課',slots:[
+   {id:'lh1',wd:2,s:'22:00',e:'23:59',courts:[['A',G],['B',G]]},{id:'lh2',wd:4,s:'22:00',e:'23:59',courts:[['A',G],['B',G]]}]}
+];
+const WD='日一二三四五六';
+function novDates(wd){const r=[];for(let d=1;d<=30;d++){const dt=new Date(2026,10,d);if(dt.getDay()===wd)r.push(`2026-11-${String(d).padStart(2,'0')}`)}return r}
+const md=s=>`${+s.slice(5,7)}/${+s.slice(8,10)}`;
+const wdOf=s=>WD[new Date(+s.slice(0,4),+s.slice(5,7)-1,+s.slice(8,10)).getDay()];
+const SLOTS={},VBY={};
+VENUES.forEach(v=>{VBY[v.id]=v;v.slots.forEach(sl=>{sl.v=v;sl.dates=v.dates?v.dates.filter(d=>wdOf(d)===WD[sl.wd]):novDates(sl.wd);SLOTS[sl.id]=sl})});
+const key=(sl,d,c)=>`${sl}|${d}|${c}`;
+
+/* ---------- 初始狀態 ---------- */
+let cells={};
+function seed(){
+  cells={};
+  VENUES.forEach(v=>v.slots.forEach(sl=>sl.dates.forEach(d=>sl.courts.forEach(([c])=>{cells[key(sl.id,d,c)]={kind:'empty'}}))));
+  const gat=(sl,d,c,o)=>cells[key(sl,d,c)]=Object.assign({kind:'gath',open:false,gt:'一般'},o||{});
+  SLOTS.pq1.dates.forEach(d=>{gat('pq1',d,'C');gat('pq1',d,'D',{gt:'新手場'})});
+  SLOTS.yp1.dates.forEach(d=>{const open=d==='2026-11-01';
+    if(['2026-11-01','2026-11-08','2026-11-15'].includes(d))cells[key('yp1',d,'A')]={kind:'course',label:'永平基礎班',sub:'期制 C-003'};
+    gat('yp1',d,'B',{open,n:open?8:0});gat('yp1',d,'C',{open,n:open?7:0})});
+  SLOTS.yp2.dates.forEach(d=>{const open=d==='2026-11-01';
+    gat('yp2',d,'B',{gt:'新手場',open,n:open?6:0});gat('yp2',d,'C',{open,n:open?8:0});gat('yp2',d,'D',{open,n:open?5:0})});
+  cells[key('tc2','2026-11-29','D')]={kind:'course',label:'土城兒童班',sub:'期制 C-016'};
+  SLOTS.xw1.dates.forEach(d=>['A','B','C'].forEach(c=>gat('xw1',d,c)));
+  ['lh1','lh2'].forEach(s=>SLOTS[s].dates.forEach((d,i)=>{gat(s,d,'A',{gt:'DUPR',open:i===0,n:i===0?8:0});gat(s,d,'B',{open:i===0,n:i===0?7:0})}));
+  Object.values(cells).forEach(c=>c.orig=JSON.parse(JSON.stringify(c)));
+  const put=(sl,d,c,sp,coach)=>{const x=cells[key(sl,d,c)];Object.assign(x,{kind:'new',sp,min:5,max:6,coach})};
+  put('pq1','2026-11-07','A','s1','丹丹');put('pq1','2026-11-07','B','s2','黃毓翔');
+  put('gp1','2026-11-04','A','s5','Lance');
+  put('yp1','2026-11-08','D','s3','冠廷');
+  put('yp2','2026-11-08','A','s4',null);
+}
+seed();
+
+/* ---------- 規則 ---------- */
+const courtType=(sl,c)=>SLOTS[sl].courts.find(x=>x[0]===c)[1];
+function lockReason(k){
+  const [sl,,c]=k.split('|'),x=cells[k];
+  if(x.kind==='course')return `已有課程「${x.label}」，要調整請先處理原課程。`;
+  if(x.kind==='gath'&&x.open)return `這場球敘已開放報名（${x.n} 人報名），不能直接轉成專項課。`;
+  if(!courtType(sl,c).includes('課程'))return '這一面只登記「球敘」用途，不能排課。要改用途請特助在主檔調整。';
+  return '';
+}
+const canPlace=k=>!lockReason(k);
+const spec=id=>SPECS.find(s=>s.id===id);
+function coachState(name,k){
+  const [sl,d]=k.split('|');const S=SLOTS[sl];
+  if((UNAVAIL[name]||[]).includes(d))return {bad:true,why:'登記不可排'};
+  for(const [k2,x] of Object.entries(cells)){
+    if(k2===k||x.kind!=='new'||x.coach!==name)continue;
+    const [sl2,d2,c2]=k2.split('|');if(d2!==d)continue;const S2=SLOTS[sl2];
+    if(S2.s<S.e&&S.s<S2.e)return {bad:true,why:`已排 ${S2.v.name} ${c2} 場`};
+  }
+  return {bad:false};
+}
+function analyze(){
+  let n=0,minSeats=0,maxSeats=0,revMin=0,revMax=0,conv=0,gathCount=0;const issues=[],conf=new Set();const rows={};
+  for(const [k,x] of Object.entries(cells)){
+    const [sl,d,c]=k.split('|');const S=SLOTS[sl];const rk=d+'|'+sl;
+    rows[rk]=rows[rk]||{d,sl,coach:0,named:0,host:0};
+    if(x.kind==='new'){n++;minSeats+=x.min;maxSeats+=x.max;revMin+=x.min*S.v.price;revMax+=x.max*S.v.price;
+      if(x.orig.kind==='gath')conv++;rows[rk].coach++;if(x.coach)rows[rk].named++;
+      if(!x.coach)issues.push({k,t:`${md(d)} ${S.v.name} ${S.s} ${c} 場「${spec(x.sp).name}」還沒指定教練`,soft:true});
+      else{const st=coachState(x.coach,k);if(st.bad){conf.add(k);issues.push({k,t:`${md(d)} ${S.v.name} ${S.s} ${c} 場：${x.coach} ${st.why}`})}}}
+    if(x.kind==='course'){rows[rk].coach++;rows[rk].named++}
+    if(x.kind==='gath')rows[rk].host=1;
+  }
+  gathCount=Object.values(rows).filter(r=>r.host).length;const peak={};Object.values(rows).forEach(r=>{peak[r.d]=(peak[r.d]||0)+r.coach});
+  const peakMax=Math.max(0,...Object.values(peak));
+  return {n,minSeats,maxSeats,revMin,revMax,conv,gathCount,issues,conf,rows,peak,peakMax,hard:issues.filter(i=>!i.soft).length,soft:issues.filter(i=>i.soft).length};
+}
+
+/* ---------- 畫面 ---------- */
+let curV='pq',placing=null,A=analyze();
+const $=id=>document.getElementById(id);
+const fmt=n=>n.toLocaleString('en-US');
+function renderTabs(){
+  $('tabs').innerHTML=VENUES.map(v=>{const c=Object.entries(cells).filter(([k,x])=>x.kind==='new'&&SLOTS[k.split('|')[0]].v.id===v.id).length;
+    return `<button class="tab" aria-pressed="${v.id===curV}" data-v="${v.id}">${v.name}${c?`<small class="num">${c}</small>`:''}</button>`}).join('');
+}
+function renderStrip(){
+  const unnamed=A.soft;
+  $('strip').innerHTML=`<span>專項<b>${A.n}</b></span><span>名額<b>${A.maxSeats}</b></span><span>單日最多教練<b>${A.peakMax}</b></span><span class="${A.hard||unnamed?'bad':''}">待處理<b>${A.hard+unnamed}</b></span>`;
+}
+function cellHTML(k){
+  const [sl,d,c]=k.split('|'),x=cells[k];const cls=['cell'];let nm='',meta='',lk='';
+  const lr=lockReason(k);
+  if(x.kind==='new'){const s=spec(x.sp);cls.push('new',s.lv);nm=s.name;meta=x.coach?`${x.coach}・${x.min}–${x.max}人`:'未指定教練';if(!x.coach)cls.push('nocoach');if(A.conf.has(k))cls.push('conf');}
+  else if(x.kind==='course'){cls.push('lock');nm=x.label;meta=x.sub;lk='🔒';}
+  else if(x.kind==='gath'){cls.push('gath');if(!x.open)cls.push('draft');nm=x.gt==='一般'?'一般球敘':x.gt==='新手場'?'新手場球敘':'DUPR 球敘';meta=x.open?`已開放 ${x.n} 人`:'草稿・未開放';if(lr){cls.push('lock');lk='🔒'}}
+  else{cls.push('empty');nm='空・可排';meta=courtType(sl,c).includes('課程')?'':'只限球敘';}
+  if(!lr)cls.push('can');
+  return `<button class="${cls.join(' ')}" data-k="${k}"><span class="cc">${c}</span>${lk?`<span class="lk">${lk}</span>`:''}<span class="nm">${nm}</span><span class="meta">${meta}</span></button>`;
+}
+function renderBoard(){
+  const v=VBY[curV];const dates=[...new Set(v.slots.flatMap(s=>s.dates))].sort();
+  let h=v.note?`<div class="vnote">${v.note}</div>`:'';
+  h+=`<div class="legend"><span><i style="background:var(--l1-soft);border:1.5px solid var(--l1)"></i>專項課</span><span><i style="border:1.5px dashed var(--gat);background:var(--gat-soft)"></i>球敘草稿（可轉）</span><span><i style="background:var(--lock-soft)"></i>鎖定</span><span><i style="border:1.5px dashed var(--line)"></i>空</span></div>`;
+  dates.forEach(d=>{
+    const sls=v.slots.filter(s=>s.dates.includes(d));
+    let coach=0,host=0;sls.forEach(s=>{const r=A.rows[d+'|'+s.id];if(r){coach+=r.coach;host+=r.host}});
+    h+=`<section class="day"><div class="dayh"><span class="d">${md(d)}</span><span class="w">週${wdOf(d)}</span><span class="need">教練 <b class="num">${coach}</b>・場主 <b class="num">${host}</b></span></div>`;
+    sls.forEach(s=>{
+      const p=Object.entries(cells).filter(([k,x])=>k.startsWith(s.id+'|'+d+'|')&&x.kind==='new').length;
+      h+=`<div class="slot"><div class="t"><span class="num">${s.s}–${s.e==='23:59'?'24:00':s.e}</span><span>專項 ${p} 堂・${fmt(v.price)}／人</span></div><div class="courts" style="grid-template-columns:repeat(${Math.max(s.courts.length,2)},minmax(0,1fr))">`;
+      s.courts.forEach(([c])=>h+=cellHTML(key(s.id,d,c)));
+      h+=`</div></div>`;
+    });
+    h+='</section>';
+  });
+  $('board').innerHTML=h;
+  document.body.classList.toggle('placing',!!placing);
+}
+function renderChips(){
+  $('chips').innerHTML=SPECS.map(s=>`<button class="chip ${s.lv}" aria-pressed="${placing===s.id}" data-s="${s.id}"><small>${s.lv}</small><span>${s.name}</span></button>`).join('');
+  $('trayClear').hidden=!placing;
+  $('trayHint').innerHTML=placing?`放置中：<b>${spec(placing).lv} ${spec(placing).name}</b>，點有黃框的球面`:'專項（點一下進入放置模式）';
+  $('subline').textContent=placing?'點球面放上去；點同一個專項或「結束放置」離開':'點下方專項，再點球面放上去';
+}
+function renderAll(){A=analyze();renderTabs();renderStrip();renderBoard();renderChips()}
+
+/* ---------- 互動 ---------- */
+let toastT;function toast(t){const el=$('toast');el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>el.hidden=true,2400)}
+function openSheet(html){$('sheetBody').innerHTML=html;$('sheet').hidden=false;$('scrim').hidden=false}
+function closeSheet(){$('sheet').hidden=true;$('scrim').hidden=true}
+$('scrim').onclick=closeSheet;
+$('tabs').onclick=e=>{const b=e.target.closest('.tab');if(!b)return;curV=b.dataset.v;renderAll();window.scrollTo({top:0})};
+$('chips').onclick=e=>{const b=e.target.closest('.chip');if(!b)return;placing=placing===b.dataset.s?null:b.dataset.s;renderAll()};
+$('trayClear').onclick=()=>{placing=null;renderAll()};
+function place(k,sp){const x=cells[k];if(x.kind==='new'){x.sp=sp}else Object.assign(x,{kind:'new',sp,min:5,max:6,coach:null})}
+$('board').onclick=e=>{
+  const b=e.target.closest('.cell');if(!b)return;const k=b.dataset.k;
+  if(placing){const lr=lockReason(k);if(lr){toast(lr);return}place(k,placing);renderAll();const nb=document.querySelector(`[data-k="${k}"]`);nb&&nb.classList.add('flash');return}
+  openCell(k);
+};
+function where(k){const [sl,d,c]=k.split('|');const S=SLOTS[sl];return `${md(d)} 週${wdOf(d)}・${S.v.name}・${S.s}–${S.e==='23:59'?'24:00':S.e}・${c} 場`}
+function specGrid(cur){return `<div class="grid2">${SPECS.map(s=>`<button class="opt" data-act="sp" data-s="${s.id}" aria-pressed="${cur===s.id}"><small>${LVNAME[s.lv]}</small>${s.name}</button>`).join('')}</div>`}
+function openCell(k){
+  const x=cells[k],lr=lockReason(k);
+  if(lr){openSheet(`<h2>${x.kind==='course'?x.label:x.kind==='gath'?'球敘・'+x.gt:'無法排課'}</h2><div class="where">${where(k)}</div><div class="info">${lr}</div><div class="acts"><button class="btn" data-act="close">知道了</button></div>`);bindSheet(k);return}
+  if(x.kind==='new'){
+    const s=spec(x.sp);
+    const coachBtns=COACHES.map(n=>{const st=coachState(n,k);return `<button class="opt ${st.bad?'busy':''}" data-act="coach" data-c="${n}" aria-pressed="${x.coach===n}" ${st.bad&&x.coach!==n?'disabled':''}>${n}<small>${st.bad?st.why:'可排'}</small></button>`}).join('');
+    openSheet(`<h2>${s.lv} ${s.name}</h2><div class="where">${where(k)}</div>
+      <div class="sec"><span class="lb">教練</span><div class="grid2">${coachBtns}<button class="opt" data-act="coach" data-c="" aria-pressed="${!x.coach}">之後再派<small>由行政安排</small></button></div></div>
+      <div class="sec"><span class="lb">人數</span><div class="step">
+        <div class="box"><span>下限</span><button data-act="min-">−</button><b>${x.min}</b><button data-act="min+">＋</button></div>
+        <div class="box"><span>上限</span><button data-act="max-">−</button><b>${x.max}</b><button data-act="max+">＋</button></div></div></div>
+      <div class="sec"><span class="lb">換專項</span>${specGrid(x.sp)}</div>
+      <div class="acts"><button class="btn pri" data-act="weekly">套用到 11 月每週同一面</button>
+      <button class="btn warn" data-act="clear">${x.orig.kind==='gath'?'還原成球敘草稿':'清除，回到空的'}</button></div>`);
+  }else{
+    openSheet(`<h2>${x.kind==='gath'?'球敘草稿・'+x.gt:'空的球面'}</h2><div class="where">${where(k)}</div>
+      ${x.kind==='gath'?'<div class="info">這場球敘還沒開放報名，可以改排專項課；發布後這場球敘草稿會取消。</div>':''}
+      <div class="sec"><span class="lb">排專項課</span>${specGrid(null)}</div>
+      <div class="acts">${x.kind==='empty'?'<button class="btn" data-act="gath">改排球敘草稿</button>':''}<button class="btn" data-act="close">取消</button></div>`);
+  }
+  bindSheet(k);
+}
+function bindSheet(k){
+  $('sheetBody').onclick=e=>{
+    const b=e.target.closest('[data-act]');if(!b||b.disabled)return;const x=cells[k],a=b.dataset.act;
+    if(a==='close'){closeSheet();return}
+    if(a==='sp'){place(k,b.dataset.s);renderAll();openCell(k);return}
+    if(a==='coach'){x.coach=b.dataset.c||null;renderAll();openCell(k);return}
+    if(a==='min-'&&x.min>1)x.min--; if(a==='min+'&&x.min<x.max)x.min++;
+    if(a==='max-'&&x.max>x.min)x.max--; if(a==='max+'&&x.max<8)x.max++;
+    if(/^m(in|ax)/.test(a)){renderAll();openCell(k);return}
+    if(a==='gath'){Object.assign(x,{kind:'gath',open:false,gt:'一般'});closeSheet();renderAll();toast('已改排球敘草稿');return}
+    if(a==='clear'){const o=JSON.parse(JSON.stringify(x.orig));cells[k]=Object.assign(o,{orig:x.orig});closeSheet();renderAll();toast('已還原');return}
+    if(a==='weekly'){
+      const [sl,d,c]=k.split('|');let ok=0,skip=0,noCoach=0;
+      SLOTS[sl].dates.forEach(d2=>{if(d2===d)return;const k2=key(sl,d2,c);if(!canPlace(k2)){skip++;return}
+        const y=cells[k2];place(k2,x.sp);y.min=x.min;y.max=x.max;y.coach=null;
+        if(x.coach&&!coachState(x.coach,k2).bad)y.coach=x.coach;else if(x.coach)noCoach++;ok++});
+      closeSheet();renderAll();toast(`已套用 ${ok} 週${skip?`，${skip} 週鎖定略過`:''}${noCoach?`，${noCoach} 週教練不能上、請另派`:''}`);
+    }
+  };
+}
+$('strip').onclick=()=>{
+  const r=Object.values(A.rows).filter(r=>r.coach||r.host).sort((a,b)=>a.d.localeCompare(b.d)||SLOTS[a.sl].s.localeCompare(SLOTS[b.sl].s));
+  const tb=r.map(x=>{const S=SLOTS[x.sl];return `<tr><td class="num">${md(x.d)}</td><td>${S.v.name}<br><span class="num" style="color:var(--muted)">${S.s}–${S.e==='23:59'?'24:00':S.e}</span></td><td class="n">${x.coach}${x.coach>x.named&&x.coach?` <span class="bad">缺${x.coach-x.named}</span>`:''}</td><td class="n">${x.host}</td></tr>`}).join('');
+  openSheet(`<h2>11 月人力與統計</h2><div class="where">每次調整都會即時重算</div>
+    <div class="kv"><div><small>專項課</small><b>${A.n} 堂</b></div><div><small>名額（下限–上限）</small><b>${A.minSeats}–${A.maxSeats}</b></div>
+    <div><small>預估收入</small><b>${fmt(A.revMin)}–${fmt(A.revMax)}</b></div><div><small>有球敘的時段（各需 1 位場主）</small><b>${A.gathCount}</b></div></div>
+    <div class="sec"><span class="lb">需要處理</span>${A.issues.length?`<div class="issues">${A.issues.map(i=>`<div class="issue">${i.soft?'':'<b>衝突　</b>'}${i.t}</div>`).join('')}</div>`:'<div class="okmsg">沒有衝突，教練都已指定</div>'}</div>
+    <div class="sec"><span class="lb">各時段人力（教練以已排課程計；場主以有球敘的時段計）</span>
+    <div style="overflow-x:auto"><table><thead><tr><th>日期</th><th>據點・時段</th><th>教練</th><th>場主</th></tr></thead><tbody>${tb}</tbody></table></div>
+    <div class="where" style="margin-top:8px">註：期制課程（永平基礎班、兒童班）也算入教練；目前範例共 ${COACHES.length} 位教練。</div></div>
+    <div class="acts"><button class="btn" data-act="close">關閉</button></div>`);
+  bindSheet(null);
+};
+$('pubBtn').onclick=()=>{
+  const can=A.n>0&&A.hard===0;
+  openSheet(`<h2>發布 11 月專項課</h2><div class="where">發布前系統會再檢查一次：有人剛報名的球敘不會被轉換。</div>
+    <div class="kv"><div><small>新增專項課</small><b>${A.n} 堂</b></div><div><small>轉換的球敘草稿（將取消）</small><b>${A.conv} 場</b></div>
+    <div><small>未指定教練</small><b>${A.soft}</b></div><div><small>教練衝突</small><b>${A.hard}</b></div></div>
+    ${A.hard?'<div class="info w" style="margin-top:12px">還有教練衝突，請先到「待處理」調整再發布。</div>':''}
+    ${A.soft&&!A.hard?'<div class="info" style="margin-top:12px">未指定教練的課可以先發布，之後由行政派教練。</div>':''}
+    <div class="sec"><label for="openAt">開放報名時間</label><input type="datetime-local" id="openAt" value="2026-10-28T12:00"></div>
+    <div class="acts"><button class="btn pri" data-act="pub" ${can?'':'disabled'}>確認發布</button><button class="btn" data-act="close">再看看</button></div>`);
+  $('sheetBody').onclick=e=>{const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
+    if(b.dataset.act==='close'){closeSheet();return}
+    if(b.dataset.act==='pub'){const t=$('openAt').value.replace('T',' ').replace(/-/g,'/');closeSheet();toast(`範例：已發布 ${A.n} 堂，${t} 開放報名（未寫入資料庫）`)}};
+};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('sheet').hidden)closeSheet()});
+renderAll();
+})();
+</script>
+
+</body>
+</html>
