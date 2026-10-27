@@ -1,6 +1,6 @@
 ﻿/**
- * 理論上匹克球｜管理後台：專項排課看板 sched.js v2.4（2026/10/26：預估營收依專項費用、程度名稱不重複 L）
- * 手機為主：上方選月份、據點 → 每天一張卡、每個時段一列球面格子 → 下方專項列
+ * 理論上匹克球｜管理後台：專項排課看板 sched.js v2.5（2026/10/27：據點卡＋日期×球面表格、據點頁籤數字、待處理清單、桌機右側欄、專項依程度分組）
+ * 版面：上方選月份、據點頁籤 → 據點卡（場租、專項價、分潤、本月格數）→ 每個時段一張「日期 × 球面」表 → 待處理清單；桌機右側本月統計、教練人力、各據點進度；下方專項列依程度分組
  *   點專項 → 點格子放上去；點已放的格子 → 指定教練、人數、換專項、套用每週、清除
  *   格子：空（可排）／球敘草稿（沒人報名，可轉；發布時取消那場草稿）／鎖定（已有課程、已開放或有人報名的球敘、只限球敘的球面）
  *   草稿自動存到 2_排課草稿（停手 1.5 秒後送出，一次一個請求）
@@ -148,34 +148,129 @@
     const perDay = {};
     Object.keys(out.rows).forEach((k) => { const r = out.rows[k]; perDay[r.d] = (perDay[r.d] || 0) + r.coach; });
     out.peak = Math.max(0, ...Object.keys(perDay).map((d) => perDay[d]));
+    // v2.5：各據點格數（專項草稿／球敘草稿可轉／空／鎖定／待處理），給據點頁籤、據點卡、各據點進度用
+    out.cnt = {};
+    venues().forEach((v) => {
+      const vid = str(v['據點ID']);
+      const c = (out.cnt[vid] = { spec: 0, conv: 0, empty: 0, lock: 0, issue: 0 });
+      venueSlots(vid).forEach((slot) => slotDates(slot, S.month).forEach((dd) => split(slot['使用場地']).forEach((cid) => {
+        const st = cellState(slot, dd.d, cid, D);
+        if (st.kind === 'draft') c.spec += 1;
+        else if (st.kind === 'gdraft') c.conv += 1;
+        else if (st.kind === 'empty') c.empty += 1;
+        else c.lock += 1;
+      })));
+    });
+    out.issues.forEach((i) => { const vid = str((PB.get('1_據點_時段', i.k.split('|')[0]) || {})['據點']); if (out.cnt[vid]) out.cnt[vid].issue += 1; });
+    // v2.5：教練人力（本月草稿依教練彙整）
+    out.coaches = {};
+    Object.keys(D).forEach((k) => { const x = D[k]; if (!x.教練) return; (out.coaches[x.教練] = out.coaches[x.教練] || []).push(x.日期); });
     out.D = D;
     return out;
   }
 
-  // ---------------- 畫面 ----------------
+  // ---------------- 畫面（v2.5：據點卡＋日期×球面表格＋桌機右側欄） ----------------
+  const MD = (d) => (+d.slice(5, 7)) + '/' + (+d.slice(8, 10));
+
+  /** 據點這個月的合作條件：場租（每面每小時或包場）、球敘分潤（沒有資料就空白） */
+  function venueTerms(vid) {
+    const out = { rent: '', rentL: '', share: '' };
+    if (!PB.has('3_合作方案')) return out;
+    const mStart = S.month + '-01';
+    const mEnd = S.month + '-31';
+    const plans = PB.rows('3_合作方案').filter((p) => str(p['合作對象類型']) === '據點' && str(p['據點']) === vid &&
+      (!day(p['生效日期']) || day(p['生效日期']) <= mEnd) && (!day(p['失效日期']) || day(p['失效日期']) >= mStart));
+    const rent = plans.find((p) => ['按次租用', '包場租約'].indexOf(str(p['合作模式'])) >= 0);
+    if (rent) {
+      if (str(rent['合作模式']) === '按次租用' && num(rent['每面每小時單價'])) { out.rent = money(rent['每面每小時單價']); out.rentL = '場租／面／小時'; }
+      else if (num(rent['合約金額'])) { out.rent = money(rent['合約金額']); out.rentL = '包場租約'; }
+    }
+    const share = plans.find((p) => str(p['合作模式']) === '比例分潤' && ['球敘', '全部', ''].indexOf(str(p['適用範圍'])) >= 0);
+    if (share && str(share['我方比例']) !== '') { const me = Math.round(num(share['我方比例']) * 100); out.share = me + '／' + (100 - me); }
+    return out;
+  }
+
+  /** 一格（表格內，不再顯示球面名稱：欄頭已有） */
   function cellHtml(slot, d, cid, D, An) {
     const k = key(str(slot['時段ID']), d, cid);
     const c = cellState(slot, d, cid, D);
-    const cn = esc(m.courtName(cid));
     const can = c.kind === 'empty' || c.kind === 'gdraft' || c.kind === 'draft';
     const cls = ['sb-cell'];
     let nm = '';
     let meta = '';
+    let tag = '';
     if (c.kind === 'draft') {
       const sp = PB.get('0_專項', c.draft.專項) || {};
       cls.push('new', 'lv' + lvIdx(sp['程度']));
       nm = esc(sp['專項名稱'] || '（專項已刪除）');
-      meta = c.draft.教練 ? esc(m.staffName(c.draft.教練)) + '・' + (num(c.draft.人數下限) || 5) + '–' + (num(c.draft.人數上限) || 6) + '人' : '未指定教練';
-      if (!c.draft.教練) cls.push('nocoach');
-      if (An.conf[k]) cls.push('conf');
+      meta = (c.draft.教練 ? esc(m.staffName(c.draft.教練)) : '—') + '・' + (num(c.draft.人數下限) || 5) + '–' + (num(c.draft.人數上限) || 6) + '人';
+      if (!c.draft.教練) { cls.push('nocoach'); tag = '未排教練'; }
+      if (An.conf[k]) { cls.push('conf'); tag = '衝突'; }
       if (S.pending[k]) cls.push('dirty');
       if (c.games) meta += '<br>取代球敘草稿';
-    } else if (c.kind === 'gdraft') { cls.push('gath', 'draftg'); nm = esc(c.label); meta = esc(c.sub); }
-    else if (c.kind === 'lock') { cls.push('lock'); if (c.game) cls.push('gath'); nm = esc(c.label); meta = esc(c.sub); }
-    else { cls.push('sb-empty'); nm = '空・可排'; }
-    if (can && S.placing) cls.push('can');
+    } else if (c.kind === 'gdraft') {
+      cls.push('gath', 'draftg');
+      nm = esc(c.label.replace('一般球敘', '球敘'));
+      meta = '可轉';
+    } else if (c.kind === 'lock') {
+      cls.push('lock');
+      if (c.game) cls.push('gath');
+      nm = esc(c.label.replace('一般球敘', '球敘'));
+      meta = esc(c.sub);
+    } else { cls.push('sb-empty'); nm = '空'; meta = '可排'; }
+    if (can && S.placing) {
+      cls.push('can');
+      if (c.kind !== 'draft') { nm = '＋ ' + esc(m.specName(S.placing)); meta = c.kind === 'gdraft' ? '取代球敘草稿' : '點一下放上去'; }
+    }
     if (S.flash === k) cls.push('flash');
-    return '<button class="' + cls.join(' ') + '" data-act="sbCell" data-k="' + esc(k) + '"><span class="cc">' + cn + (c.kind === 'lock' ? ' <span class="lk">🔒</span>' : '') + '</span><span class="nm">' + nm + '</span><span class="meta">' + meta + '</span></button>';
+    return '<button class="' + cls.join(' ') + '" data-act="sbCell" data-k="' + esc(k) + '" title="' + esc(m.courtName(cid)) + '">' +
+      (tag ? '<span class="tag">' + tag + '</span>' : '') + (c.kind === 'lock' ? '<span class="lk">🔒</span>' : '') +
+      '<span class="nm">' + nm + '</span><span class="meta">' + meta + '</span></button>';
+  }
+
+  /** 把據點時段分成幾張表：同一天的時段合計不超過 4 面就併一張；只有 1 面的時段每 4 個併一張 */
+  function tableGroups(slots) {
+    const byDay = {};
+    slots.forEach((s) => { (byDay[str(s['星期'])] = byDay[str(s['星期'])] || []).push(s); });
+    const out = [];
+    Object.keys(byDay).sort((a, b) => WEEK.indexOf(a) - WEEK.indexOf(b)).forEach((w) => {
+      const ss = byDay[w];
+      const total = sum(ss.map((s) => split(s['使用場地']).length));
+      if (ss.every((s) => split(s['使用場地']).length === 1)) { for (let i = 0; i < ss.length; i += 4) out.push(ss.slice(i, i + 4)); }
+      else if (total <= 4) out.push(ss);
+      else ss.forEach((s) => out.push([s]));
+    });
+    return out;
+  }
+
+  function tableHtml(group, D, An) {
+    const cols = [];
+    group.forEach((s) => split(s['使用場地']).forEach((cid) => cols.push({ s: s, cid: cid })));
+    const dates = uniq(group.reduce((a, s) => a.concat(slotDates(s, S.month).map((x) => x.d)), [])).sort();
+    if (!dates.length) return '';
+    const multi = group.length > 1;
+    const one = !multi ? group[0] : null;
+    const title = multi ? '週' + str(group[0]['星期']) + ' ' + group.map((s) => m.hm(s['開始時間'], s['結束時間'])).join('、') : '週' + str(one['星期']) + ' ' + m.hm(one['開始時間'], one['結束時間']);
+    const uses = !multi ? uniq(split(one['使用場地']).map((cid) => split((PB.get('1_據點_場地', cid) || {})['類型']).join('・'))).filter(Boolean).join('／') : '';
+    const colHead = (x) => multi ? (split(x.s['使用場地']).length === 1 ? esc(m.hm(x.s['開始時間'], x.s['結束時間']).replace(/:00/g, '')) : esc(m.hm(x.s['開始時間']) + ' ' + m.courtName(x.cid))) : esc(m.courtName(x.cid));
+    const rows = dates.map((d) => {
+      const pend = group.some((s) => { const o = slotDates(s, S.month).find((x) => x.d === d); return o && !o.ok; });
+      return '<tr><th class="d"><b>' + MD(d) + '</b><small>週' + wd(d) + '</small>' + (pend ? '<span class="pend">可用日待確認</span>' : '') + '</th>' +
+        cols.map((x) => slotDates(x.s, S.month).some((o) => o.d === d) ? '<td>' + cellHtml(x.s, d, x.cid, D, An) + '</td>' : '<td><span class="sb-na">—</span></td>').join('') + '</tr>';
+    }).join('');
+    return '<section class="sb-tblbox"><h3>' + esc(title) + (uses ? '<small>' + esc(uses) + '</small>' : '') + '</h3><div class="sb-tblwrap"><table class="sb-tbl" style="--cols:' + cols.length + '"><thead><tr><th class="d">' + (+S.month.slice(5, 7)) + ' 月</th>' + cols.map((x) => '<th>' + colHead(x) + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div></section>';
+  }
+
+  function sideHtml(An, vs) {
+    const coachRows = Object.keys(An.coaches).map((id) => ({ id: id, ds: uniq(An.coaches[id]).sort() })).sort((a, b) => b.ds.length - a.ds.length)
+      .map((o) => '<div class="sb-kv2"><span>' + esc(m.staffName(o.id)) + '</span><span>' + o.ds.length + ' 堂<small>' + esc(o.ds.slice(0, 4).map(MD).join('、') + (o.ds.length > 4 ? '…' : '')) + '</small></span></div>').join('');
+    const prog = vs.map((v) => { const c = An.cnt[str(v['據點ID'])] || {}; const all = (c.spec || 0) + (c.conv || 0) + (c.empty || 0); return '<button class="sb-kv2 click" data-act="sbVenue" data-v="' + esc(v['據點ID']) + '"><span>' + esc(v['據點名稱']) + (c.issue ? ' <span class="badge bad">' + c.issue + '</span>' : '') + '</span><span class="num">' + (c.spec || 0) + '／' + all + '</span></button>'; }).join('');
+    return '<aside class="sb-side">' +
+      '<div class="card sb-sbox"><h4>' + esc(S.month) + ' 統計<small>全部據點</small></h4><div class="sb-kv">' +
+      '<span>專項課</span><b>' + An.n + ' 堂</b><span>名額</span><b>' + An.min + '–' + An.max + '</b><span>預估營收</span><b>' + money(An.revMin) + (An.revMax !== An.revMin ? '–' + num(An.revMax).toLocaleString() : '') + '</b><span>取代球敘草稿</span><b>' + An.conv + ' 場</b><span>單日最多教練</span><b>' + An.peak + '</b><span>待處理</span><b class="' + (An.hard ? 'bad' : An.unnamed ? 'warn' : '') + '">' + (An.hard + An.unnamed) + '</b></div>' +
+      '<button class="btn sm ghost" style="width:100%;margin-top:8px" data-act="sbStats">各時段人力與衝突</button></div>' +
+      '<div class="card sb-sbox"><h4>教練人力<small>本月已指定</small></h4>' + (coachRows || '<p class="mut" style="margin:0;font-size:.85rem">還沒有指定教練</p>') + '</div>' +
+      '<div class="card sb-sbox"><h4>各據點進度<small>專項／可排格數</small></h4>' + prog + '</div></aside>';
   }
 
   const Sched = {
@@ -189,35 +284,41 @@
       const An = analyze();
       const D = An.D;
       const sp = specs();
-      const v = PB.get('1_據點', S.venue);
+      const v = PB.get('1_據點', S.venue) || {};
       const slots = venueSlots(S.venue);
-      const dates = uniq(slots.reduce((a, s) => a.concat(slotDates(s, S.month).map((x) => x.d)), [])).sort();
       const dirty = Object.keys(S.pending).length;
       const head = '<div class="sb-head"><div class="ptop" style="margin-bottom:8px"><h1>專項排課</h1><select class="btn sm" data-input="sbMonth">' + monthsAhead().map((x) => '<option' + (x === S.month ? ' selected' : '') + '>' + x + '</option>').join('') + '</select><span class="sp"></span>' +
-        '<span class="sb-save mut">' + (S.saving ? '儲存中…' : dirty ? '有 ' + dirty + ' 格未儲存' : '草稿已儲存') + '</span>' +
-        ui.btn('發布', 'sbPublish', {}, 'pri sm') + '</div>' +
-        '<div class="sb-tabs">' + vs.map((x) => { const n = An.byVenue[str(x['據點ID'])] || 0; return '<button class="chip' + (str(x['據點ID']) === S.venue ? ' on' : '') + '" data-act="sbVenue" data-v="' + esc(x['據點ID']) + '">' + esc(x['據點名稱']) + (n ? '<span class="c">' + n + '</span>' : '') + '</button>'; }).join('') + '</div>' +
+        '<span class="sb-save mut">' + (S.saving ? '儲存中…' : dirty ? dirty + ' 格待儲存' : '草稿已儲存') + '</span>' +
+        ui.btn(An.n ? '發布 ' + An.n + ' 堂' : '發布', 'sbPublish', {}, 'pri sm') + '</div>' +
+        '<div class="sb-tabs">' + vs.map((x) => { const c = An.cnt[str(x['據點ID'])] || {}; return '<button class="chip' + (str(x['據點ID']) === S.venue ? ' on' : '') + '" data-act="sbVenue" data-v="' + esc(x['據點ID']) + '">' + esc(x['據點名稱']) + '<span class="c">' + (c.spec || 0) + '</span>' + (c.issue ? '<span class="ci">' + c.issue + '</span>' : '') + '</button>'; }).join('') + '</div>' +
         '<button class="sb-strip" data-act="sbStats"><span>專項<b>' + An.n + '</b></span><span>名額<b>' + An.max + '</b></span><span>單日最多教練<b>' + An.peak + '</b></span><span class="' + (An.hard ? 'bad' : An.unnamed ? 'warn' : '') + '">待處理<b>' + (An.hard + An.unnamed) + '</b></span></button></div>';
-      let board = '<div class="sb-legend"><span><i class="lg lg-new"></i>專項課</span><span><i class="lg lg-gath"></i>球敘草稿（可轉）</span><span><i class="lg lg-lock"></i>鎖定</span><span><i class="lg lg-empty"></i>空</span><span>' + esc(venueKind(S.venue)) + ' ' + money(price(S.venue)) + '／人（專項有填費用者依專項）</span></div>';
-      if (v && str(v['注意事項'])) board += '<div class="note" style="margin-bottom:8px">' + esc(v['注意事項']) + '</div>';
-      if (!dates.length) board += '<div class="card">' + ui.empty(S.month + ' 沒有可用日', '請先在主檔「時段」產生並確認可用日') + '</div>';
-      dates.forEach((d) => {
-        const ss = slots.filter((s) => slotDates(s, S.month).some((x) => x.d === d));
-        let coach = 0, host = 0;
-        ss.forEach((s) => { const r = An.rows[d + '|' + str(s['時段ID'])]; if (r) { coach += r.coach; host += r.host; } });
-        board += '<section class="sb-day"><div class="sb-dayh"><span class="d">' + (+d.slice(5, 7)) + '/' + (+d.slice(8, 10)) + '</span><span class="w">週' + wd(d) + '</span><span class="need">教練 <b>' + coach + '</b>・場主 <b>' + host + '</b></span></div>';
-        ss.forEach((s) => {
-          const ok = slotDates(s, S.month).find((x) => x.d === d).ok;
-          const courts = split(s['使用場地']);
-          const n = courts.filter((cid) => D[key(str(s['時段ID']), d, cid)]).length;
-          board += '<div class="sb-slot"><div class="t"><span class="num">' + esc(m.hm(s['開始時間'], s['結束時間'])) + '</span>' + (ok ? '' : '<span class="badge warn">可用日待確認</span>') + '<span>專項 ' + n + ' 堂</span></div><div class="sb-courts" style="grid-template-columns:repeat(' + Math.max(courts.length, 2) + ',minmax(0,1fr))">' +
-            courts.map((cid) => cellHtml(s, d, cid, D, An)).join('') + '</div></div>';
-        });
-        board += '</section>';
-      });
-      const tray = '<div class="sb-tray"><div class="sb-trayh"><span>' + (S.placing ? '放置中：<b>' + esc(m.specName(S.placing)) + '</b>，點黃框的球面' : '專項（點一下進入放置模式）') + '</span>' + (S.placing ? '<button class="btn sm ghost" data-act="sbPlace" data-v="">結束放置</button>' : '') + '</div>' +
-        '<div class="sb-chips">' + (sp.length ? sp.map((x) => '<button class="sb-chip lv' + lvIdx(x['程度']) + (S.placing === str(x['專項ID']) ? ' on' : '') + '" data-act="sbPlace" data-v="' + esc(x['專項ID']) + '"><small>' + esc(lvShort(x['程度'])) + '</small><span>' + esc(x['專項名稱']) + '</span></button>').join('') : '<span class="mut">還沒有專項：請到「主檔與紀錄 → 專項」新增</span>') + '</div></div>';
-      return '<div class="sb' + (S.placing ? ' placing' : '') + '">' + head + '<div class="sb-board">' + board + '</div>' + tray + '</div>';
+
+      // 據點卡頭
+      const tm = venueTerms(S.venue);
+      const kind = venueKind(S.venue);
+      const courts = uniq(slots.reduce((a, s) => a.concat(split(s['使用場地'])), []));
+      const specPrices = uniq(sp.map((x) => price(S.venue, str(x['專項ID'])))).sort((a, b) => b - a);
+      const pbox = (b, l) => '<div class="pbox"><b>' + b + '</b><small>' + l + '</small></div>';
+      const c = An.cnt[S.venue] || {};
+      const vIssues = An.issues.filter((i) => str((PB.get('1_據點_時段', i.k.split('|')[0]) || {})['據點']) === S.venue);
+      let card = '<div class="sb-vcard card"><div class="sb-vhead"><div><h2>' + esc(v['據點名稱']) + '</h2><div class="meta">' + esc([kind, str(v['區域']), str(v['地點']), courts.length + ' 面'].filter(Boolean).join('｜')) + '</div></div>' +
+        '<div class="prices">' + (tm.rent ? pbox(tm.rent, tm.rentL) : '') + pbox(money(specPrices[0] || price(S.venue)), '專項／人／堂' + (specPrices.length > 1 ? '（部分 ' + money(specPrices[specPrices.length - 1]) + '）' : '')) + (tm.share ? pbox(tm.share, '球敘分潤 我方／合作方') : '') + '</div></div>' +
+        '<div class="sb-vbody"><div class="sb-counts">' +
+        '<span class="sb-k k-spec">專項草稿 ' + (c.spec || 0) + '</span><span class="sb-k k-empty">空 ' + (c.empty || 0) + '</span><span class="sb-k k-game">球敘草稿 ' + (c.conv || 0) + '（可轉）</span><span class="sb-k k-lock">鎖定 ' + (c.lock || 0) + '</span>' + (c.issue ? '<span class="sb-k k-bad">待處理 ' + c.issue + '</span>' : '') + '</div>';
+      if (str(v['注意事項'])) card += '<div class="note">' + esc(v['注意事項']) + '</div>';
+      const tables = tableGroups(slots).map((g) => tableHtml(g, D, An)).join('');
+      card += tables ? '<div class="sb-tables">' + tables + '</div>' : ui.empty(S.month + ' 沒有可用日', '請先在主檔「時段」產生並確認可用日');
+      card += '<div class="sb-legend"><span><i class="lg lg-new"></i>專項（草稿）</span><span><i class="lg lg-empty"></i>空・可排</span><span><i class="lg lg-gath"></i>球敘草稿・可轉</span><span><i class="lg lg-glock"></i>球敘已開放／有人報名</span><span><i class="lg lg-lock"></i>已有課程</span><span><i class="lg lg-bad"></i>待處理</span></div>';
+      if (vIssues.length) card += '<div class="sb-todo"><h4>待處理 ' + vIssues.length + '</h4>' + vIssues.map((i) => '<button class="sb-todoi' + (i.soft ? ' soft' : '') + '" data-act="sbTodo" data-k="' + esc(i.k) + '">' + (i.soft ? '' : '<b>衝突　</b>') + esc(i.t) + '</button>').join('') + '</div>';
+      card += '</div></div>';
+
+      // 專項列：依程度分組
+      const groups = [];
+      sp.forEach((x) => { const lv = str(x['程度']); let g = groups.find((o) => o.lv === lv); if (!g) groups.push((g = { lv: lv, list: [] })); g.list.push(x); });
+      const tray = '<div class="sb-tray"><div class="sb-trayh">' + (S.placing ? '<span><span class="sb-mode">放置中</span><b>' + esc(m.specName(S.placing)) + '</b>｜點格子放上去</span><button class="btn sm pri" data-act="sbPlace" data-v="">完成</button>' : '<span>選一個專項，再點格子放上去</span>') + '</div>' +
+        '<div class="sb-chips">' + (groups.length ? groups.map((g) => '<div class="sb-lv"><small>' + esc(lvShort(g.lv)) + '</small><div class="sb-lvrow">' + g.list.map((x) => '<button class="sb-chip lv' + lvIdx(x['程度']) + (S.placing === str(x['專項ID']) ? ' on' : '') + '" data-act="sbPlace" data-v="' + esc(x['專項ID']) + '"><span>' + esc(x['專項名稱']) + '</span><small>' + money(price(S.venue, str(x['專項ID']))) + '</small></button>').join('') + '</div></div>').join('') : '<span class="mut">還沒有專項：請到「主檔與紀錄 → 專項」新增</span>') + '</div></div>';
+
+      return '<div class="sb' + (S.placing ? ' placing' : '') + '">' + head + '<div class="sb-grid"><div class="sb-board">' + card + '</div>' + sideHtml(An, vs) + '</div>' + tray + '</div>';
     },
     after() { S.flash = ''; },
   };
@@ -227,6 +328,7 @@
   PB.inputs.sbMonth = (val) => { flush(); S.month = val; S.pending = {}; PB.render(); };
   A.sbVenue = (d) => { S.venue = d.v; PB.render(); document.getElementById('main').scrollTop = 0; };
   A.sbPlace = (d) => { S.placing = S.placing === d.v ? '' : d.v; PB.render(); };
+  A.sbTodo = (d) => { S.placing = ''; return A.sbCell(d); }; // v2.5：待處理清單點一下直接開那一格
 
   function setDraft(k, vals) {
     const [slot, d, court] = k.split('|');
