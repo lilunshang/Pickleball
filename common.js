@@ -358,6 +358,19 @@
     o.status = !recs.length ? '尚無應收' : o.left <= 0 ? (o.pending > 0 ? '已付（待對帳）' : '已付清') : o.net > 0 ? '部分付款' : '未付';
     return (ix.sigCache[sid] = o);
   };
+  /**
+   * v3.0：一筆報名實收裡的球拍租借（全歸公司、不分潤）
+   * 現場租拍＝收入來源「球拍租借」的應收；線上租拍費（2_報名.租拍費）含在報名費應收裡，收款先算報名費、再算租拍費
+   */
+  m.sigRacket = (sid) => {
+    const r = PB.get('2_報名', sid);
+    const fee = r ? Math.max(0, num(r['租拍費'])) : 0;
+    return sum((ix.recBySig[str(sid)] || []).filter((x) => x['作廢'] !== true), (x) => {
+      const net = m.rec(x['應收ID']).net;
+      if (str(x['收入來源']) === '球拍租借') return net;
+      return fee ? Math.max(0, Math.min(fee, net - Math.max(0, num(x['應收金額']) - fee))) : 0;
+    });
+  };
   m.payBadge = (st) => {
     const k = { 已收: 'ok', 已付清: 'ok', '已付（待對帳）': 'info', 部分付款: 'warn', 未收: 'bad', 未付: 'bad', 已退款: '', 已轉抵用金: 'info', 作廢: '', 免付: 'ok', 尚無應收: '' }[st];
     return '<span class="badge ' + (k || '') + '">' + esc(st) + '</span>';
@@ -428,7 +441,12 @@
       return { id: id, name: str(c['場地名稱']) || id, cap: num(c['人數上限']), list: list };
     });
     const hosts = (ix.dutyByGame[str(g['球敘ID'])] || []).map((d) => ({ d: d, name: m.staffName(d['人員']), in: !!str(d['簽到時間']) }));
+    // v3.0：球拍租借（2_報名 有 租拍數 欄才顯示）
+    const rkOn = sigs.some((r) => '租拍數' in r);
+    const venue = PB.get('1_據點', g['據點']) || {};
     return {
+      rackets: rkOn ? sum(active.concat(walkin), (r) => num(r['租拍數'])) : null,
+      racketStock: rkOn && str(venue['可租球拍數']) !== '' ? num(venue['可租球拍數']) : null,
       g: g, sigs: sigs, active: active, walkin: walkin, wait: wait, courts: perCourt, cap: cap, limit: limit,
       left: Math.max(0, limit - active.length - walkin.length),
       checked: active.filter((r) => str(r['簽到時間'])).length,
@@ -703,9 +721,44 @@
   // ---- v2.7 上傳照片／PDF（欄位型別 files：值＝雲端硬碟網址，一行一個） ----
   const fileId = (u) => (str(u).match(/\/d\/([\w-]{20,})/) || str(u).match(/[?&]id=([\w-]{20,})/) || [])[1] || '';
   const isUrl = (u) => /^https?:\/\//.test(str(u));
+  /**
+   * v3.2 縮圖：剛上傳的用手機上那張圖（本機預覽）；其他的向後端 fileThumbs 要（後端讀雲端硬碟，不靠瀏覽器登入的 Google 帳號）
+   * 畫面上先放 <img data-fid>，畫完後 PB.loadThumbs() 一次要齊（同一頁只發一個請求；拿過的記在記憶體）
+   */
+  const thumbMem = {};   // 檔案ID → dataUrl／本機預覽網址；'' ＝沒有縮圖
+  const thumbAsk = new Set();
+  let thumbTimer = 0;
+  const thumbImg = (id) => {
+    const src = thumbMem[id];
+    if (src) return '<img alt="" src="' + esc(src) + '">';
+    if (src === '') return '<span>檔案</span>';
+    return '<img alt="" data-fid="' + esc(id) + '" class="fload">';
+  };
+  PB.loadThumbs = () => {
+    clearTimeout(thumbTimer);
+    thumbTimer = setTimeout(async () => {
+      const ids = uniq(Array.from(document.querySelectorAll('img[data-fid]')).map((i) => i.dataset.fid).filter((id) => !(id in thumbMem) && !thumbAsk.has(id))).slice(0, 30);
+      if (!ids.length) return;
+      ids.forEach((id) => thumbAsk.add(id));
+      let got = {};
+      try {
+        const out = await PB.api.ops([{ op: 'fileThumbs', args: { ids: ids } }]);
+        got = (out.results[0] && out.results[0].ok && out.results[0].data.thumbs) || {};
+      } catch (e) { /* 拿不到就顯示「檔案」 */ }
+      ids.forEach((id) => {
+        thumbAsk.delete(id);
+        if (got[id]) thumbMem[id] = got[id];
+        document.querySelectorAll('img[data-fid="' + id + '"]').forEach((img) => {
+          if (got[id]) { img.src = got[id]; img.removeAttribute('data-fid'); img.classList.remove('fload'); } else img.replaceWith(Object.assign(document.createElement('span'), { textContent: '檔案' }));
+        });
+      });
+      if (document.querySelector("img[data-fid]")) PB.loadThumbs(); // 超過 30 個時再要下一批
+    }, 60);
+  };
+  new MutationObserver(() => { if (document.querySelector('img[data-fid]')) PB.loadThumbs(); }).observe(document.body, { childList: true, subtree: true });
   /** 唯讀顯示：縮圖＋連結（AppSheet 上傳的相對路徑只顯示檔名） */
   ui.fileList = (v) => str(v).split('\n').map(str).filter(Boolean).map((u) => isUrl(u)
-    ? '<a class="fthumb" href="' + esc(u) + '" target="_blank" rel="noopener" title="開啟">' + (fileId(u) ? '<img loading="lazy" alt="" src="https://drive.google.com/thumbnail?id=' + esc(fileId(u)) + '&sz=w240" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{textContent:\'檔案\'}))">' : '<span>檔案</span>') + '</a>'
+    ? '<a class="fthumb" href="' + esc(u) + '" target="_blank" rel="noopener" title="開啟">' + (fileId(u) ? thumbImg(fileId(u)) : '<span>檔案</span>') + '</a>'
     : '<span class="fthumb ftxt" title="AppSheet 上傳的檔案">' + esc(u.split('/').pop()) + '</span>').join('');
   ui.filesField = (f, val, id, before) => {
     const table = (before && before._table) || f._table || '';
@@ -752,6 +805,8 @@
     for (let i = 0; i < files.length; i++) {
       busy.textContent = '上傳中 ' + (i + 1) + '／' + files.length + '…';
       const url = await PB.upload(inp.dataset.table, inp.dataset.upload, files[i]);
+      // v3.2：剛上傳的直接用本機的圖當縮圖（雲端硬碟要過一會兒才產生縮圖）
+      if (url && fileId(url) && /^image\//.test(files[i].type)) { try { thumbMem[fileId(url)] = URL.createObjectURL(files[i]); } catch (e) { /* 舊瀏覽器 */ } }
       if (url) { hid.value = str(hid.value).split('\n').concat(url).map(str).filter(Boolean).join('\n'); box.querySelector('.fthumbs').innerHTML = filesInner(hid.value); }
     }
     busy.textContent = '';

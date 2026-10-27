@@ -483,7 +483,7 @@
       if (p.left > 0 && st === '已報名') b.push(btn('提醒付款', 'payRemind', { ids: p.recs.map((x) => x['應收ID']).join(',') }, 'ghost'));
       b.push(btn('取消', 'sigCancel', { id: r['報名ID'] }, 'bad'));
     }
-    const extra = [str(r['報名時間']) ? '報名 ' + fmtDT(r['報名時間']) : '', str(r['代報名人']) ? m.stuName(r['代報名人']) + ' 代報' : '', str(r['來源代碼']) ? '來源 ' + r['來源代碼'] : '', str(r['取消原因']) ? '取消：' + r['取消原因'] + (str(r['學員取消原因']) ? '（' + r['學員取消原因'] + '）' : '') : '', ctx === 'game' && str(r['簽到時間']) ? '已簽到 ' + str(r['簽到時間']).slice(11, 16) : '', st === '已報名' && str(r['付款期限']) && p.left > 0 ? '付款期限 ' + fmtDT(r['付款期限']) : ''].filter(Boolean).join('・');
+    const extra = [num(r['租拍數']) ? '🏓 租拍 ' + num(r['租拍數']) + ' 支' : '', str(r['報名時間']) ? '報名 ' + fmtDT(r['報名時間']) : '', str(r['代報名人']) ? m.stuName(r['代報名人']) + ' 代報' : '', str(r['來源代碼']) ? '來源 ' + r['來源代碼'] : '', str(r['取消原因']) ? '取消：' + r['取消原因'] + (str(r['學員取消原因']) ? '（' + r['學員取消原因'] + '）' : '') : '', ctx === 'game' && str(r['簽到時間']) ? '已簽到 ' + str(r['簽到時間']).slice(11, 16) : '', st === '已報名' && str(r['付款期限']) && p.left > 0 ? '付款期限 ' + fmtDT(r['付款期限']) : ''].filter(Boolean).join('・');
     return row({ act: 'openStu', id: r['學員'], t: esc(m.stuName(r['學員'])) + (st !== '已報名' ? ' ' + m.sigBadge(st) : '') + ' ' + (st === '候補' ? '' : m.payBadge(p.status)) + (r['是否新人'] === true ? ' <span class="badge brand">新人</span>' : ''), s: (m.phone(s) ? esc(m.phone(s)) + '・' : '') + esc(extra), r: b.join('') });
   }
 
@@ -529,6 +529,11 @@
       const x = m.game(target);
       if (x.courts.length > 1) fields.push({ k: 'court', label: '場地（球面）', t: 'enum', req: true, opts: x.courts.map((c) => c.name + '（' + c.list.length + '/' + c.cap + '）') });
     }
+    // v3.2：球敘可以順便登記租球拍（費用由系統併入同一筆應收）
+    const rkOn = PB.rows('2_報名').some((r) => '租拍數' in r);
+    const venueOf = (gid) => PB.get('1_據點', (PB.get('2_球敘場次', gid) || {})['據點']) || {};
+    const rkOff = (gid) => str(venueOf(gid)['可租球拍數']) !== '' && num(venueOf(gid)['可租球拍數']) === 0;
+    if (rkOn && (type === '球敘' ? !rkOff(target) : !type)) fields.push({ k: 'rackets', label: '租球拍（支）', t: 'enum', opts: ['0', '1', '2', '3', '4'], value: '0', hint: '只限球敘；每支每場依系統設定（預設 NT$50），費用併入報名的應收；同時段共用據點庫存' });
     if (isMgmt()) fields.push({ k: 'force', label: '額滿也直接報名（超收，管理層）', t: 'bool' });
     const v = await ui.ask('後台報名' + (target ? '：' + m.sigTarget({ 報名類型: type, 班級: target, 球敘: target }) : '：' + m.stuName(d.stu)), '學員真的不會操作才代建；報名後系統會建立應收並推播付款資訊。', { fields: fields, ok: '報名' });
     if (!v) return;
@@ -550,7 +555,8 @@
     }
     const stu = d.stu || v.stu;
     if (!stu || stu.charAt(0) === '?') return ui.toast('請從清單選學員', 'bad');
-    PB.run('signupNew', { type: type, target: target, studentIds: [stu], court: court, force: v.force === true });
+    const rackets = type === '球敘' ? Number(v.rackets) || 0 : 0;
+    PB.run('signupNew', { type: type, target: target, studentIds: [stu], court: court, force: v.force === true, rackets: rackets });
   };
   function openTargets() {
     const t = today();
@@ -827,6 +833,7 @@
       ['地點', esc(m.venueName(g['據點']) + '・' + x.courts.map((c) => c.name).join('、'))],
       ['類型', esc((str(g['球敘類型']) || '不限') + (lv ? '：' + lv + (str(g['球敘類型']) === '分級' ? ' 以上' : '') : '') + (str(g['球敘類型']) === 'DUPR' ? '：' + str(g['DUPR下限']) + '–' + str(g['DUPR上限']) : ''))],
       ['費用', str(g['費用']) !== '' ? esc(money(g['費用']) + '／人') : '<span class="badge bad">未填（不能開放報名）</span>'],
+      ...(x.rackets !== null ? [['球拍租借', esc('已報名的人租 ' + x.rackets + ' 支') + (x.racketStock !== null ? esc('・據點庫存 ' + x.racketStock + ' 支（同時段共用）') : '')]] : []), // v3.0
       ['名額', esc('已報名 ' + x.active.length + '／上限 ' + x.limit + '・剩 ' + x.left) + (x.walkin.length ? ' <span class="badge warn">現場待確認 ' + x.walkin.length + '</span>' : '') + (x.checked ? ' <span class="badge ok">簽到 ' + x.checked + '</span>' : '')],
       ['場主', esc(x.hosts.map((h) => h.name + (h.in ? '（已到場）' : '')).join('、') || (x.st === '草稿' ? '開放報名後自動排' : '未排'))],
       ['計分', esc((str(g['每場分數']) || '15') + ' 分' + (g['需贏2分'] === false ? '・不需贏 2 分' : ''))],
