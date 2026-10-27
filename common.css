@@ -1,7 +1,7 @@
 ﻿/* 理論上匹克球｜內部網頁共用樣式 v1.0
    版面：上方標題列 → 左側選單（桌機）／底部分頁列（手機）→ 內容；詳情從右側滑出（手機全螢幕） */
 :root{
-  --bg:#F4F7F5; --surface:#FFFFFF; --surface2:#F9FBFA; --ink:#1B2924; --mut:#5B6A64; --faint:#8A9893; --line:#DCE5E0;
+  --bg:#FFFFFF; --surface:#FFFFFF; --surface2:#F9FBFA; --ink:#1B2924; --mut:#5B6A64; --faint:#8A9893; --line:#DCE5E0;
   --brand:#2E5E4E; --brand-2:#3F7A66; --brand-soft:#E3EEE8; --brand-ink:#FFFFFF;
   --ok:#2E6B4F; --ok-soft:#E1F0E7; --warn:#94661A; --warn-soft:#F6EEDC; --bad:#A33A3A; --bad-soft:#F7E6E6; --info:#2F5D8A; --info-soft:#E5EEF7;
   --shadow:0 1px 2px rgba(20,40,30,.06),0 4px 14px rgba(20,40,30,.06);
@@ -10,11 +10,7 @@
   --nav-w:208px; --head-h:56px; --tab-h:62px;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#101714; --surface:#17211D; --surface2:#1B2622; --ink:#E4ECE8; --mut:#9AAAA3; --faint:#71817A; --line:#2A3833;
-  --brand:#7FC0A3; --brand-2:#93CDB3; --brand-soft:#1F3229; --brand-ink:#0E1613;
-  --ok:#8FD0AE; --ok-soft:#1C3127; --warn:#E2BE7A; --warn-soft:#352C1B; --bad:#EB9A9A; --bad-soft:#3A2222; --info:#9DBFE3; --info-soft:#1C2A38;
-  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25); color-scheme:dark;}}
+/* v2.6：背景統一白色；不再跟隨系統自動切換深色 */
 :root[data-theme="dark"]{
   --bg:#101714; --surface:#17211D; --surface2:#1B2622; --ink:#E4ECE8; --mut:#9AAAA3; --faint:#71817A; --line:#2A3833;
   --brand:#7FC0A3; --brand-2:#93CDB3; --brand-soft:#1F3229; --brand-ink:#0E1613;
@@ -160,6 +156,10 @@ table.tbl{border-collapse:collapse;width:100%;font-size:.9rem}
 .fld textarea{min-height:76px;resize:vertical}
 .fld input:focus,.fld select:focus,.fld textarea:focus{outline:2px solid color-mix(in srgb,var(--brand) 40%,transparent);border-color:var(--brand)}
 .fld .ro{padding:6px 0}
+/* v2.6：勾選框／單選鈕不要套用輸入框的寬度與高度（啟用、角色等勾選太大） */
+.fld input[type=checkbox],.fld input[type=radio]{width:16px;height:16px;min-height:0;padding:0;margin:0;flex:none;border-radius:4px;accent-color:var(--brand)}
+.fld>label:has(input[type=checkbox]){font-size:.92rem}
+.multi label{padding:3px 10px 3px 8px;line-height:1.5}
 .multi{display:flex;flex-wrap:wrap;gap:6px;max-height:180px;overflow:auto;padding:2px}
 .multi label{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:.86rem;cursor:pointer;background:var(--surface2)}
 .multi label:has(input:checked){background:var(--brand-soft);border-color:var(--brand);color:var(--brand)}
@@ -413,3 +413,54 @@ a.row{color:inherit;text-decoration:none}
 .sb-tbl .sb-cell.dirty::after{top:auto;bottom:5px;right:5px}
 .sb-kv span{white-space:nowrap}
 @media (min-width:1101px){.sb-grid{grid-template-columns:minmax(0,1fr) 270px}}
+
+/* v2.6 主檔與紀錄：功能入口＋資料表 */
+.dgrp{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.dgrp-b{display:flex;align-items:flex-start;gap:10px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:10px 12px;cursor:pointer;color:var(--ink)}
+.dgrp-b svg.i{color:var(--mut);margin-top:2px}
+.dgrp-b span{display:flex;flex-direction:column;min-width:0}
+.dgrp-b b{font-weight:600;font-size:.95rem}
+.dgrp-b small{font-size:.74rem;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dgrp-b:hover{border-color:var(--brand-2)}
+.dgrp-b.on{border-color:var(--brand);background:var(--brand-soft)}
+.dgrp-b.on svg.i,.dgrp-b.on b{color:var(--brand)}
+.dsub{margin-bottom:8px}
+.ddesc{margin:0 0 12px;font-size:.84rem;color:var(--mut);background:var(--surface2);border-left:3px solid var(--brand-soft);padding:6px 10px;border-radius:0 6px 6px 0}
+@media (max-width:860px){
+  .dgrp{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+/* v2.6 今日：依據點分卡 */
+.td-sum{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.td-sum>div{display:flex;align-items:baseline;gap:6px;border:1px solid var(--line);border-radius:10px;padding:6px 12px;background:var(--surface)}
+.td-sum b{font-size:1.15rem;font-variant-numeric:tabular-nums}
+.td-sum span{font-size:.8rem;color:var(--mut)}
+.td-sum .bad{border-color:transparent;background:var(--bad-soft)}.td-sum .bad b,.td-sum .bad span{color:var(--bad)}
+.td-sum .warn{border-color:transparent;background:var(--warn-soft)}.td-sum .warn b,.td-sum .warn span{color:var(--warn)}
+.tv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:12px;align-items:start}
+@media (max-width:520px){.tv-grid{grid-template-columns:1fr}}
+.tv{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.tv-h{display:flex;align-items:center;gap:6px;padding:10px 14px;background:var(--brand);color:#fff}
+.tv-h b{font-size:1.02rem}
+.tv-h small{margin-left:8px;opacity:.8;font-size:.78rem}
+.tv-h .sp{flex:1}
+.tv-h .tag{font-size:.74rem;border-radius:99px;padding:1px 8px;background:rgba(255,255,255,.18);white-space:nowrap}
+.tv-t{font-size:.78rem;opacity:.85;margin-left:4px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tv-i{display:flex;gap:10px;align-items:flex-start;padding:9px 14px 9px 11px;border-top:1px solid var(--line);border-left:3px solid transparent;cursor:pointer}
+.tv-h+.tv-i{border-top:0}
+.tv-i:hover{background:var(--surface2)}
+.tv-i.c{border-left-color:#3F7A66}
+.tv-i.g{border-left-color:#2F5D8A}
+.tv-i.off{opacity:.55}
+.tv-i.live{background:var(--ok-soft)}
+.tv-i .when{flex:none;width:46px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.25;font-size:.92rem}
+.tv-i .when small{display:block;font-weight:400;color:var(--mut);font-size:.74rem}
+.tv-i .main-c{flex:1;min-width:0}
+.tv-i .t{font-weight:500;line-height:1.4}
+.tv-i .s{font-size:.82rem;color:var(--mut)}
+.tv-i .k{display:inline-block;font-size:.7rem;font-weight:600;border-radius:4px;padding:0 5px;margin-right:6px;vertical-align:1px}
+.tv-i.c .k{background:var(--ok-soft);color:var(--ok)}
+.tv-i.g .k{background:var(--info-soft);color:var(--info)}
+.tv-i .r{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;max-width:150px}
+@media (max-width:520px){.tv-i{flex-wrap:wrap}.tv-i .r{max-width:none;width:100%;justify-content:flex-start;padding-left:56px}}
+.bad-t{color:var(--bad);font-weight:600}

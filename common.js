@@ -78,6 +78,7 @@
     phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>',
     check: '<path d="M20 6L9 17l-5-5"/>',
     chev: '<path d="M9 6l6 6-6 6"/>',
+    pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
     coin: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.4 0-2.5.8-2.5 2s1.1 1.6 2.5 2 2.5.9 2.5 2-1.1 2-2.5 2c-1 0-2-.5-2.5-1.5M12 6.5v1.5M12 16v1.5"/>',
   };
@@ -487,7 +488,7 @@
     const menu = o.menu === false ? '' : '<div class="chips grp-menu">' + chip('', '全部', total) + shown.map((g) => chip(g.id, g.title, g.count)).join('') + '</div>';
     const one = shown.find((g) => g.id === sel);
     const head = (g, isOpen, toggle) => '<div class="sec grp-h' + (toggle ? ' click' : '') + '"' + (toggle ? ' data-act="grpToggle" data-key="' + esc(o.key) + '" data-id="' + esc(g.id) + '" role="button" aria-expanded="' + isOpen + '"' : '') + '>' +
-      (toggle ? '<span class="grp-arrow' + (isOpen ? ' on' : '') + '">' + PB.icon('chev') + '</span>' : '') + '<h2>' + esc(g.title) + '</h2><span class="cnt">' + g.count + ' ' + (o.unit || '件') + '</span>' + (g.meta ? '<span class="grp-meta">' + g.meta + '</span>' : '') + '<span class="sp"></span>' + (isOpen && g.right ? '<span onclick="event.stopPropagation()">' + g.right + '</span>' : '') + '</div>';
+      (toggle ? '<span class="grp-arrow' + (isOpen ? ' on' : '') + '">' + PB.icon('chev') + '</span>' : '') + '<h2>' + esc(g.title) + '</h2><span class="cnt">' + g.count + ' ' + (o.unit || '件') + '</span>' + (g.meta ? '<span class="grp-meta">' + g.meta + '</span>' : '') + '<span class="sp"></span>' + (isOpen && g.right ? '<span data-stop>' + g.right + '</span>' : '') + '</div>';
     const body = (g) => (g.hint ? '<div class="s mut grp-hint">' + esc(g.hint) + '</div>' : '') + ui.safe(g.body, g.title);
     if (one) return menu + head(one, true, false) + (one.count ? body(one) : '<div class="card">' + ui.empty('這區都處理完了', '') + '</div>');
     const open = o.forceOpen ? shown.map((g) => g.id) : saved || [shown[0].id]; // 第一次使用：展開第一區
@@ -904,6 +905,9 @@
     document.addEventListener('click', (e) => {
       const el = e.target.closest('[data-act]');
       if (!el || el.disabled) return;
+      // v2.6：列裡的勾選框、按鈕區用 data-stop 擋「打開整列」；不能用 onclick=stopPropagation（會把裡面按鈕的點擊一起擋掉）
+      const stop = e.target.closest('[data-stop]');
+      if (stop && stop !== el && el.contains(stop)) return;
       const fn = PB.acts[el.dataset.act];
       if (!fn) return;
       e.preventDefault();

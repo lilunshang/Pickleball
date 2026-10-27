@@ -17,10 +17,10 @@
   /** 清單列 */
   function row(o) {
     return '<div class="row' + (o.act ? ' click' : '') + '"' + (o.act ? ' data-act="' + o.act + '" data-id="' + esc(o.id) + '"' : '') + '>' +
-      (o.check ? '<input type="checkbox" data-q="' + esc(o.check) + '" value="' + esc(o.id) + '" onclick="event.stopPropagation()">' : '') +
+      (o.check ? '<input type="checkbox" data-q="' + esc(o.check) + '" value="' + esc(o.id) + '" data-stop>' : '') +
       (o.when !== undefined ? '<div class="when">' + o.when + '</div>' : '') +
       '<div class="main-c"><div class="t">' + (o.t || '') + '</div>' + (o.s ? '<div class="s">' + o.s + '</div>' : '') + '</div>' +
-      (o.r ? '<div class="r">' + o.r + '</div>' : '') + '</div>';
+      (o.r ? '<div class="r"' + (o.act ? ' data-stop' : '') + '>' + o.r + '</div>' : '') + '</div>';
   }
   const card = (inner) => '<div class="card list">' + inner + '</div>';
   const sec = (title, cnt, right) => '<div class="sec"><h2>' + esc(title) + '</h2>' + (cnt !== undefined ? '<span class="cnt">' + cnt + '</span>' : '') + '<span class="sp"></span>' + (right || '') + '</div>';
@@ -32,32 +32,78 @@
   // ================================================================
   // 今日
   // ================================================================
+  // v2.6：依據點分卡片，一眼看到每個據點今天有哪些課程與球敘（時間排序、課程／球敘用顏色區分）
   const Today = {
     id: 'today', label: '今日', icon: 'today', show: isOps,
     render(p) {
       const d = p.d || today();
-      const ses = (PB.ix.sesByDay[d] || []).slice().sort((a, b) => byKey(str(a['開始時間']), str(b['開始時間'])));
-      const games = (PB.ix.gameByDay[d] || []).filter((g) => str(g['狀態']) !== '草稿').sort((a, b) => byKey(str(a['開始時間']), str(b['開始時間'])));
-      const nav = '<div class="ptop"><h1>' + (d === today() ? '今天 ' : '') + fmtD(d) + '</h1><span class="sp"></span>' +
-        btn('前一天', 'day', { d: addDays(d, -1) }, 'ghost') + (d !== today() ? btn('今天', 'day', { d: '' }) : '') + btn('後一天', 'day', { d: addDays(d, 1) }, 'ghost') + '</div>';
-      const sesRows = ses.map((s) => {
+      const isToday = d === today();
+      const now = nowHM();
+      const ses = (PB.ix.sesByDay[d] || []).slice();
+      const games = (PB.ix.gameByDay[d] || []).filter((g) => str(g['狀態']) !== '草稿');
+      const nav = '<div class="ptop"><h1>' + (isToday ? '今天 ' : '') + fmtD(d) + '</h1><span class="sp"></span>' +
+        btn('前一天', 'day', { d: addDays(d, -1) }, 'ghost') + (!isToday ? btn('今天', 'day', { d: '' }) : '') + btn('後一天', 'day', { d: addDays(d, 1) }, 'ghost') + '</div>';
+      // 每個活動整理成同一種格式
+      const items = [];
+      let noRoll = 0, noStaff = 0, people = 0;
+      ses.forEach((s) => {
         const c = PB.get('2_課程班級', s['班級']);
         const st = str(s['場次狀態']);
         const att = PB.ix.attBySes[str(s['場次ID'])] || [];
         const leave = att.filter((a) => str(a['狀態']) === '請假').length;
         const mk = att.filter((a) => str(a['狀態']) === '補課出席').length;
         const info = c ? m.cls(c) : null;
-        let right = st === '已完成' ? '<span class="badge ok">已點名 ' + att.filter((a) => /出席/.test(str(a['狀態']))).length + ' 人</span>' :
+        const expect = info ? info.active.length - leave + mk : 0;
+        const off = st === '取消' || st === '改期';
+        if (!off) people += expect;
+        let right = st === '已完成' ? '<span class="badge ok">已點名 ' + att.filter((a) => /出席/.test(str(a['狀態']))).length + '</span>' :
           st === '取消' ? '<span class="badge bad">停課</span>' : st === '改期' ? '<span class="badge">已改期</span>' :
-            '<span class="badge">應到 ' + (info ? info.active.length - leave + mk : '?') + '</span>' + (leave ? '<span class="badge warn">請假 ' + leave + '</span>' : '');
-        if (st === '預定' && d < today()) right += '<span class="badge bad">未點名</span>';
-        return row({ act: 'openSes', id: s['場次ID'], when: m.hm(s['開始時間']) + '<small>' + m.hm(s['結束時間']).slice(0, 5) + '</small>', t: esc(m.classLabel(c)) + (s['第幾堂'] ? ' <span class="mut">第' + s['第幾堂'] + '/' + (info ? info.total : '') + '堂</span>' : '') + (c && str(c['課程狀態']) === '籌備中' ? ' <span class="badge warn">籌備中</span>' : ''), s: esc(m.venueName(s['據點']) + '・' + m.courtName(s['使用場地']) + '・教練 ' + (m.staffName(s['授課教練']) || '未排')), r: right });
-      }).join('');
-      const gameRows = games.map((g) => {
+            '<span class="badge">應到 ' + (info ? expect : '?') + '</span>' + (leave ? '<span class="badge warn">請假 ' + leave + '</span>' : '');
+        const late = st === '預定' && (d < today() || (isToday && str(s['結束時間']).slice(0, 5) < now));
+        if (late) { right += '<span class="badge bad">未點名</span>'; noRoll += 1; }
+        const coach = m.staffName(s['授課教練']);
+        if (!coach && !off) noStaff += 1;
+        const title = c && m.isSingle(c) ? '【專項】' + str(c['課程名稱']) : m.classLabel(c);
+        items.push({ v: str(s['據點']), st: str(s['開始時間']), en: str(s['結束時間']), kind: 'c', off: off, act: 'openSes', id: s['場次ID'],
+          t: esc(title) + (s['第幾堂'] && !(c && m.isSingle(c)) ? ' <span class="mut">第' + s['第幾堂'] + '/' + (info ? info.total : '') + '堂</span>' : '') + (c && str(c['課程狀態']) === '籌備中' ? ' <span class="badge warn">' + (m.isSingle(c) ? '待成班' : '籌備中') + '</span>' : ''),
+          s: esc(m.courtName(s['使用場地'])) + '・教練 ' + (coach ? esc(coach) : '<b class="bad-t">未排</b>'), r: right });
+      });
+      games.forEach((g) => {
         const x = m.game(g);
-        return row({ act: 'openGame', id: g['球敘ID'], when: m.hm(g['開始時間']) + '<small>' + m.hm(g['結束時間']).slice(0, 5) + '</small>', t: esc(m.gameLabel(g)) + ' ' + m.gameBadge(x.st), s: esc(m.venueName(g['據點']) + '・' + x.courts.map((c) => c.name).join('、') + '・場主 ' + (x.hosts.map((h) => h.name + (h.in ? '✓' : '')).join('、') || '未排')), r: '<span class="badge">報名 ' + x.active.length + '/' + x.limit + '</span>' + (x.wait.length ? '<span class="badge warn">候補 ' + x.wait.length + '</span>' : '') + (x.walkin.length ? '<span class="badge warn">現場 ' + x.walkin.length + '</span>' : '') + (x.checked ? '<span class="badge ok">簽到 ' + x.checked + '</span>' : '') });
+        const off = str(g['狀態']) === '取消';
+        if (!off) people += x.active.length;
+        const hosts = x.hosts.map((h) => esc(h.name) + (h.in ? ' ✓' : '')).join('、');
+        if (!hosts && !off) noStaff += 1;
+        items.push({ v: str(g['據點']), st: str(g['開始時間']), en: str(g['結束時間']), kind: 'g', off: off, act: 'openGame', id: g['球敘ID'],
+          t: esc(m.gameLabel(g)) + ' ' + m.gameBadge(x.st),
+          s: esc(x.courts.map((c) => c.name).join('、')) + '・場主 ' + (hosts || '<b class="bad-t">未排</b>'),
+          r: '<span class="badge">報名 ' + x.active.length + '/' + x.limit + '</span>' + (x.wait.length ? '<span class="badge warn">候補 ' + x.wait.length + '</span>' : '') + (x.walkin.length ? '<span class="badge warn">現場 ' + x.walkin.length + '</span>' : '') + (x.checked ? '<span class="badge ok">簽到 ' + x.checked + '</span>' : '') });
+      });
+      const byV = {};
+      items.forEach((it) => { (byV[it.v] = byV[it.v] || []).push(it); });
+      const vids = Object.keys(byV).sort((a, b) => byKey(byV[a].map((i) => i.st).sort()[0] + m.venueName(a), byV[b].map((i) => i.st).sort()[0] + m.venueName(b)));
+      const nC = items.filter((i) => i.kind === 'c' && !i.off).length, nG = items.filter((i) => i.kind === 'g' && !i.off).length;
+      const sum = '<div class="td-sum">' +
+        '<div><b>' + vids.length + '</b><span>個據點</span></div>' + (nC ? '<div><b>' + nC + '</b><span>堂課程</span></div>' : '') + (nG ? '<div><b>' + nG + '</b><span>場球敘</span></div>' : '') + '<div><b>' + people + '</b><span>人次</span></div>' +
+        (noRoll ? '<div class="bad"><b>' + noRoll + '</b><span>未點名</span></div>' : '') + (noStaff ? '<div class="warn"><b>' + noStaff + '</b><span>未排教練／場主</span></div>' : '') + '</div>';
+      const cards = vids.map((v) => {
+        const list = byV[v].sort((a, b) => byKey(a.st + a.kind, b.st + b.kind));
+        const vr = PB.get('1_據點', v) || {};
+        const c = list.filter((i) => i.kind === 'c' && !i.off).length, g = list.filter((i) => i.kind === 'g' && !i.off).length;
+        const first = list[0].st.slice(0, 5), last = list.map((i) => i.en.slice(0, 5)).sort().pop().replace('23:59', '24:00');
+        return '<div class="tv"><div class="tv-h"><div><b>' + esc(m.venueName(v) || '（未指定據點）') + '</b>' + (str(vr['區域']) ? '<small>' + esc(vr['區域']) + '</small>' : '') + '</div><span class="sp"></span>' +
+          (c ? '<span class="tag c">課程 ' + c + '</span>' : '') + (g ? '<span class="tag g">球敘 ' + g + '</span>' : '') + '<span class="tv-t">' + first + '–' + last + '</span></div>' +
+          list.map((it) => {
+            const live = isToday && !it.off && it.st.slice(0, 5) <= now && now < it.en.slice(0, 5);
+            return '<div class="tv-i ' + it.kind + (it.off ? ' off' : '') + (live ? ' live' : '') + '" data-act="' + it.act + '" data-id="' + esc(it.id) + '">' +
+              '<div class="when">' + m.hm(it.st) + '<small>' + m.hm(it.en).replace('23:59', '24:00') + '</small></div>' +
+              '<div class="main-c"><div class="t"><span class="k">' + (it.kind === 'c' ? '課程' : '球敘') + '</span>' + (live ? '<span class="badge ok">進行中</span> ' : '') + it.t + '</div><div class="s">' + it.s + '</div></div>' +
+              '<div class="r">' + it.r + '</div></div>';
+          }).join('') + '</div>';
       }).join('');
-      return nav + sec('課程', ses.length) + card(sesRows || ui.empty('沒有課程')) + sec('球敘', games.length) + card(gameRows || ui.empty('沒有球敘'));
+      const idle = PB.rows('1_據點').filter((v) => str(v['狀態']) !== '停用' && str(v['狀態']) !== '已停用' && !byV[str(v['據點ID'])]).map((v) => str(v['據點名稱']));
+      return nav + (items.length ? sum + '<div class="tv-grid">' + cards + '</div>' : card(ui.empty('這天沒有課程或球敘', '') + (() => { for (let i = 1; i <= 30; i += 1) { const n = addDays(d, i); if ((PB.ix.sesByDay[n] || []).length || (PB.ix.gameByDay[n] || []).some((g) => str(g['狀態']) !== '草稿')) return '<div class="empty">' + btn('下一個有活動的日子：' + fmtD(n), 'day', { d: n }, 'pri') + '</div>'; } return ''; })())) +
+        (idle.length ? '<p class="mut" style="font-size:.82rem;margin-top:12px">沒有活動的據點：' + esc(idle.join('、')) + '</p>' : '');
     },
   };
   A.day = (d) => PB.setParam('d', d.d);
@@ -188,7 +234,7 @@
     row: (n) => row({ act: str(n['對象學員']) ? 'openStu' : '', id: n['對象學員'], t: esc((str(n['對象學員']) ? m.stuName(n['對象學員']) : m.staffName(n['對象人員'])) + '・' + str(n['通知類型'])), s: esc(fmtDT(n['發送時間']) + '・' + str(n['官方帳號']) + '・' + str(n['錯誤訊息']).slice(0, 80)) }),
   });
   q({
-    id: 'lead', title: '招生待跟進', hint: '兩次沒回就停；未成交要寫原因',
+    id: 'lead', title: '招生待跟進', hint: '只列今天該跟進（下次跟進日已到或沒填）的；全部跟進中的學員請看「學員 → 跟進中」。兩次沒回就停；未成交要寫原因',
     items: () => PB.rows('2_招生跟進').filter((l) => ['已報名', '未成交'].indexOf(str(l['跟進狀態'])) < 0 && (!day(l['下次跟進日期']) || day(l['下次跟進日期']) <= today())),
     row: (l) => row({ act: 'leadEdit', id: l['跟進ID'], t: esc(m.stuName(l['學員'])) + ' <span class="badge">' + esc(l['跟進狀態']) + '</span>', s: esc((day(l['下次跟進日期']) ? '跟進日 ' + fmtD(l['下次跟進日期']) : '未排下次跟進') + (str(l['需求']) ? '・' + str(l['需求']).slice(0, 40) : '')), r: ui.tel(m.phone(PB.get('1_學員', l['學員']))) }),
   });
@@ -799,7 +845,9 @@
   // ================================================================
   // 學員
   // ================================================================
-  const STU_FILTERS = { 全部: () => true, 課程學員: (s) => str(s['身分']) === '課程學員', 有未收: (s) => m.stu(s).owed > 0, 剩堂1以下: (s) => str(s['身分']) === '課程學員' && m.stu(s).lessons <= 1, 待合併: (s) => s['待合併'] === true && !str(s['合併至']) };
+  const STU_FILTERS = { 全部: () => true, 課程學員: (s) => str(s['身分']) === '課程學員', 有未收: (s) => m.stu(s).owed > 0, 剩堂1以下: (s) => str(s['身分']) === '課程學員' && m.stu(s).lessons <= 1, 待合併: (s) => s['待合併'] === true && !str(s['合併至']), 跟進中: (s) => openLeads(s).length > 0 };
+  // v2.6：招生跟進還沒結束的（含下次跟進日在未來的）；待處理只列「今天該跟進」的
+  const openLeads = (s) => (PB.ix.leadByStu[str(s['學員ID'])] || []).filter((l) => ['已報名', '未成交'].indexOf(str(l['跟進狀態'])) < 0);
   const Students = {
     id: 'students', label: '學員', icon: 'users', show: isOps,
     render(p) {
@@ -815,7 +863,7 @@
         '<label class="search">' + PB.icon('search') + '<input placeholder="姓名、電話、LINE 名稱" value="' + esc(p.q || '') + '" data-input="stuSearch"></label></div>';
       const rows = list.slice(0, num(p.n) || 80).map((s) => {
         const x = m.stu(s);
-        return row({ act: 'openStu', id: s['學員ID'], t: esc(str(s['姓名']) || str(s['LINE顯示名稱']) || '（未填姓名）') + (str(s['身分']) ? ' <span class="badge">' + esc(s['身分']) + '</span>' : '') + (x.guardian ? ' <span class="badge info">' + esc(m.stuName(s['管理人']) + '的' + (str(s['與管理人關係']) || '家人')) + '</span>' : '') + (s['待合併'] === true ? ' <span class="badge warn">待合併</span>' : ''), s: esc([str(s['電話']), str(s['LINE顯示名稱']) ? 'LINE ' + s['LINE顯示名稱'] : '', m.levelName(s['程度'])].filter(Boolean).join('・')), r: (x.owed > 0 ? '<span class="badge bad">未收 ' + money(x.owed) + '</span>' : '') + (x.lessons ? '<span class="badge">剩 ' + x.lessons + ' 堂</span>' : '') });
+        return row({ act: 'openStu', id: s['學員ID'], t: esc(str(s['姓名']) || str(s['LINE顯示名稱']) || '（未填姓名）') + (str(s['身分']) ? ' <span class="badge">' + esc(s['身分']) + '</span>' : '') + (x.guardian ? ' <span class="badge info">' + esc(m.stuName(s['管理人']) + '的' + (str(s['與管理人關係']) || '家人')) + '</span>' : '') + (s['待合併'] === true ? ' <span class="badge warn">待合併</span>' : '') + (f === '跟進中' ? (() => { const L = openLeads(s).map((l) => day(l['下次跟進日期'])).filter(Boolean).sort(); return ' <span class="badge ' + (L[0] && L[0] <= today() ? 'warn' : 'info') + '">' + (L[0] ? '下次跟進 ' + esc(fmtD(L[0])) : '跟進中') + '</span>'; })() : ''), s: esc([str(s['電話']), str(s['LINE顯示名稱']) ? 'LINE ' + s['LINE顯示名稱'] : '', m.levelName(s['程度'])].filter(Boolean).join('・')), r: (x.owed > 0 ? '<span class="badge bad">未收 ' + money(x.owed) + '</span>' : '') + (x.lessons ? '<span class="badge">剩 ' + x.lessons + ' 堂</span>' : '') });
       }).join('');
       return top + card((rows || ui.empty('找不到學員', '可以用電話或 LINE 名稱搜尋')) + (total > (num(p.n) || 80) ? '<div class="empty">' + ui.btn('顯示更多', 'param', { k: 'n', v: (num(p.n) || 80) + 200 }) + '</div>' : ''));
     },
@@ -1219,7 +1267,7 @@
   PB.app({
     app: 'ops',
     title: '營運工作台',
-    version: '2.3',
+    version: '2.6',
     screens: [Today, Queue, Classes, Games, Students, Kb, Publish, Sources],
     links: () => (!PB.cfg.kb && PB.cfg.kbUrl ? [{ label: '知識庫', url: PB.cfg.kbUrl, icon: 'kb', mobile: true }] : []),
   });
