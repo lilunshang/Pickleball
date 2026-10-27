@@ -239,9 +239,9 @@
     link: { label: '到財務處理', go: 'finance', p: { tab: '分潤結算' } },
   });
   Q.push({
-    title: '應付支出（3 天內到期與逾期）',
-    items: () => PB.rows('3_支出').filter((e) => str(e['付款狀態']) === '應付' && day(e['日期']) <= addDays(today(), 3)).sort((a, b) => byKey(day(a['日期']), day(b['日期']))),
-    row: (e) => row({ act: 'expEdit', id: e['支出ID'], t: esc(fmtD(e['日期']) + '｜' + (str(e['細目']) || str(e['類別'])) + '｜' + money(e['金額'])) + (day(e['日期']) < today() ? ' <span class="badge bad">逾期</span>' : ''), s: esc([m.venueName(e['據點']), m.staffName(e['受款人員']), m.label('1_合作夥伴', PB.get('1_合作夥伴', e['受款夥伴'])), str(e['備註'])].filter(Boolean).join('・')), r: btn('已付', 'expPaid', { id: e['支出ID'] }, 'pri') }),
+    title: '應付支出',
+    items: () => PB.rows('3_支出').filter((e) => str(e['付款狀態']) !== '已付').sort((a, b) => byKey(day(a['日期']), day(b['日期']))),
+    row: (e) => row({ act: 'expEdit', id: e['支出ID'], t: esc(fmtD(e['日期']) + '｜' + (str(e['細目']) || str(e['類別'])) + '｜' + money(e['金額'])) + (day(e['日期']) < today() ? ' <span class="badge bad">逾期</span>' : ''), s: esc([m.venueName(e['據點']), m.staffName(e['受款人員']), m.label('1_合作夥伴', PB.get('1_合作夥伴', e['受款夥伴'])), str(e['備註'])].filter(Boolean).join('・')), r: btn('去付款', 'expGoPay', { id: e['支出ID'] }, 'pri') }),
   });
   Q.push({
     title: '30 天內到期的合約與方案',
@@ -302,14 +302,14 @@
   // ================================================================
   // 財務
   // ================================================================
-  const FIN_TABS = ['人員月結', '分潤結算', '支出', '應收總覽', '抵用金'];
+  const FIN_TABS = ['付款', '人員月結', '分潤結算', '支出', '應收總覽', '抵用金'];
   const Finance = {
     id: 'finance', label: '財務', icon: 'cash',
     render(p) {
       const tab = FIN_TABS.indexOf(p.tab) >= 0 ? p.tab : FIN_TABS[0];
       const mon = p.m || defaultSettleMonth();
-      const head = '<div class="ptop"><h1>財務</h1><span class="sp"></span>' + (['應收總覽', '抵用金'].indexOf(tab) < 0 && !(tab === '支出' && p.v !== 'month') ? monthSelect(mon, 'finMonth') : '') + '</div><div class="tabs">' + FIN_TABS.map((t) => '<button class="' + (t === tab ? 'on' : '') + '" data-act="finTab" data-v="' + t + '">' + t + '</button>').join('') + '</div>';
-      return head + ui.safe(() => ({ 人員月結: settleTab, 分潤結算: profitTab, 支出: expenseTab, 應收總覽: arTab, 抵用金: creditTab })[tab](mon, p), tab);
+      const head = '<div class="ptop"><h1>財務</h1><span class="sp"></span>' + (['付款', '應收總覽', '抵用金'].indexOf(tab) < 0 ? monthSelect(mon, 'finMonth') : '') + '</div><div class="tabs">' + FIN_TABS.map((t) => '<button class="' + (t === tab ? 'on' : '') + '" data-act="finTab" data-v="' + t + '">' + t + '</button>').join('') + '</div>';
+      return head + ui.safe(() => ({ 付款: payTab, 人員月結: settleTab, 分潤結算: profitTab, 支出: expenseTab, 應收總覽: arTab, 抵用金: creditTab })[tab](mon, p), tab);
     },
   };
   function defaultSettleMonth() {
@@ -323,7 +323,7 @@
     const list = PB.rows('3_人員費用結算').filter((s) => str(s['月份']) === mon).sort((a, b) => byKey(str(a['結算類型']) + m.staffName(a['人員']), str(b['結算類型']) + m.staffName(b['人員'])));
     const tot = (st) => sum(list.filter((s) => !st || str(s['狀態']) === st), (s) => num(s['計算金額']) + num(s['調整金額']));
     const rows = list.map((s) => '<tr class="click" data-act="settleOpen" data-id="' + esc(s['結算ID']) + '"><td data-stop><input type="checkbox" data-q="settle" value="' + esc(s['結算ID']) + '"></td><td>' + esc(m.staffName(s['人員'])) + '</td><td>' + esc(s['結算類型']) + '</td><td class="num">' + money(s['計算金額']) + '</td><td class="num">' + (num(s['調整金額']) ? money(s['調整金額']) : '') + '</td><td class="num"><b>' + money(num(s['計算金額']) + num(s['調整金額'])) + '</b></td><td><span class="badge ' + ({ 試算中: 'warn', 待付款: 'info', 已付款: 'ok' }[str(s['狀態'])] || '') + '">' + esc(s['狀態']) + '</span>' + (day(s['付款日期']) ? ' <span class="mut">' + fmtD(s['付款日期']) + '</span>' : '') + '</td><td class="mut" style="white-space:normal">' + esc(s['調整原因']) + '</td></tr>').join('');
-    return '<div class="acts">' + btn('勾選的送出付款', 'settleTo', { to: '待付款' }, 'pri') + btn('勾選的標記已付款', 'settleTo', { to: '已付款' }) + btn('退回試算', 'settleTo', { to: '試算中' }, 'ghost') + '</div>' +
+    return '<div class="acts">' + btn('勾選的送出付款', 'settleTo', { to: '待付款' }, 'pri') + btn('去付款（可和分潤、支出一起匯）', 'param2', { k: 'tab', v: '付款' }) + btn('退回試算', 'settleTo', { to: '試算中' }, 'ghost') + '</div>' +
       '<div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>人員</th><th>類型</th><th class="num">計算</th><th class="num">調整</th><th class="num">應付</th><th>狀態</th><th>調整原因</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8" class="mut">這個月沒有結算單（每月 1 日 06:00 由系統產生上個月的試算）</td></tr>') +
       '</tbody><tfoot><tr><td></td><td colspan="4">合計（試算中 ' + money(tot('試算中')) + '・待付款 ' + money(tot('待付款')) + '）</td><td class="num">' + money(tot()) + '</td><td colspan="2"></td></tr></tfoot></table></div>' +
       '<p class="mut" style="font-size:.8rem">試算中可以調整金額；送出付款後不能再改。改了場次的教練費／場主費後，請在管理 GAS 執行 f01Recalc() 重算。</p>';
@@ -362,7 +362,7 @@
       const can = num(s['本月總收入']) - num(s['場地成本']) - num(s['教練成本']) - num(s['場主成本']) - num(s['其他成本']);
       return '<tr><td><input type="checkbox" data-q="profit" value="' + esc(s['結算ID']) + '"></td><td>' + esc(m.label('3_合作方案', PB.get('3_合作方案', s['合作方案']))) + '</td><td class="num">' + money(s['本月總收入']) + '</td><td class="num">' + money(s['場地成本']) + '</td><td class="num">' + money(s['教練成本']) + '</td><td class="num">' + money(s['場主成本']) + '</td><td class="num">' + money(s['其他成本']) + '</td><td class="num">' + money(can) + '</td><td class="num">' + money(s['理論上金額']) + '</td><td class="num"><b>' + money(s['合作方金額']) + '</b></td><td><span class="badge ' + ({ 試算: 'warn', 已確認: 'info', 已付款: 'ok' }[str(s['結算狀態'])] || '') + '">' + esc(s['結算狀態']) + '</span></td></tr>';
     }).join('');
-    return '<div class="acts">' + btn('勾選的確認', 'profitTo', { to: '已確認' }, 'pri') + btn('勾選的標記已付款', 'profitTo', { to: '已付款' }) + btn('退回試算', 'profitTo', { to: '試算' }, 'ghost') + '</div>' +
+    return '<div class="acts">' + btn('勾選的確認', 'profitTo', { to: '已確認' }, 'pri') + btn('去付款', 'param2', { k: 'tab', v: '付款' }) + btn('退回試算', 'profitTo', { to: '試算' }, 'ghost') + '</div>' +
       '<div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>合作方案</th><th class="num">總收入</th><th class="num">場地</th><th class="num">教練</th><th class="num">場主</th><th class="num">其他</th><th class="num">可分潤</th><th class="num">理論上</th><th class="num">合作方</th><th>狀態</th></tr></thead><tbody>' + (rows || '<tr><td colspan="11" class="mut">這個月沒有分潤結算（每月 1 日由系統試算）</td></tr>') + '</tbody></table></div>' +
       '<p class="mut" style="font-size:.8rem">試算可重算覆蓋；確認後系統不再改動。分潤虧損時合作方金額＝0（我方吸收）。</p>';
   }
@@ -378,139 +378,169 @@
     PB.run('profitStatus', { ids: ids, to: d.to, date: date });
   };
 
-  // ---------------- 支出（v2.7：待付款依受款對象勾選、批次付款、付款紀錄、憑證照片） ----------------
-  const EXP_VIEWS = { due: '待付款', paid: '付款紀錄', month: '本月明細' };
-  const LSK = 'pb:expSel';
-  const expSel = (() => { try { return new Set(JSON.parse(localStorage.getItem(LSK) || '[]')); } catch (e) { return new Set(); } })();
-  const saveSel = () => { try { localStorage.setItem(LSK, JSON.stringify(Array.from(expSel))); } catch (e) { /* 私密視窗 */ } };
-  /** 受款對象：人員 → 合作夥伴 → 據點（場租等沒填受款人時）→ 未指定 */
-  function payeeOf(e) {
-    if (str(e['受款人員'])) return { k: 'P:' + str(e['受款人員']), name: m.staffName(e['受款人員']) || '（人員已刪除）', kind: '人員', id: str(e['受款人員']) };
-    if (str(e['受款夥伴'])) { const p = PB.get('1_合作夥伴', e['受款夥伴']) || {}; return { k: 'B:' + str(e['受款夥伴']), name: str(p['名稱']) || '（夥伴已刪除）', kind: '合作夥伴', id: str(e['受款夥伴']), info: str(p['付款資訊']) }; }
-    if (str(e['據點'])) return { k: 'V:' + str(e['據點']), name: m.venueName(e['據點']) + '（據點）', kind: '據點', id: str(e['據點']), info: venuePayInfo(str(e['據點'])) };
+  // ---------------- 付款（v2.8：同一個受款對象的 人員月結＋分潤＋支出 一次匯款） ----------------
+  const PAY_VIEWS = { due: '待付款', paid: '付款紀錄' };
+  const LSK = 'pb:paySel';
+  const paySel = (() => { try { return new Set(JSON.parse(localStorage.getItem(LSK) || '[]')); } catch (e) { return new Set(); } })();
+  const saveSel = () => { try { localStorage.setItem(LSK, JSON.stringify(Array.from(paySel))); } catch (e) { /* 私密視窗 */ } };
+  /** 受款對象：人員 → 合作夥伴 → 據點 → 未指定 */
+  function payee(kind, id) {
+    if (kind === '人員' && id) return { k: 'P:' + id, name: m.staffName(id) || '（人員已刪除）', kind: '人員', id: id };
+    if (kind === '合作夥伴' && id) { const p = PB.get('1_合作夥伴', id) || {}; return { k: 'B:' + id, name: str(p['名稱']) || '（夥伴已刪除）', kind: '合作夥伴', id: id, info: str(p['付款資訊']) }; }
+    if (kind === '據點' && id) return { k: 'V:' + id, name: m.venueName(id) + '（據點）', kind: '據點', id: id, info: venuePayInfo(id) };
     return { k: 'N:', name: '未指定受款對象', kind: '' };
+  }
+  function payeeOf(e) {
+    if (str(e['受款人員'])) return payee('人員', str(e['受款人員']));
+    if (str(e['受款夥伴'])) return payee('合作夥伴', str(e['受款夥伴']));
+    return payee('據點', str(e['據點']));
   }
   function venuePayInfo(vid) {
     if (!PB.has('3_合作方案')) return '';
     const p = PB.rows('3_合作方案').find((x) => str(x['合作對象類型']) === '據點' && str(x['據點']) === vid && (!day(x['失效日期']) || day(x['失效日期']) >= today()));
     return p ? [str(p['付款方式']), str(p['付款週期'])].filter(Boolean).join('・') : '';
   }
-  const fileCount = (e) => str(e['憑證']).split('\n').filter(Boolean).length + str(e['付款憑證']).split('\n').filter(Boolean).length;
   const expLine = (e) => str(e['類別']) + (str(e['細目']) ? '／' + str(e['細目']) : '');
+  const fileCount = (e) => str(e['憑證']).split('\n').filter(Boolean).length + str(e['付款憑證']).split('\n').filter(Boolean).length;
+  /** 三種來源整理成同一種付款項目 */
+  function payItems(paid) {
+    const out = [];
+    PB.rows('3_支出').forEach((e) => {
+      const isPaid = str(e['付款狀態']) === '已付';
+      if (isPaid !== !!paid) return;
+      out.push({ t: '支出', id: str(e['支出ID']), r: e, py: payeeOf(e), d: day(e['日期']), label: expLine(e) + (str(e['備註']) ? '・' + str(e['備註']).slice(0, 30) : ''), amt: num(e['金額']), files: fileCount(e), open: 'expEdit' });
+    });
+    if (PB.has('3_人員費用結算')) PB.rows('3_人員費用結算').forEach((s) => {
+      const st = str(s['狀態']);
+      if (paid ? st !== '已付款' : st !== '待付款') return;
+      out.push({ t: '月結', id: str(s['結算ID']), r: s, py: payee('人員', str(s['人員'])), d: str(s['月份']), label: str(s['月份']) + ' ' + str(s['結算類型']) + '月結' + (num(s['調整金額']) ? '（調整 ' + money(s['調整金額']) + '）' : ''), amt: num(s['計算金額']) + num(s['調整金額']), files: 0, open: 'settleOpen' });
+    });
+    if (PB.has('3_分潤結算')) PB.rows('3_分潤結算').forEach((s) => {
+      const st = str(s['結算狀態']);
+      if (paid ? st !== '已付款' : st !== '已確認') return;
+      if (num(s['合作方金額']) <= 0) return;
+      const plan = PB.get('3_合作方案', s['合作方案']) || {};
+      const kind = str(plan['合作對象類型']);
+      const py = payee(kind, str(kind === '人員' ? plan['人員'] : kind === '合作夥伴' ? plan['合作夥伴'] : plan['據點']));
+      out.push({ t: '分潤', id: str(s['結算ID']), r: s, py: py, d: str(s['月份']), label: str(s['月份']) + ' 分潤｜' + str(plan['方案名稱']), amt: num(s['合作方金額']), files: 0, open: '' });
+    });
+    return out;
+  }
+  const skey = (x) => x.t + ':' + x.id;
+  const TBADGE = { 支出: '', 月結: 'info', 分潤: 'brand' };
 
-  function expenseTab(mon, p) {
-    const v = EXP_VIEWS[p.v] ? p.v : 'due';
-    const all = PB.rows('3_支出');
-    const due = all.filter((e) => str(e['付款狀態']) !== '已付');
-    const chips = '<div class="chips" style="margin-bottom:12px">' + Object.keys(EXP_VIEWS).map((k) => '<button class="chip' + (k === v ? ' on' : '') + '" data-act="param2" data-k="v" data-v="' + k + '">' + EXP_VIEWS[k] + (k === 'due' ? '<span class="c">' + due.length + '</span>' : '') + '</button>').join('') + '</div>';
-    const top = '<div class="acts">' + btn('新增支出', 'expNew', {}, 'pri', 'plus') + '</div>' + chips;
-    if (v === 'paid') return top + paidView(all, p);
-    if (v === 'month') return top + monthView(all, mon);
-    return top + dueView(due, p);
+  function payTab(mon, p) {
+    const v = PAY_VIEWS[p.v] ? p.v : 'due';
+    const due = payItems(false);
+    const chips = '<div class="chips" style="margin-bottom:12px">' + Object.keys(PAY_VIEWS).map((k) => '<button class="chip' + (k === v ? ' on' : '') + '" data-act="param2" data-k="v" data-v="' + k + '">' + PAY_VIEWS[k] + (k === 'due' ? '<span class="c">' + due.length + '</span>' : '') + '</button>').join('') + '</div>';
+    const pend = PB.has('3_人員費用結算') ? PB.rows('3_人員費用結算').filter((s) => str(s['狀態']) === '試算中').length : 0;
+    const pendP = PB.has('3_分潤結算') ? PB.rows('3_分潤結算').filter((s) => str(s['結算狀態']) === '試算').length : 0;
+    const tip = pend || pendP ? '<div class="note" style="margin-bottom:10px">還有 ' + [pend ? '人員月結試算中 ' + pend + ' 筆' : '', pendP ? '分潤試算 ' + pendP + ' 筆' : ''].filter(Boolean).join('、') + '：核對後在「人員月結」按「送出付款」、在「分潤結算」按「確認」，才會出現在這裡。</div>' : '';
+    return chips + (v === 'paid' ? paidView(p) : tip + dueView(due, p));
   }
 
   function dueView(due, p) {
-    Array.from(expSel).forEach((id) => { if (!due.some((e) => str(e['支出ID']) === id)) expSel.delete(id); });
+    const keys = due.map(skey);
+    Array.from(paySel).forEach((k) => { if (keys.indexOf(k) < 0) paySel.delete(k); });
     const kw = str(p.q).toLowerCase();
-    const until = p.until || '';
-    let list = due.filter((e) => !until || day(e['日期']) <= until);
-    if (kw) list = list.filter((e) => (payeeOf(e).name + expLine(e) + str(e['備註']) + m.venueName(e['據點'])).toLowerCase().indexOf(kw) >= 0);
+    let list = due;
+    if (kw) list = list.filter((x) => (x.py.name + x.label + x.t).toLowerCase().indexOf(kw) >= 0);
     const groups = {};
-    list.forEach((e) => { const py = payeeOf(e); (groups[py.k] = groups[py.k] || { py: py, list: [] }).list.push(e); });
-    const keys = Object.keys(groups).sort((a, b) => sum(groups[b].list, (e) => e['金額']) - sum(groups[a].list, (e) => e['金額']));
-    const cards = keys.map((k) => {
+    list.forEach((x) => { (groups[x.py.k] = groups[x.py.k] || { py: x.py, list: [] }).list.push(x); });
+    const order = Object.keys(groups).sort((a, b) => sum(groups[b].list, (x) => x.amt) - sum(groups[a].list, (x) => x.amt));
+    const cards = order.map((k) => {
       const g = groups[k];
-      const ids = g.list.map((e) => str(e['支出ID']));
-      const on = ids.filter((id) => expSel.has(id)).length;
-      const rows = g.list.sort((a, b) => byKey(day(a['日期']), day(b['日期']))).map((e) => {
-        const id = str(e['支出ID']);
-        const late = day(e['日期']) < today();
-        return '<tr class="click" data-act="expEdit" data-id="' + esc(id) + '"><td data-stop><input type="checkbox" data-expsel="' + esc(id) + '"' + (expSel.has(id) ? ' checked' : '') + '></td><td>' + esc(fmtD(e['日期'])) + (late ? ' <span class="badge warn">已到期</span>' : '') + '</td><td>' + esc(expLine(e)) + '</td><td class="mut m-hide">' + esc(g.py.kind === '據點' ? '' : m.venueName(e['據點'])) + '</td><td class="mut m-hide" style="white-space:normal">' + esc(str(e['備註']).slice(0, 50)) + '</td><td class="fclip m-hide">' + (fileCount(e) ? '📎 ' + fileCount(e) : '') + '</td><td class="num">' + money(e['金額']) + '</td></tr>';
-      }).join('');
-      return '<div class="card exp-g"><div class="exp-gh"><label class="exp-all"><input type="checkbox" data-expgrp="' + esc(ids.join(',')) + '"' + (on === ids.length ? ' checked' : '') + '><b>' + esc(g.py.name) + '</b></label>' +
-        (g.py.kind ? '<span class="badge">' + esc(g.py.kind) + '</span>' : '') + (g.py.info ? '<span class="mut exp-info">' + esc(g.py.info) + '</span>' : '') + (g.py.kind === '人員' ? btn('匯款資料', 'secretView', { id: g.py.id }, 'ghost') : '') +
-        '<span class="sp"></span><span class="mut">' + g.list.length + ' 筆</span><b class="num">' + money(sum(g.list, (e) => e['金額'])) + '</b></div>' +
+      const ks = g.list.map(skey);
+      const on = ks.filter((x) => paySel.has(x)).length;
+      const kinds = uniq(g.list.map((x) => x.t));
+      const rows = g.list.sort((a, b) => byKey(a.t + a.d, b.t + b.d)).map((x) => '<tr' + (x.open ? ' class="click" data-act="' + x.open + '" data-id="' + esc(x.id) + '"' : '') + '><td data-stop><input type="checkbox" data-paysel="' + esc(skey(x)) + '"' + (paySel.has(skey(x)) ? ' checked' : '') + '></td><td><span class="badge ' + TBADGE[x.t] + '">' + x.t + '</span></td><td style="white-space:normal">' + esc(x.t === '支出' ? fmtD(x.d) + '・' + x.label : x.label) + '</td><td class="fclip m-hide">' + (x.files ? '📎 ' + x.files : '') + '</td><td class="num">' + money(x.amt) + '</td></tr>').join('');
+      return '<div class="card exp-g"><div class="exp-gh"><label class="exp-all"><input type="checkbox" data-paygrp="' + esc(ks.join(',')) + '"' + (on === ks.length ? ' checked' : '') + '><b>' + esc(g.py.name) + '</b></label>' +
+        (g.py.kind ? '<span class="badge">' + esc(g.py.kind) + '</span>' : '') + (kinds.length > 1 ? '<span class="mut" style="font-size:.8rem">' + esc(kinds.join('＋')) + '</span>' : '') + (g.py.info ? '<span class="mut exp-info">' + esc(g.py.info) + '</span>' : '') + (g.py.kind === '人員' ? btn('匯款資料', 'secretView', { id: g.py.id }, 'ghost') : '') +
+        '<span class="sp"></span><span class="mut">' + g.list.length + ' 筆</span><b class="num">' + money(sum(g.list, (x) => x.amt)) + '</b></div>' +
         '<div class="tbl-wrap flat"><table class="tbl"><tbody>' + rows + '</tbody></table></div></div>';
     }).join('');
-    const filt = '<div class="ptop"><label class="search">' + PB.icon('search') + '<input placeholder="受款對象、項目、備註" value="' + esc(p.q || '') + '" data-input="arSearch"></label>' +
-      '<label class="mut" style="font-size:.85rem">到期日到 <input type="date" class="btn sm" value="' + esc(until) + '" data-input="expUntil"></label><span class="sp"></span><span class="mut">應付 ' + list.length + ' 筆・' + money(sum(list, (e) => e['金額'])) + '</span></div>';
-    return filt + (cards || '<div class="card">' + ui.empty('沒有待付款的支出', '') + '</div>') + '<div class="exp-bar" id="expBar">' + barHtml(due) + '</div>' +
-      '<p class="mut" style="font-size:.8rem">勾選的項目會記在這台裝置，可以分幾天慢慢勾，決定好付款日再一起付。包場租金由系統每月 1 日依合作方案自動建立（備註 F03:…）。</p>';
+    const filt = '<div class="ptop"><label class="search">' + PB.icon('search') + '<input placeholder="受款對象、項目" value="' + esc(p.q || '') + '" data-input="arSearch"></label><span class="sp"></span><span class="mut">待付 ' + list.length + ' 筆・' + money(sum(list, (x) => x.amt)) + '</span>' + btn('新增支出', 'expNew', {}, 'ghost', 'plus') + '</div>';
+    return filt + (cards || '<div class="card">' + ui.empty('沒有待付款的項目', '') + '</div>') + '<div class="exp-bar" id="payBar">' + barHtml() + '</div>' +
+      '<p class="mut" style="font-size:.8rem">同一個人的月結、分潤、支出可以一起勾、一起付（同一次付款、同一張轉帳截圖）。勾選記在這台裝置，可以分幾天慢慢勾。</p>';
   }
-  function barHtml(due) {
-    const sel = due.filter((e) => expSel.has(str(e['支出ID'])));
+  function barHtml() {
+    const sel = payItems(false).filter((x) => paySel.has(skey(x)));
     if (!sel.length) return '<span class="mut">勾選本次要付的項目</span>';
-    const payees = uniq(sel.map((e) => payeeOf(e).k)).length;
-    return '<span>已勾選 <b>' + sel.length + '</b> 筆・' + payees + ' 個對象・合計 <b class="num">' + money(sum(sel, (e) => e['金額'])) + '</b></span><span class="sp"></span>' + btn('清除勾選', 'expSelClear', {}, 'ghost') + btn('付款…', 'expPay', {}, 'pri');
+    return '<span>已勾選 <b>' + sel.length + '</b> 筆・' + uniq(sel.map((x) => x.py.k)).length + ' 個對象・合計 <b class="num">' + money(sum(sel, (x) => x.amt)) + '</b></span><span class="sp"></span>' + btn('清除勾選', 'paySelClear', {}, 'ghost') + btn('付款…', 'payGo', {}, 'pri');
   }
-  const refreshBar = () => { const el = document.getElementById('expBar'); if (el) el.innerHTML = barHtml(PB.rows('3_支出').filter((e) => str(e['付款狀態']) !== '已付')); };
   document.addEventListener('change', (e) => {
-    const one = e.target.closest && e.target.closest('input[data-expsel]');
-    const grp = e.target.closest && e.target.closest('input[data-expgrp]');
+    const one = e.target.closest && e.target.closest('input[data-paysel]');
+    const grp = e.target.closest && e.target.closest('input[data-paygrp]');
     if (!one && !grp) return;
-    if (one) { if (one.checked) expSel.add(one.dataset.expsel); else expSel.delete(one.dataset.expsel); }
+    if (one) { if (one.checked) paySel.add(one.dataset.paysel); else paySel.delete(one.dataset.paysel); }
     if (grp) {
-      grp.dataset.expgrp.split(',').forEach((id) => { if (grp.checked) expSel.add(id); else expSel.delete(id); });
-      grp.closest('.exp-g').querySelectorAll('input[data-expsel]').forEach((c) => { c.checked = grp.checked; });
+      grp.dataset.paygrp.split(',').forEach((k) => { if (grp.checked) paySel.add(k); else paySel.delete(k); });
+      grp.closest('.exp-g').querySelectorAll('input[data-paysel]').forEach((c) => { c.checked = grp.checked; });
     }
     saveSel();
-    refreshBar();
+    const el = document.getElementById('payBar');
+    if (el) el.innerHTML = barHtml();
   });
-  PB.inputs.expUntil = (v) => PB.setParam('until', v);
-  A.expSelClear = () => { expSel.clear(); saveSel(); PB.render(); };
-  A.expPay = async () => {
-    const sel = PB.rows('3_支出').filter((e) => str(e['付款狀態']) !== '已付' && expSel.has(str(e['支出ID'])));
+  A.paySelClear = () => { paySel.clear(); saveSel(); PB.render(); };
+  // 待處理「去付款」、人員月結「去付款」→ 勾起來帶到付款頁
+  A.expGoPay = (d) => { paySel.add('支出:' + d.id); saveSel(); PB.go('finance', { tab: '付款', v: 'due' }); };
+  A.payGo = async () => {
+    const sel = payItems(false).filter((x) => paySel.has(skey(x)));
     if (!sel.length) return ui.toast('請先勾選', 'bad');
     const groups = {};
-    sel.forEach((e) => { const py = payeeOf(e); (groups[py.k] = groups[py.k] || { py: py, list: [] }).list.push(e); });
+    sel.forEach((x) => { (groups[x.py.k] = groups[x.py.k] || { py: x.py, list: [] }).list.push(x); });
     const staff = Object.keys(groups).map((k) => groups[k].py).filter((py) => py.kind === '人員').map((py) => py.id);
     const info = staff.length ? await PB.read('payeeInfo', { staff: staff }) : null;
     const bank = (py) => { const r = info && info.staff[py.id]; return r && (r.匯款銀行 || r.帳號) ? r.匯款銀行 + ' ' + r.帳號 : py.kind === '人員' ? '沒有匯款資料' : py.info || ''; };
-    const list = Object.keys(groups).map((k) => { const g = groups[k]; return '<tr><td><b>' + esc(g.py.name) + '</b><br><span class="mut" style="font-size:.8rem">' + esc(bank(g.py)) + '</span></td><td class="num">' + g.list.length + ' 筆</td><td class="num"><b>' + money(sum(g.list, (e) => e['金額'])) + '</b></td></tr>'; }).join('');
-    const body = '<div class="tbl-wrap" style="margin-bottom:10px"><table class="tbl"><tbody>' + list + '</tbody><tfoot><tr><td>合計</td><td class="num">' + sel.length + ' 筆</td><td class="num">' + money(sum(sel, (e) => e['金額'])) + '</td></tr></tfoot></table></div>' +
+    const list = Object.keys(groups).map((k) => { const g = groups[k]; return '<tr><td><b>' + esc(g.py.name) + '</b><br><span class="mut" style="font-size:.8rem">' + esc(bank(g.py)) + '</span><br><span class="mut" style="font-size:.76rem">' + esc(uniq(g.list.map((x) => x.t)).map((t) => t + ' ' + g.list.filter((x) => x.t === t).length).join('・')) + '</span></td><td class="num"><b>' + money(sum(g.list, (x) => x.amt)) + '</b></td></tr>'; }).join('');
+    const body = '<div class="tbl-wrap" style="margin-bottom:10px"><table class="tbl"><tbody>' + list + '</tbody><tfoot><tr><td>合計 ' + sel.length + ' 筆</td><td class="num">' + money(sum(sel, (x) => x.amt)) + '</td></tr></tfoot></table></div>' +
       '<div class="fld-row"><div class="fld"><label>付款日期</label><input type="date" name="date" value="' + today() + '"></div><div class="fld"><label>付款方式</label><select name="method">' + (PB.enums['支出付款方式'] || ['轉帳', '現金', '其他']).map((x) => '<option>' + esc(x) + '</option>').join('') + '</select></div></div>' +
-      '<div class="fld"><label>備註</label><input name="note" placeholder="例：10 月場租與器材一起匯"></div>' +
+      '<div class="fld"><label>備註</label><input name="note" placeholder="例：10 月教練費與代墊一起匯"></div>' +
       '<div class="fld"><label>付款憑證</label>' + ui.filesField({ k: '付款憑證', _table: '3_支出' }, '', 'payproof') + '<span class="hint">轉帳截圖等；會附在這次付款的每一筆</span></div>';
     const r = await ui.modal({ title: '付款 ' + sel.length + ' 筆', body: body, sticky: true, actions: [{ label: '取消' }, { label: '確認付款', kind: 'pri', click: (el) => { const d = el.querySelector('[name=date]').value; if (!d) { ui.toast('請選付款日期', 'bad'); return false; } return { date: d, method: el.querySelector('[name=method]').value, note: el.querySelector('[name=note]').value, proof: el.querySelector('.files input[type=hidden]').value }; } }] });
     if (!r) return;
-    const out = await PB.run('expensePay', Object.assign({ ids: sel.map((e) => str(e['支出ID'])) }, r));
-    if (out) { sel.forEach((e) => expSel.delete(str(e['支出ID']))); saveSel(); PB.render(); }
+    const out = await PB.run('payBatch', Object.assign({ items: sel.map((x) => ({ t: x.t, id: x.id })) }, r));
+    if (out) { sel.forEach((x) => paySel.delete(skey(x))); saveSel(); PB.render(); }
   };
   A.secretView = async (d) => {
     const r = await PB.read('payeeInfo', { staff: [d.id] });
     const x = r && r.staff[d.id];
-    ui.modal({ title: '匯款資料：' + m.staffName(d.id), body: x ? kvTable([['匯款銀行', x.匯款銀行], ['帳號', x.帳號]]) : '<div class="note warn">還沒有匯款資料：請到「主檔與紀錄 → 人員」按「請款資料」填寫。</div>', actions: [{ label: '關閉' }] });
+    ui.modal({ title: '匯款資料：' + m.staffName(d.id), body: x ? '<div class="tbl-wrap"><table class="tbl"><tbody><tr><td class="mut">匯款銀行</td><td><b>' + esc(x.匯款銀行 || '—') + '</b></td></tr><tr><td class="mut">帳號</td><td><b>' + esc(x.帳號 || '—') + '</b></td></tr></tbody></table></div>' : '<div class="note warn">還沒有匯款資料：請到「主檔與紀錄 → 人員與權限 → 人員」按「請款資料」填寫。</div>', actions: [{ label: '關閉' }] });
   };
-  const kvTable = (pairs) => '<div class="tbl-wrap"><table class="tbl"><tbody>' + pairs.map((x) => '<tr><td class="mut">' + esc(x[0]) + '</td><td><b>' + esc(x[1] || '—') + '</b></td></tr>').join('') + '</tbody></table></div>';
 
-  /** 付款紀錄：依付款批次（沒有批次欄或舊資料依付款日期＋受款對象） */
-  function paidView(all, p) {
+  /** 付款紀錄：依付款批次（沒有批次的舊資料依付款日期＋受款對象） */
+  function paidView(p) {
     const since = p.since || addDays(today(), -90);
-    const paid = all.filter((e) => str(e['付款狀態']) === '已付' && day(e['付款日期'] || e['日期']) >= since);
+    const paid = payItems(true).filter((x) => day(x.r['付款日期'] || x.d) >= since);
     const groups = {};
-    paid.forEach((e) => { const k = str(e['付款批次']) || 'D' + day(e['付款日期'] || e['日期']) + '|' + payeeOf(e).k; (groups[k] = groups[k] || { k: k, batch: str(e['付款批次']), d: day(e['付款日期'] || e['日期']), list: [] }).list.push(e); });
-    const keys = Object.keys(groups).sort((a, b) => byKey(groups[b].d + b, groups[a].d + a));
-    const cards = keys.map((k) => {
+    paid.forEach((x) => { const pd = day(x.r['付款日期']) || x.d; const k = str(x.r['付款批次']) || 'D' + pd + '|' + x.py.k; (groups[k] = groups[k] || { batch: str(x.r['付款批次']), d: pd, list: [] }).list.push(x); });
+    const order = Object.keys(groups).sort((a, b) => byKey(groups[b].d + b, groups[a].d + a));
+    const cards = order.map((k) => {
       const g = groups[k];
-      const byPayee = {};
-      g.list.forEach((e) => { const py = payeeOf(e); (byPayee[py.k] = byPayee[py.k] || { py: py, n: 0, amt: 0 }); byPayee[py.k].n += 1; byPayee[py.k].amt += num(e['金額']); });
-      const proofs = uniq(g.list.reduce((a, e) => a.concat(str(e['付款憑證']).split('\n')), []).filter(Boolean)).join('\n');
-      return '<div class="card exp-g"><div class="exp-gh"><b>' + esc(fmtD(g.d)) + '</b>' + (g.batch ? '<span class="badge">' + esc(g.batch) + '</span>' : '') + (str(g.list[0]['付款方式']) ? '<span class="badge info">' + esc(g.list[0]['付款方式']) + '</span>' : '') +
-        '<span class="sp"></span><span class="mut">' + g.list.length + ' 筆</span><b class="num">' + money(sum(g.list, (e) => e['金額'])) + '</b>' + (g.batch ? btn('取消這次付款', 'expUnpay', { batch: g.batch }, 'ghost') : '') + '</div>' +
-        '<div class="exp-payees">' + Object.keys(byPayee).map((x) => '<span>' + esc(byPayee[x].py.name) + ' <b>' + money(byPayee[x].amt) + '</b> <span class="mut">(' + byPayee[x].n + ' 筆)</span></span>').join('') + '</div>' +
+      const byPy = {};
+      g.list.forEach((x) => { (byPy[x.py.k] = byPy[x.py.k] || { py: x.py, n: 0, amt: 0 }); byPy[x.py.k].n += 1; byPy[x.py.k].amt += x.amt; });
+      const proofs = uniq(g.list.reduce((a, x) => a.concat(str(x.r['付款憑證']).split('\n')), []).filter(Boolean)).join('\n');
+      const method = str(g.list[0].r['付款方式']);
+      return '<div class="card exp-g"><div class="exp-gh"><b>' + esc(fmtD(g.d)) + '</b>' + (g.batch ? '<span class="badge">' + esc(g.batch) + '</span>' : '') + (method ? '<span class="badge info">' + esc(method) + '</span>' : '') +
+        '<span class="sp"></span><span class="mut">' + g.list.length + ' 筆</span><b class="num">' + money(sum(g.list, (x) => x.amt)) + '</b>' + (g.batch ? btn('取消這次付款', 'payUndo', { batch: g.batch }, 'ghost') : '') + '</div>' +
+        '<div class="exp-payees">' + Object.keys(byPy).map((y) => '<span>' + esc(byPy[y].py.name) + ' <b>' + money(byPy[y].amt) + '</b> <span class="mut">(' + byPy[y].n + ' 筆)</span></span>').join('') + '</div>' +
         (proofs ? '<div class="fthumbs" style="margin:6px 12px 10px">' + ui.fileList(proofs) + '</div>' : '') +
-        '<div class="tbl-wrap flat"><table class="tbl"><tbody>' + g.list.map((e) => '<tr class="click" data-act="expEdit" data-id="' + esc(e['支出ID']) + '"><td>' + esc(fmtD(e['日期'])) + '</td><td>' + esc(payeeOf(e).name) + '</td><td>' + esc(expLine(e)) + '</td><td class="fclip">' + (fileCount(e) ? '📎 ' + fileCount(e) : '') + '</td><td class="num">' + money(e['金額']) + '</td></tr>').join('') + '</tbody></table></div></div>';
+        '<div class="tbl-wrap flat"><table class="tbl"><tbody>' + g.list.map((x) => '<tr' + (x.open ? ' class="click" data-act="' + x.open + '" data-id="' + esc(x.id) + '"' : '') + '><td><span class="badge ' + TBADGE[x.t] + '">' + x.t + '</span></td><td>' + esc(x.py.name) + '</td><td style="white-space:normal">' + esc(x.t === '支出' ? fmtD(x.d) + '・' + x.label : x.label) + '</td><td class="num">' + money(x.amt) + '</td></tr>').join('') + '</tbody></table></div></div>';
     }).join('');
-    return '<div class="ptop"><label class="mut" style="font-size:.85rem">付款日期從 <input type="date" class="btn sm" value="' + esc(since) + '" data-input="expSince"></label><span class="sp"></span><span class="mut">' + paid.length + ' 筆・' + money(sum(paid, (e) => e['金額'])) + '</span></div>' +
+    return '<div class="ptop"><label class="mut" style="font-size:.85rem">付款日期從 <input type="date" class="btn sm" value="' + esc(since) + '" data-input="expSince"></label><span class="sp"></span><span class="mut">' + paid.length + ' 筆・' + money(sum(paid, (x) => x.amt)) + '</span></div>' +
       (cards || '<div class="card">' + ui.empty('這段期間沒有付款紀錄', '') + '</div>');
   }
   PB.inputs.expSince = (v) => PB.setParam('since', v);
-  A.expUnpay = (d) => PB.run('expenseUnpay', { batch: d.batch }, { confirm: { title: '取消這次付款', text: '這一批的支出會回到「應付」；付款憑證會留在各筆支出上。', danger: true, ok: '取消付款' } });
+  A.payUndo = (d) => PB.run('payUndo', { batch: d.batch }, { confirm: { title: '取消這次付款', text: '這一批會回到付款前的狀態（支出→應付、月結→待付款、分潤→已確認）；付款憑證留在各筆上。', danger: true, ok: '取消付款' } });
 
-  function monthView(all, mon) {
+  /** 支出：本月明細＋新增（付款請到「付款」） */
+  function expenseTab(mon) {
+    const all = PB.rows('3_支出');
     const list = all.filter((e) => day(e['日期']).slice(0, 7) === mon).sort((a, b) => byKey(day(a['日期']), day(b['日期'])));
     const rows = list.map((e) => '<tr class="click" data-act="expEdit" data-id="' + esc(e['支出ID']) + '"><td>' + esc(fmtD(e['日期'])) + '</td><td>' + esc(expLine(e)) + '</td><td class="num">' + money(e['金額']) + '</td><td>' + esc(m.venueName(e['據點'])) + '</td><td>' + esc(payeeOf(e).name) + '</td><td><span class="badge ' + (str(e['付款狀態']) === '已付' ? 'ok' : 'warn') + '">' + esc(e['付款狀態']) + '</span>' + (day(e['付款日期']) ? ' <span class="mut">' + esc(fmtD(e['付款日期'])) + '</span>' : '') + '</td><td class="fclip">' + (fileCount(e) ? '📎 ' + fileCount(e) : '') + '</td><td class="mut" style="white-space:normal">' + esc(str(e['備註']).slice(0, 60)) + '</td></tr>').join('');
-    return '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th>類別</th><th class="num">金額</th><th>據點</th><th>受款</th><th>狀態</th><th></th><th>備註</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8" class="mut">這個月沒有支出</td></tr>') + '</tbody><tfoot><tr><td colspan="2">合計（應付 ' + money(sum(list.filter((e) => str(e['付款狀態']) !== '已付'), (e) => e['金額'])) + '）</td><td class="num">' + money(sum(list, (e) => e['金額'])) + '</td><td colspan="5"></td></tr></tfoot></table></div>';
+    return '<div class="acts">' + btn('新增支出', 'expNew', {}, 'pri', 'plus') + btn('去付款', 'param2', { k: 'tab', v: '付款' }, 'ghost') + '</div>' +
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th>類別</th><th class="num">金額</th><th>據點</th><th>受款</th><th>狀態</th><th></th><th>備註</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8" class="mut">這個月沒有支出</td></tr>') + '</tbody><tfoot><tr><td colspan="2">合計（應付 ' + money(sum(list.filter((e) => str(e['付款狀態']) !== '已付'), (e) => e['金額'])) + '）</td><td class="num">' + money(sum(list, (e) => e['金額'])) + '</td><td colspan="5"></td></tr></tfoot></table></div>' +
+      '<p class="mut" style="font-size:.8rem">付款請到「付款」：同一個人的月結、分潤、支出可以一起付。租約的場租在登錄租約時自動建立。</p>';
   }
   A.expNew = () => ui.form('3_支出', {});
   A.expEdit = (d) => ui.form('3_支出', { id: d.id });
@@ -576,6 +606,7 @@
       sort: (r) => m.venueName(r['據點']) + '週' + '一二三四五六日'.indexOf(str(r['星期'])),
       acts: (r) => btn('產生可用日', 'slotAvail', { id: r['時段ID'] }) + btn('可用日', 'availOf', { id: r['時段ID'] }, 'ghost') },
     可用日: { t: '1_據點_可用日', custom: true },
+    租約: { t: '3_合作方案', custom: 'lease' },
     人員: { t: '1_人員', cols: [['姓名', (r) => r['姓名']], ['角色', (r) => split(r['角色']).map((x) => (PB.get('0_角色', x) || {})['角色名稱'] || x).join('、')], ['Email', (r) => r['Email']], ['電話', (r) => r['電話']], ['LINE', (r) => (str(r['LINE_userId']) ? '已綁定' : '')], ['狀態', (r) => r['在職狀態']]],
       acts: (r) => (str(r['在職狀態']) === '待審核' ? btn('核准', 'staffOk', { id: r['人員ID'] }, 'pri') : '') + btn('請款資料', 'secret', { id: r['人員ID'] }, 'ghost') },
     教練: { t: '1_人員_教練', cols: [['教練', (r) => m.staffName(r['人員ID'])], ['可教程度', (r) => split(r['可教程度']).map(m.levelName).join('、')], ['證照', (r) => r['證照']], ['擅長', (r) => str(r['擅長項目']).slice(0, 30)]] },
@@ -612,7 +643,7 @@
 
   // v2.6：主檔依功能分 4 個入口，入口下再選資料表；每張表有一句說明
   const DGROUPS = [
-    { id: 'venue', label: '據點與場地', icon: 'pin', desc: '據點、球面、固定時段、可用日，以及場地合作條件', keys: ['據點', '場地', '時段', '可用日', '合作方案', '合作夥伴'] },
+    { id: 'venue', label: '據點與場地', icon: 'pin', desc: '據點、球面、固定時段、可用日，以及場地合作條件', keys: ['租約', '據點', '場地', '時段', '可用日', '合作方案', '合作夥伴'] },
     { id: 'course', label: '課程設定', icon: 'book', desc: '課程類型（規則）→ 課程模板（期制班預設值）／專項（單堂專項課）', keys: ['課程類型', '課程模板', '專項', '程度'] },
     { id: 'staff', label: '人員與權限', icon: 'users', desc: '人員、教練資料、教練費率與角色權限', keys: ['人員', '教練', '教練費率', '角色'] },
     { id: 'record', label: '紀錄', icon: 'kb', desc: '決策紀錄、文件中心、通知紀錄', keys: ['決策紀錄', '文件', '通知紀錄'] },
@@ -622,6 +653,7 @@
     場地: '據點裡的每一面球場；類型決定能排課程或球敘。',
     時段: '據點每週固定可用的時間。按「產生可用日」依期間與週期展開待確認的日期（約 15 分鐘內完成）。',
     可用日: '時段實際能用的日期；確認「可用」後才能排課、開球敘。',
+    租約: '新租一段場地：按「登錄租約」一次填完，系統自動建好球面、時段、可用日（直接可用）、包場合作方案與場租應付。可以直接貼上「20261027_光電球場_一三五1900-2100_共2面共22日(20261109~1230)_共30800(每面每時段700)」這種格式。',
     合作方案: '場地租金、分潤、外包等合作條件（只有管理層看得到）。',
     合作夥伴: '非人員、非據點的合作對象（廠商、學校窗口等）。',
     課程類型: '課程的「規則」：標準教練費、請假上限、補課期限。每個班級、模板、教練費率都要指定一個類型。',
@@ -646,10 +678,10 @@
       const k = D[p.k] && g.keys.indexOf(p.k) >= 0 ? p.k : g.keys[0];
       const def = D[k];
       const tabs = '<div class="dgrp">' + DGROUPS.map((x) => '<button class="dgrp-b' + (x.id === g.id ? ' on' : '') + '" data-act="dataG" data-v="' + x.id + '">' + PB.icon(x.icon) + '<span><b>' + esc(x.label) + '</b><small>' + esc(x.keys.join('・')) + '</small></span></button>').join('') + '</div>';
-      const chips = '<div class="chips dsub">' + g.keys.map((x) => { const n = dCount(x); return '<button class="chip' + (x === k ? ' on' : '') + '" data-act="dataK" data-v="' + x + '">' + x + (n !== null && !D[x].custom ? '<span class="c">' + n + '</span>' : '') + '</button>'; }).join('') + '</div>';
+      const chips = '<div class="chips dsub">' + g.keys.map((x) => { const n = dCount(x); return '<button class="chip' + (x === k ? ' on' : '') + '" data-act="dataK" data-v="' + x + '">' + x + (n !== null && !D[x].custom ? '<span class="c">' + n + '</span>' : x === '租約' && PB.has('3_合作方案') ? '<span class="c">' + PB.rows('3_合作方案').filter((r) => str(r['合作模式']) === '包場租約').length + '</span>' : '') + '</button>'; }).join('') + '</div>';
       const desc = DDESC[k] ? '<p class="ddesc">' + esc(DDESC[k]) + '</p>' : '';
       const head = (right) => '<div class="ptop"><h1>主檔與紀錄</h1><span class="sp"></span>' + (right || '') + '</div>' + tabs + chips + desc;
-      if (def.custom) return head('') + (def.custom === 'notify' ? notifyView(p) : availView(p));
+      if (def.custom) return head('') + (def.custom === 'notify' ? notifyView(p) : def.custom === 'lease' ? leaseView(p) : availView(p));
       const kw = str(p.q).toLowerCase();
       let list = PB.rows(def.t);
       if (kw) list = list.filter((r) => def.cols.map((c) => str(c[1](r))).join(' ').toLowerCase().indexOf(kw) >= 0);
@@ -695,6 +727,184 @@
       '<p class="mut" style="font-size:.8rem">取消可用日後，系統會寄出受影響的課程與球敘；課程請在營運工作台逐堂改期，球敘請取消。</p>';
   }
   PB.inputs.availSlot = (v) => PB.setParam('slot', v);
+
+  // ================================================================
+  // 租約（v2.8）：一次登錄 球面、時段、可用日、包場合作方案、場租應付
+  // ================================================================
+  const WDS = '一二三四五六日';
+  const wdOf = (k) => '日一二三四五六'[new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)).getDay()];
+  const pad2 = (n) => ('0' + n).slice(-2);
+  function leaseView(p) {
+    const plans = PB.has('3_合作方案') ? PB.rows('3_合作方案').filter((r) => str(r['合作模式']) === '包場租約').sort((a, b) => byKey(day(b['生效日期']), day(a['生效日期']))) : [];
+    const exp = PB.rows('3_支出');
+    const rows = plans.map((r) => {
+      const pid = str(r['方案ID']);
+      const ex = exp.filter((e) => str(e['備註']).indexOf('F03:' + pid + ':') >= 0);
+      const paid = ex.filter((e) => str(e['付款狀態']) === '已付').length;
+      return '<tr class="click" data-act="dataEdit" data-t="3_合作方案" data-id="' + esc(pid) + '"><td style="white-space:normal">' + esc(r['方案名稱']) + '</td><td>' + esc(m.venueName(r['據點'])) + '</td><td>' + esc(fmtD(r['生效日期']) + '～' + fmtD(r['失效日期'])) + '</td><td class="num">' + money(r['合約金額']) + '</td><td>' + (ex.length ? '<span class="badge ' + (paid === ex.length ? 'ok' : 'warn') + '">場租 ' + (paid === ex.length ? '已付' : '應付') + '</span>' : '<span class="mut">—</span>') + '</td><td>' + (str(r['合約']) ? '<span class="fclip">📎</span>' : '') + '</td></tr>';
+    }).join('');
+    return '<div class="acts">' + btn('登錄租約', 'leaseNew', {}, 'pri', 'plus') + '</div>' +
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>租約</th><th>據點</th><th>期間</th><th class="num">金額</th><th>場租</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="6" class="mut">還沒有租約</td></tr>') + '</tbody></table></div>';
+  }
+
+  /** 日期文字 → 日期清單：「20261018、1101、1115」「20261109~1230」「2026-11-09～2026-12-30」；範圍依勾選的星期展開 */
+  function parseDates(text, wds, baseYear) {
+    let y = baseYear || +today().slice(0, 4);
+    let prev = '';
+    const one = (t) => {
+      t = t.replace(/[\/.]/g, '-');
+      let mt = t.match(/^(\d{4})-?(\d{1,2})-?(\d{1,2})$/);
+      if (mt && t.length >= 8) { y = +mt[1]; return y + '-' + pad2(+mt[2]) + '-' + pad2(+mt[3]); }
+      mt = t.match(/^(\d{1,2})-?(\d{2})$/) || t.match(/^(\d{1,2})-(\d{1,2})$/);
+      if (!mt) return '';
+      let k = y + '-' + pad2(+mt[1]) + '-' + pad2(+mt[2]);
+      if (prev && k < prev) { y += 1; k = y + '-' + pad2(+mt[1]) + '-' + pad2(+mt[2]); }
+      return k;
+    };
+    const out = [];
+    str(text).split(/[、,，;；\s]+/).filter(Boolean).forEach((tok) => {
+      const r = tok.split(/~|～|至/);
+      if (r.length === 2) {
+        const a = one(r[0]); prev = a; const b = one(r[1]); prev = b;
+        if (!a || !b) return;
+        for (let d = a; d <= b; d = addDays(d, 1)) if (!wds.length || wds.indexOf(wdOf(d)) >= 0) out.push(d);
+      } else { const k = one(tok); if (k) { out.push(k); prev = k; } }
+    });
+    return uniq(out).sort();
+  }
+  /** 貼上的一行 → 表單值 */
+  function parseLease(line) {
+    const o = {};
+    const parts = str(line).trim().split('_').map((x) => x.trim()).filter(Boolean);
+    const left = [];
+    parts.forEach((x, i) => {
+      let mt;
+      if (i === 0 && (mt = x.match(/^(\d{8})(簽約)?$/))) { o.sign = mt[1].slice(0, 4) + '-' + mt[1].slice(4, 6) + '-' + mt[1].slice(6, 8); return; }
+      if ((mt = x.match(/^([一二三四五六日]+)\s*(\d{1,2}):?(\d{2})\s*[-~～]\s*(\d{1,2}):?(\d{2})$/))) { o.wds = mt[1].split(''); o.start = pad2(+mt[2]) + ':' + mt[3]; o.end = pad2(+mt[4]) + ':' + mt[5]; return; }
+      if ((mt = x.match(/共?(\d+)面共?(\d+)日[(（](.+)[)）]/))) { o.courts = +mt[1]; o.expect = +mt[2]; o.dates = mt[3]; return; }
+      if ((mt = x.match(/^共?([\d,]+)元?(?:[(（]每面每時段([\d,]+)元?[)）])?$/))) { o.total = +mt[1].replace(/,/g, ''); if (mt[2]) o.unit = +mt[2].replace(/,/g, ''); return; }
+      left.push(x);
+    });
+    const vs = PB.rows('1_據點');
+    if (left.length >= 2) { const v = vs.find((r) => str(r['據點名稱']) === left[0]); if (v) o.venue = str(v['據點ID']); else o.newVenue = left[0]; o.area = left.slice(1).join(' '); }
+    else if (left.length === 1) { const v = vs.find((r) => str(r['據點名稱']) === left[0]); if (v) o.venue = str(v['據點ID']); else o.area = left[0]; }
+    return o;
+  }
+
+  const LS_ = { v: {}, off: new Set(), timer: null, seq: 0, prev: null };
+  A.leaseNew = async () => {
+    LS_.v = { venue: '', newVenue: '', area: '', courts: 2, wds: [], start: '', end: '', dates: '', total: '', unit: '', sign: today(), pay: '轉帳', expect: 0, contract: '' };
+    LS_.off = new Set();
+    LS_.prev = null;
+    const vs = PB.rows('1_據點').slice().sort((a, b) => byKey(str(a['據點名稱']), str(b['據點名稱'])));
+    const body = '<div id="leaseBox">' +
+      '<div class="fld"><label>快速貼上（可略過）</label><textarea name="paste" rows="2" placeholder="20261027_光電球場_一三五1900-2100_共2面共22日(20261109~1230)_共30800(每面每時段700)"></textarea><button type="button" class="btn sm" data-lease="parse" style="align-self:flex-start;margin-top:4px">帶入</button></div>' +
+      '<div class="fld-row"><div class="fld"><label>據點<b>*</b></label><select name="venue"><option value="">請選擇</option>' + vs.map((v) => '<option value="' + esc(v['據點ID']) + '">' + esc(v['據點名稱']) + '</option>').join('') + '<option value="__new">＋ 新據點</option></select><input name="newVenue" placeholder="新據點名稱" style="margin-top:6px;display:none"></div>' +
+      '<div class="fld"><label>區域</label><input name="area" list="leaseAreas" placeholder="例：綜合大樓四樓、光電球場"><datalist id="leaseAreas"></datalist><span class="hint">球面會叫「區域 A」「區域 B」…，同區域已有的先用</span></div></div>' +
+      '<div class="fld-row"><div class="fld"><label>面數<b>*</b></label><input type="number" name="courts" min="1" max="26" value="2"></div><div class="fld"><label>時間<b>*</b></label><div style="display:flex;gap:6px;align-items:center"><input type="time" name="start"><span>–</span><input type="time" name="end"></div></div></div>' +
+      '<div class="fld"><label>星期<b>*</b></label><div class="multi" data-lwds>' + WDS.split('').map((w) => '<label><input type="checkbox" value="' + w + '">' + w + '</label>').join('') + '</div></div>' +
+      '<div class="fld"><label>日期<b>*</b></label><input name="dates" placeholder="指定日期：20261018、1101、1115　或期間：20261109~1230（依勾選的星期展開）"><span class="hint">展開後點日期可以排除（例如那天學校不借）</span></div>' +
+      '<div class="fld-row"><div class="fld"><label>合約總額</label><input type="number" name="total" min="0"></div><div class="fld"><label>每面每時段</label><input type="number" name="unit" min="0"></div></div>' +
+      '<div class="fld-row"><div class="fld"><label>簽約日</label><input type="date" name="sign"></div><div class="fld"><label>付款方式</label><select name="pay">' + (PB.enums['現金轉帳'] || ['現金', '轉帳']).map((x) => '<option' + (x === '轉帳' ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select></div></div>' +
+      '<div class="fld"><label>合約檔案</label>' + ui.filesField({ k: '合約', _table: '3_合作方案' }, '', 'leasefile') + '</div>' +
+      '<div id="leasePrev" class="lease-prev"><span class="mut">填好後這裡會顯示要建立的內容</span></div></div>';
+    const r = await ui.modal({ title: '登錄租約', body: body, sticky: true, actions: [{ label: '取消' }, { label: '確認登錄', kind: 'pri', click: async () => {
+      const args = leaseArgs();
+      if (!args.ok) { ui.toast(args.why, 'bad'); return false; }
+      const out = await PB.run('leaseCreate', args.a);
+      return out ? true : false;
+    } }] });
+    if (r) PB.render();
+  };
+  function leaseRead() {
+    const box = document.getElementById('leaseBox');
+    if (!box) return null;
+    const q = (n) => box.querySelector('[name="' + n + '"]');
+    const v = LS_.v;
+    v.venue = q('venue').value;
+    v.newVenue = q('newVenue').value.trim();
+    v.area = q('area').value.trim();
+    v.courts = num(q('courts').value);
+    v.start = q('start').value;
+    v.end = q('end').value;
+    v.wds = Array.from(box.querySelectorAll('[data-lwds] input:checked')).map((i) => i.value);
+    v.dates = q('dates').value;
+    v.total = q('total').value;
+    v.unit = q('unit').value;
+    v.sign = q('sign').value;
+    v.pay = q('pay').value;
+    v.contract = box.querySelector('.files input[type=hidden]').value;
+    q('newVenue').style.display = v.venue === '__new' ? '' : 'none';
+    const areas = v.venue && v.venue !== '__new' ? uniq(PB.rows('1_據點_場地').filter((c) => str(c['據點']) === v.venue).map((c) => str(c['場地名稱']).replace(/\s*[A-Z]$/, '')).filter(Boolean)) : [];
+    box.querySelector('#leaseAreas').innerHTML = areas.map((a) => '<option value="' + esc(a) + '">').join('');
+    return v;
+  }
+  function leaseFill(o) {
+    const box = document.getElementById('leaseBox');
+    const set = (n, val) => { if (val !== undefined && val !== null) box.querySelector('[name="' + n + '"]').value = val; };
+    if (o.venue) set('venue', o.venue);
+    else if (o.newVenue) { set('venue', '__new'); set('newVenue', o.newVenue); }
+    set('area', o.area); set('courts', o.courts); set('start', o.start); set('end', o.end); set('dates', o.dates); set('total', o.total); set('unit', o.unit); set('sign', o.sign);
+    if (o.wds) box.querySelectorAll('[data-lwds] input').forEach((i) => { i.checked = o.wds.indexOf(i.value) >= 0; });
+    LS_.v.expect = o.expect || 0;
+    LS_.off = new Set();
+  }
+  function leaseDates() {
+    const v = LS_.v;
+    return parseDates(v.dates, v.wds, +(v.sign || today()).slice(0, 4));
+  }
+  function leaseArgs() {
+    const v = leaseRead();
+    const all = leaseDates();
+    const dates = all.filter((d) => !LS_.off.has(d));
+    if (!v.venue || (v.venue === '__new' && !v.newVenue)) return { ok: false, why: '請選據點' };
+    if (!v.start || !v.end) return { ok: false, why: '請填時間' };
+    if (!dates.length) return { ok: false, why: '請填日期（期間要勾星期）' };
+    if (!num(v.total) && !num(v.unit)) return { ok: false, why: '請填合約總額或每面每時段' };
+    const bad = dates.filter((d) => v.wds.length && v.wds.indexOf(wdOf(d)) < 0);
+    if (bad.length) return { ok: false, why: bad.map(fmtD).join('、') + ' 不是勾選的星期' };
+    return { ok: true, all: all, a: { venue: v.venue === '__new' ? '' : v.venue, newVenue: v.venue === '__new' ? v.newVenue : '', area: v.area, courts: v.courts, start: v.start, end: v.end, dates: dates, total: num(v.total) || '', unit: num(v.unit) || '', signDate: v.sign, payMethod: v.pay, contract: v.contract } };
+  }
+  function leasePreview() {
+    clearTimeout(LS_.timer);
+    LS_.timer = setTimeout(async () => {
+      const el = document.getElementById('leasePrev');
+      if (!el) return;
+      const args = leaseArgs();
+      const all = args.all || leaseDates();
+      const v = LS_.v;
+      const chips = all.length ? '<div class="lease-dates">' + all.map((d) => '<button type="button" class="ldate' + (LS_.off.has(d) ? ' off' : '') + '" data-ldate="' + d + '">' + esc(fmtD(d)) + '</button>').join('') + '</div>' : '';
+      const n = all.filter((d) => !LS_.off.has(d)).length;
+      const cnt = '<div class="lease-cnt">共 <b>' + n + '</b> 日' + (v.expect ? (n === v.expect ? ' <span class="badge ok">與「共 ' + v.expect + ' 日」相符</span>' : ' <span class="badge warn">貼上的是共 ' + v.expect + ' 日，請點掉不租的日期</span>') : '') + (num(v.unit) && v.courts && n ? '・' + v.courts + ' 面 × ' + n + ' 日 × ' + money(v.unit) + '＝<b>' + money(num(v.unit) * v.courts * n) + '</b>' : '') + '</div>';
+      if (!args.ok) { el.innerHTML = chips + cnt + '<div class="mut" style="font-size:.84rem">' + esc(args.why) + '</div>'; return; }
+      const seq = ++LS_.seq;
+      el.innerHTML = chips + cnt + '<div class="mut">預覽中…</div>';
+      const r = await PB.read('leasePreview', args.a);
+      if (seq !== LS_.seq || !document.getElementById('leasePrev')) return;
+      if (!r) { el.innerHTML = chips + cnt; return; }
+      el.innerHTML = chips + cnt + '<div class="lease-plan"><b>會建立：</b><ul>' +
+        (r.venue.isNew ? '<li>新據點「' + esc(r.venue.name) + '」</li>' : '') +
+        '<li>球面：' + r.courts.map((c) => esc(c.name) + (c.isNew ? '<span class="badge info">新</span>' : '')).join('、') + '</li>' +
+        '<li>時段：' + r.slots.map((s) => '週' + s.wd + '（' + s.n + ' 日' + (s.reuse ? '，沿用既有時段' : '') + (s.skip ? '，' + s.skip + ' 日已存在' : '') + '）').join('、') + '</li>' +
+        '<li>可用日 ' + r.avail + ' 天（直接「可用」）</li><li>包場租約「' + esc(r.plan) + '」' + money(r.amount) + (r.unitHour ? '（每面每小時 ' + money(r.unitHour) + '）' : '') + '</li><li>場租應付 ' + money(r.amount) + '（受款：據點）</li></ul></div>' +
+        (r.warnings.length ? r.warnings.map((w) => '<div class="note warn">' + esc(w) + '</div>').join('') : '');
+    }, 450);
+  }
+  document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('#leaseBox') && !e.target.closest('[name=paste]')) { leaseRead(); leasePreview(); } });
+  document.addEventListener('change', (e) => { if (e.target.closest && e.target.closest('#leaseBox')) { leaseRead(); leasePreview(); } });
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('#leaseBox [data-lease], #leaseBox [data-ldate]');
+    if (!b) return;
+    e.preventDefault();
+    if (b.dataset.lease === 'parse') {
+      const o = parseLease(document.querySelector('#leaseBox [name=paste]').value);
+      if (!o.start && !o.dates) return ui.toast('看不懂這個格式，請直接填下面的欄位', 'bad');
+      leaseFill(o);
+    } else { const d = b.dataset.ldate; if (LS_.off.has(d)) LS_.off.delete(d); else LS_.off.add(d); }
+    leaseRead();
+    leasePreview();
+  });
+
 
   // 通知紀錄查詢（v2）：按「查詢」才讀全部紀錄（開頁只帶近 30 天）
   const NQ = { res: null, busy: false, f: null };
@@ -745,7 +955,7 @@
   PB.app({
     app: 'admin',
     title: '管理後台',
-    version: '2.7',
+    version: '2.8',
     screens: [Dash, Queue].concat(PB.schedScreen ? [PB.schedScreen] : []).concat([Finance, Data]),
     links: () => (PB.cfg.opsUrl ? [{ label: '營運工作台', url: PB.cfg.opsUrl, icon: 'swap', mobile: true }] : []),
   });
