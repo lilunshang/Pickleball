@@ -250,7 +250,6 @@ a.row{color:inherit;text-decoration:none}
 
 /* ---------- v2.3 專項排課看板（管理後台 → 排課；手機為主） ---------- */
 :root{--lv0:#2C8975;--lv0s:#E0F1EC;--lv1:#3A6CB4;--lv1s:#E3EBF7;--lv2:#875AAE;--lv2s:#EEE6F5;--gat:#B9733C;--gats:#F7ECE2;--ball:#D8B52A}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--lv0:#5DC3AE;--lv0s:#173A33;--lv1:#83A9E8;--lv1s:#1C2C45;--lv2:#BB98DB;--lv2s:#2E2340;--gat:#E2A574;--gats:#3A2819;--ball:#E6C84A}}
 :root[data-theme="dark"]{--lv0:#5DC3AE;--lv0s:#173A33;--lv1:#83A9E8;--lv1s:#1C2C45;--lv2:#BB98DB;--lv2s:#2E2340;--gat:#E2A574;--gats:#3A2819;--ball:#E6C84A}
 .sb{max-width:620px;margin:0 auto}
 .sb-head{position:sticky;top:-18px;z-index:5;background:var(--bg);padding-top:4px;margin-top:-4px}
@@ -323,7 +322,6 @@ a.row{color:inherit;text-decoration:none}
 
 /* ---------- v2.5 專項排課：據點卡＋日期×球面表格（顏色與給業主的據點卡一致） ---------- */
 :root{--sp:#157A43;--sps:#DFF3E6;--gm:#B45309;--gms:#FFEDD5;--vh:#0F3D3A}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--sp:#6FD39C;--sps:#163526;--gm:#F0A868;--gms:#3B2716;--vh:#123B33}}
 :root[data-theme="dark"]{--sp:#6FD39C;--sps:#163526;--gm:#F0A868;--gms:#3B2716;--vh:#123B33}
 .sb{max-width:1180px}
 .sb-grid{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:14px;align-items:start}
@@ -379,7 +377,8 @@ a.row{color:inherit;text-decoration:none}
 .sb-tbl .sb-cell.lock:not(.gath){border:1.5px solid var(--line);background:var(--surface2)}
 .sb-tbl .sb-cell.sb-empty{border:1.5px dashed var(--faint);background:var(--surface)}
 .sb-tbl .sb-cell.sb-empty .nm{color:var(--mut)}
-.sb.placing .sb-tbl .sb-cell.can:not(.new){border:1.5px dashed var(--sp);background:repeating-linear-gradient(135deg,var(--surface) 0 6px,var(--sps) 6px 12px);outline:0}
+.sb.placing .sb-tbl .sb-cell.can:not(.new){border:1.5px dashed var(--sp);background:#F4FAF6;outline:0}
+.sb.placing .sb-tbl .sb-cell.can:not(.new):hover{background:var(--sps)}
 .sb.placing .sb-tbl .sb-cell.can:not(.new) .nm,.sb.placing .sb-tbl .sb-cell.can:not(.new) .meta{color:var(--sp)}
 .sb.placing .sb-tbl .sb-cell.new.can{outline:2px solid var(--ball);outline-offset:-2px}
 .lg.lg-new{background:var(--sps);border:1.5px solid var(--sp)} .lg.lg-gath{background:var(--gms);border:1.5px dashed var(--gm)} .lg.lg-glock{background:var(--gms);border:1.5px solid var(--gm);opacity:.72} .lg.lg-lock{background:var(--surface2);border:1.5px solid var(--line)} .lg.lg-empty{border:1.5px dashed var(--faint)} .lg.lg-bad{background:var(--bad-soft);border:1.5px solid var(--bad)}
@@ -464,3 +463,66 @@ a.row{color:inherit;text-decoration:none}
 .tv-i .r{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;max-width:150px}
 @media (max-width:520px){.tv-i{flex-wrap:wrap}.tv-i .r{max-width:none;width:100%;justify-content:flex-start;padding-left:56px}}
 .bad-t{color:var(--bad);font-weight:600}
+
+/* v2.6：放好的專項卡改淺底；沒排教練只用右上標籤提示，人數不再變紅 */
+.sb-tbl .sb-cell.new{background:#F1F9F4}
+.sb-tbl .sb-cell.new .meta{color:var(--mut)}
+.sb-tbl .sb-cell.nocoach .meta{color:var(--mut);font-weight:400}
+.sb-tbl .sb-cell.nocoach:not(.conf) .tag{background:#F6E7C8;color:#7A5212}
+
+/* v2.6 排課看板：期制（藍）、球敘（橘）、期制預訂格、工具列分頁 */
+:root{--tp:#2F5D8A;--tps:#EAF1F9}
+.sb-tbl .sb-cell.new.k-tpl{border:1.5px solid var(--tp);background:var(--tps);box-shadow:none}
+.sb-tbl .sb-cell.new.k-tpl .nm{color:var(--tp)}
+.sb-tbl .sb-cell.new.k-game{border:1.5px solid var(--gm);background:#FFF6EC;box-shadow:none}
+.sb-tbl .sb-cell.new.k-game .nm{color:var(--gm)}
+.sb-tbl .sb-cell.new.k-tpl.conf,.sb-tbl .sb-cell.new.k-game.conf{box-shadow:inset 0 0 0 2px var(--bad)}
+.sb-tbl .sb-cell.resv{border:1.5px dashed var(--tp);background:#F5F8FC}
+.sb-tbl .sb-cell.resv .nm{color:var(--tp);font-weight:600}
+.sb-tbl .sb-cell.resv.conf{box-shadow:inset 0 0 0 2px var(--bad)}
+.sb.placing .sb-tbl .sb-cell.cant{opacity:.45}
+.k-tpl{background:var(--tps);color:var(--tp);border-color:var(--tp)}
+.lg.lg-tpl{background:var(--tps);border:1.5px solid var(--tp)} .lg.lg-resv{background:#F5F8FC;border:1.5px dashed var(--tp)} .lg.lg-game{background:#FFF6EC;border:1.5px solid var(--gm)}
+.sb-legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:.76rem;color:var(--mut)}
+.sb-ttabs{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-right:8px}
+.sb-ttabs button{border:0;background:var(--surface);padding:4px 12px;font-size:.82rem;cursor:pointer;color:var(--mut)}
+.sb-ttabs button+button{border-left:1px solid var(--line)}
+.sb-ttabs button.on{background:var(--brand);color:#fff;font-weight:600}
+.sb-trayh{gap:8px;flex-wrap:wrap}
+.sb-chip.c-tpl{border-left-color:var(--tp)} .sb-chip.c-game{border-left-color:var(--gm)}
+.sb-chip.c-tpl.on{background:var(--tp);border-color:var(--tp);color:#fff} .sb-chip.c-game.on{background:var(--gm);border-color:var(--gm);color:#fff}
+.sb-chip.c-tpl.on small,.sb-chip.c-game.on small{color:#fff}
+.sb-mode.m-tpl{background:var(--tp)} .sb-mode.m-game{background:var(--gm)}
+.sb-series{display:flex;flex-direction:column;gap:2px;background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0;font-size:.85rem}
+.sb-series .pend{color:var(--warn)} .sb-series .bad{color:var(--bad);font-weight:600}
+.sb-series small{color:var(--mut);font-size:.76rem;margin-top:4px}
+
+/* v2.7 上傳照片／PDF */
+.files{display:flex;flex-direction:column;gap:6px}
+.fthumbs{display:flex;flex-wrap:wrap;gap:6px}
+.fthumbs:empty{display:none}
+.fitem{position:relative;display:inline-flex}
+.fthumb{display:inline-flex;align-items:center;justify-content:center;width:72px;height:72px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface2);font-size:.72rem;color:var(--mut);text-decoration:none}
+.fthumb img{width:100%;height:100%;object-fit:cover}
+.fthumb.ftxt{width:auto;min-width:72px;padding:0 6px;word-break:break-all}
+.fdel{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--bad);color:#fff;font-size:.8rem;line-height:20px;padding:0;cursor:pointer}
+.fadd{align-self:flex-start;cursor:pointer}
+.ro .fthumb{margin:0 6px 6px 0}
+.fclip{font-size:.78rem;color:var(--mut);white-space:nowrap}
+/* v2.7 支出：待付款依受款對象 */
+.exp-g{margin-bottom:12px;overflow:hidden}
+.exp-gh{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--surface2)}
+.exp-gh .num{font-variant-numeric:tabular-nums}
+.exp-all{display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+.exp-all input{width:16px;height:16px;accent-color:var(--brand)}
+.exp-info{font-size:.8rem}
+.exp-g td input[type=checkbox]{width:16px;height:16px;accent-color:var(--brand)}
+.tbl-wrap.flat{border:0;border-radius:0}
+.exp-g .tbl td:first-child{width:28px}
+.exp-payees{display:flex;flex-wrap:wrap;gap:4px 16px;padding:8px 12px 0;font-size:.86rem}
+.exp-bar{position:sticky;bottom:0;z-index:4;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 -4px 14px rgba(0,0,0,.06);padding:10px 14px;margin:8px 0}
+@media (max-width:640px){
+  .exp-g .m-hide{display:none}
+  .exp-g .tbl td{white-space:normal;padding:8px 6px;font-size:.88rem}
+  .exp-g .tbl-wrap.flat{overflow-x:visible}
+}

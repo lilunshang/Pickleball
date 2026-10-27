@@ -308,7 +308,7 @@
     render(p) {
       const tab = FIN_TABS.indexOf(p.tab) >= 0 ? p.tab : FIN_TABS[0];
       const mon = p.m || defaultSettleMonth();
-      const head = '<div class="ptop"><h1>財務</h1><span class="sp"></span>' + (['應收總覽', '抵用金'].indexOf(tab) < 0 ? monthSelect(mon, 'finMonth') : '') + '</div><div class="tabs">' + FIN_TABS.map((t) => '<button class="' + (t === tab ? 'on' : '') + '" data-act="finTab" data-v="' + t + '">' + t + '</button>').join('') + '</div>';
+      const head = '<div class="ptop"><h1>財務</h1><span class="sp"></span>' + (['應收總覽', '抵用金'].indexOf(tab) < 0 && !(tab === '支出' && p.v !== 'month') ? monthSelect(mon, 'finMonth') : '') + '</div><div class="tabs">' + FIN_TABS.map((t) => '<button class="' + (t === tab ? 'on' : '') + '" data-act="finTab" data-v="' + t + '">' + t + '</button>').join('') + '</div>';
       return head + ui.safe(() => ({ 人員月結: settleTab, 分潤結算: profitTab, 支出: expenseTab, 應收總覽: arTab, 抵用金: creditTab })[tab](mon, p), tab);
     },
   };
@@ -378,24 +378,151 @@
     PB.run('profitStatus', { ids: ids, to: d.to, date: date });
   };
 
-  function expenseTab(mon) {
-    const list = PB.rows('3_支出').filter((e) => day(e['日期']).slice(0, 7) === mon).sort((a, b) => byKey(day(a['日期']), day(b['日期'])));
-    const rows = list.map((e) => '<tr class="click" data-act="expEdit" data-id="' + esc(e['支出ID']) + '"><td data-stop>' + (str(e['付款狀態']) === '應付' ? '<input type="checkbox" data-q="exp" value="' + esc(e['支出ID']) + '">' : '') + '</td><td>' + esc(fmtD(e['日期'])) + '</td><td>' + esc(str(e['類別']) + (str(e['細目']) ? '／' + e['細目'] : '')) + '</td><td class="num">' + money(e['金額']) + '</td><td>' + esc(m.venueName(e['據點'])) + '</td><td>' + esc(m.staffName(e['受款人員']) || m.label('1_合作夥伴', PB.get('1_合作夥伴', e['受款夥伴']))) + '</td><td><span class="badge ' + (str(e['付款狀態']) === '已付' ? 'ok' : 'warn') + '">' + esc(e['付款狀態']) + '</span></td><td class="mut" style="white-space:normal">' + esc(str(e['備註']).slice(0, 60)) + '</td></tr>').join('');
-    return '<div class="acts">' + btn('新增支出', 'expNew', {}, 'pri', 'plus') + btn('勾選的標記已付', 'expPaidChecked', {}) + '</div>' +
-      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>日期</th><th>類別</th><th class="num">金額</th><th>據點</th><th>受款</th><th>狀態</th><th>備註</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8" class="mut">這個月沒有支出</td></tr>') + '</tbody><tfoot><tr><td></td><td colspan="2">合計（應付 ' + money(sum(list.filter((e) => str(e['付款狀態']) === '應付'), (e) => e['金額'])) + '）</td><td class="num">' + money(sum(list, (e) => e['金額'])) + '</td><td colspan="4"></td></tr></tfoot></table></div>' +
-      '<p class="mut" style="font-size:.8rem">包場租金由系統每月 1 日依合作方案自動建立（備註 F03:…）。</p>';
+  // ---------------- 支出（v2.7：待付款依受款對象勾選、批次付款、付款紀錄、憑證照片） ----------------
+  const EXP_VIEWS = { due: '待付款', paid: '付款紀錄', month: '本月明細' };
+  const LSK = 'pb:expSel';
+  const expSel = (() => { try { return new Set(JSON.parse(localStorage.getItem(LSK) || '[]')); } catch (e) { return new Set(); } })();
+  const saveSel = () => { try { localStorage.setItem(LSK, JSON.stringify(Array.from(expSel))); } catch (e) { /* 私密視窗 */ } };
+  /** 受款對象：人員 → 合作夥伴 → 據點（場租等沒填受款人時）→ 未指定 */
+  function payeeOf(e) {
+    if (str(e['受款人員'])) return { k: 'P:' + str(e['受款人員']), name: m.staffName(e['受款人員']) || '（人員已刪除）', kind: '人員', id: str(e['受款人員']) };
+    if (str(e['受款夥伴'])) { const p = PB.get('1_合作夥伴', e['受款夥伴']) || {}; return { k: 'B:' + str(e['受款夥伴']), name: str(p['名稱']) || '（夥伴已刪除）', kind: '合作夥伴', id: str(e['受款夥伴']), info: str(p['付款資訊']) }; }
+    if (str(e['據點'])) return { k: 'V:' + str(e['據點']), name: m.venueName(e['據點']) + '（據點）', kind: '據點', id: str(e['據點']), info: venuePayInfo(str(e['據點'])) };
+    return { k: 'N:', name: '未指定受款對象', kind: '' };
+  }
+  function venuePayInfo(vid) {
+    if (!PB.has('3_合作方案')) return '';
+    const p = PB.rows('3_合作方案').find((x) => str(x['合作對象類型']) === '據點' && str(x['據點']) === vid && (!day(x['失效日期']) || day(x['失效日期']) >= today()));
+    return p ? [str(p['付款方式']), str(p['付款週期'])].filter(Boolean).join('・') : '';
+  }
+  const fileCount = (e) => str(e['憑證']).split('\n').filter(Boolean).length + str(e['付款憑證']).split('\n').filter(Boolean).length;
+  const expLine = (e) => str(e['類別']) + (str(e['細目']) ? '／' + str(e['細目']) : '');
+
+  function expenseTab(mon, p) {
+    const v = EXP_VIEWS[p.v] ? p.v : 'due';
+    const all = PB.rows('3_支出');
+    const due = all.filter((e) => str(e['付款狀態']) !== '已付');
+    const chips = '<div class="chips" style="margin-bottom:12px">' + Object.keys(EXP_VIEWS).map((k) => '<button class="chip' + (k === v ? ' on' : '') + '" data-act="param2" data-k="v" data-v="' + k + '">' + EXP_VIEWS[k] + (k === 'due' ? '<span class="c">' + due.length + '</span>' : '') + '</button>').join('') + '</div>';
+    const top = '<div class="acts">' + btn('新增支出', 'expNew', {}, 'pri', 'plus') + '</div>' + chips;
+    if (v === 'paid') return top + paidView(all, p);
+    if (v === 'month') return top + monthView(all, mon);
+    return top + dueView(due, p);
+  }
+
+  function dueView(due, p) {
+    Array.from(expSel).forEach((id) => { if (!due.some((e) => str(e['支出ID']) === id)) expSel.delete(id); });
+    const kw = str(p.q).toLowerCase();
+    const until = p.until || '';
+    let list = due.filter((e) => !until || day(e['日期']) <= until);
+    if (kw) list = list.filter((e) => (payeeOf(e).name + expLine(e) + str(e['備註']) + m.venueName(e['據點'])).toLowerCase().indexOf(kw) >= 0);
+    const groups = {};
+    list.forEach((e) => { const py = payeeOf(e); (groups[py.k] = groups[py.k] || { py: py, list: [] }).list.push(e); });
+    const keys = Object.keys(groups).sort((a, b) => sum(groups[b].list, (e) => e['金額']) - sum(groups[a].list, (e) => e['金額']));
+    const cards = keys.map((k) => {
+      const g = groups[k];
+      const ids = g.list.map((e) => str(e['支出ID']));
+      const on = ids.filter((id) => expSel.has(id)).length;
+      const rows = g.list.sort((a, b) => byKey(day(a['日期']), day(b['日期']))).map((e) => {
+        const id = str(e['支出ID']);
+        const late = day(e['日期']) < today();
+        return '<tr class="click" data-act="expEdit" data-id="' + esc(id) + '"><td data-stop><input type="checkbox" data-expsel="' + esc(id) + '"' + (expSel.has(id) ? ' checked' : '') + '></td><td>' + esc(fmtD(e['日期'])) + (late ? ' <span class="badge warn">已到期</span>' : '') + '</td><td>' + esc(expLine(e)) + '</td><td class="mut m-hide">' + esc(g.py.kind === '據點' ? '' : m.venueName(e['據點'])) + '</td><td class="mut m-hide" style="white-space:normal">' + esc(str(e['備註']).slice(0, 50)) + '</td><td class="fclip m-hide">' + (fileCount(e) ? '📎 ' + fileCount(e) : '') + '</td><td class="num">' + money(e['金額']) + '</td></tr>';
+      }).join('');
+      return '<div class="card exp-g"><div class="exp-gh"><label class="exp-all"><input type="checkbox" data-expgrp="' + esc(ids.join(',')) + '"' + (on === ids.length ? ' checked' : '') + '><b>' + esc(g.py.name) + '</b></label>' +
+        (g.py.kind ? '<span class="badge">' + esc(g.py.kind) + '</span>' : '') + (g.py.info ? '<span class="mut exp-info">' + esc(g.py.info) + '</span>' : '') + (g.py.kind === '人員' ? btn('匯款資料', 'secretView', { id: g.py.id }, 'ghost') : '') +
+        '<span class="sp"></span><span class="mut">' + g.list.length + ' 筆</span><b class="num">' + money(sum(g.list, (e) => e['金額'])) + '</b></div>' +
+        '<div class="tbl-wrap flat"><table class="tbl"><tbody>' + rows + '</tbody></table></div></div>';
+    }).join('');
+    const filt = '<div class="ptop"><label class="search">' + PB.icon('search') + '<input placeholder="受款對象、項目、備註" value="' + esc(p.q || '') + '" data-input="arSearch"></label>' +
+      '<label class="mut" style="font-size:.85rem">到期日到 <input type="date" class="btn sm" value="' + esc(until) + '" data-input="expUntil"></label><span class="sp"></span><span class="mut">應付 ' + list.length + ' 筆・' + money(sum(list, (e) => e['金額'])) + '</span></div>';
+    return filt + (cards || '<div class="card">' + ui.empty('沒有待付款的支出', '') + '</div>') + '<div class="exp-bar" id="expBar">' + barHtml(due) + '</div>' +
+      '<p class="mut" style="font-size:.8rem">勾選的項目會記在這台裝置，可以分幾天慢慢勾，決定好付款日再一起付。包場租金由系統每月 1 日依合作方案自動建立（備註 F03:…）。</p>';
+  }
+  function barHtml(due) {
+    const sel = due.filter((e) => expSel.has(str(e['支出ID'])));
+    if (!sel.length) return '<span class="mut">勾選本次要付的項目</span>';
+    const payees = uniq(sel.map((e) => payeeOf(e).k)).length;
+    return '<span>已勾選 <b>' + sel.length + '</b> 筆・' + payees + ' 個對象・合計 <b class="num">' + money(sum(sel, (e) => e['金額'])) + '</b></span><span class="sp"></span>' + btn('清除勾選', 'expSelClear', {}, 'ghost') + btn('付款…', 'expPay', {}, 'pri');
+  }
+  const refreshBar = () => { const el = document.getElementById('expBar'); if (el) el.innerHTML = barHtml(PB.rows('3_支出').filter((e) => str(e['付款狀態']) !== '已付')); };
+  document.addEventListener('change', (e) => {
+    const one = e.target.closest && e.target.closest('input[data-expsel]');
+    const grp = e.target.closest && e.target.closest('input[data-expgrp]');
+    if (!one && !grp) return;
+    if (one) { if (one.checked) expSel.add(one.dataset.expsel); else expSel.delete(one.dataset.expsel); }
+    if (grp) {
+      grp.dataset.expgrp.split(',').forEach((id) => { if (grp.checked) expSel.add(id); else expSel.delete(id); });
+      grp.closest('.exp-g').querySelectorAll('input[data-expsel]').forEach((c) => { c.checked = grp.checked; });
+    }
+    saveSel();
+    refreshBar();
+  });
+  PB.inputs.expUntil = (v) => PB.setParam('until', v);
+  A.expSelClear = () => { expSel.clear(); saveSel(); PB.render(); };
+  A.expPay = async () => {
+    const sel = PB.rows('3_支出').filter((e) => str(e['付款狀態']) !== '已付' && expSel.has(str(e['支出ID'])));
+    if (!sel.length) return ui.toast('請先勾選', 'bad');
+    const groups = {};
+    sel.forEach((e) => { const py = payeeOf(e); (groups[py.k] = groups[py.k] || { py: py, list: [] }).list.push(e); });
+    const staff = Object.keys(groups).map((k) => groups[k].py).filter((py) => py.kind === '人員').map((py) => py.id);
+    const info = staff.length ? await PB.read('payeeInfo', { staff: staff }) : null;
+    const bank = (py) => { const r = info && info.staff[py.id]; return r && (r.匯款銀行 || r.帳號) ? r.匯款銀行 + ' ' + r.帳號 : py.kind === '人員' ? '沒有匯款資料' : py.info || ''; };
+    const list = Object.keys(groups).map((k) => { const g = groups[k]; return '<tr><td><b>' + esc(g.py.name) + '</b><br><span class="mut" style="font-size:.8rem">' + esc(bank(g.py)) + '</span></td><td class="num">' + g.list.length + ' 筆</td><td class="num"><b>' + money(sum(g.list, (e) => e['金額'])) + '</b></td></tr>'; }).join('');
+    const body = '<div class="tbl-wrap" style="margin-bottom:10px"><table class="tbl"><tbody>' + list + '</tbody><tfoot><tr><td>合計</td><td class="num">' + sel.length + ' 筆</td><td class="num">' + money(sum(sel, (e) => e['金額'])) + '</td></tr></tfoot></table></div>' +
+      '<div class="fld-row"><div class="fld"><label>付款日期</label><input type="date" name="date" value="' + today() + '"></div><div class="fld"><label>付款方式</label><select name="method">' + (PB.enums['支出付款方式'] || ['轉帳', '現金', '其他']).map((x) => '<option>' + esc(x) + '</option>').join('') + '</select></div></div>' +
+      '<div class="fld"><label>備註</label><input name="note" placeholder="例：10 月場租與器材一起匯"></div>' +
+      '<div class="fld"><label>付款憑證</label>' + ui.filesField({ k: '付款憑證', _table: '3_支出' }, '', 'payproof') + '<span class="hint">轉帳截圖等；會附在這次付款的每一筆</span></div>';
+    const r = await ui.modal({ title: '付款 ' + sel.length + ' 筆', body: body, sticky: true, actions: [{ label: '取消' }, { label: '確認付款', kind: 'pri', click: (el) => { const d = el.querySelector('[name=date]').value; if (!d) { ui.toast('請選付款日期', 'bad'); return false; } return { date: d, method: el.querySelector('[name=method]').value, note: el.querySelector('[name=note]').value, proof: el.querySelector('.files input[type=hidden]').value }; } }] });
+    if (!r) return;
+    const out = await PB.run('expensePay', Object.assign({ ids: sel.map((e) => str(e['支出ID'])) }, r));
+    if (out) { sel.forEach((e) => expSel.delete(str(e['支出ID']))); saveSel(); PB.render(); }
+  };
+  A.secretView = async (d) => {
+    const r = await PB.read('payeeInfo', { staff: [d.id] });
+    const x = r && r.staff[d.id];
+    ui.modal({ title: '匯款資料：' + m.staffName(d.id), body: x ? kvTable([['匯款銀行', x.匯款銀行], ['帳號', x.帳號]]) : '<div class="note warn">還沒有匯款資料：請到「主檔與紀錄 → 人員」按「請款資料」填寫。</div>', actions: [{ label: '關閉' }] });
+  };
+  const kvTable = (pairs) => '<div class="tbl-wrap"><table class="tbl"><tbody>' + pairs.map((x) => '<tr><td class="mut">' + esc(x[0]) + '</td><td><b>' + esc(x[1] || '—') + '</b></td></tr>').join('') + '</tbody></table></div>';
+
+  /** 付款紀錄：依付款批次（沒有批次欄或舊資料依付款日期＋受款對象） */
+  function paidView(all, p) {
+    const since = p.since || addDays(today(), -90);
+    const paid = all.filter((e) => str(e['付款狀態']) === '已付' && day(e['付款日期'] || e['日期']) >= since);
+    const groups = {};
+    paid.forEach((e) => { const k = str(e['付款批次']) || 'D' + day(e['付款日期'] || e['日期']) + '|' + payeeOf(e).k; (groups[k] = groups[k] || { k: k, batch: str(e['付款批次']), d: day(e['付款日期'] || e['日期']), list: [] }).list.push(e); });
+    const keys = Object.keys(groups).sort((a, b) => byKey(groups[b].d + b, groups[a].d + a));
+    const cards = keys.map((k) => {
+      const g = groups[k];
+      const byPayee = {};
+      g.list.forEach((e) => { const py = payeeOf(e); (byPayee[py.k] = byPayee[py.k] || { py: py, n: 0, amt: 0 }); byPayee[py.k].n += 1; byPayee[py.k].amt += num(e['金額']); });
+      const proofs = uniq(g.list.reduce((a, e) => a.concat(str(e['付款憑證']).split('\n')), []).filter(Boolean)).join('\n');
+      return '<div class="card exp-g"><div class="exp-gh"><b>' + esc(fmtD(g.d)) + '</b>' + (g.batch ? '<span class="badge">' + esc(g.batch) + '</span>' : '') + (str(g.list[0]['付款方式']) ? '<span class="badge info">' + esc(g.list[0]['付款方式']) + '</span>' : '') +
+        '<span class="sp"></span><span class="mut">' + g.list.length + ' 筆</span><b class="num">' + money(sum(g.list, (e) => e['金額'])) + '</b>' + (g.batch ? btn('取消這次付款', 'expUnpay', { batch: g.batch }, 'ghost') : '') + '</div>' +
+        '<div class="exp-payees">' + Object.keys(byPayee).map((x) => '<span>' + esc(byPayee[x].py.name) + ' <b>' + money(byPayee[x].amt) + '</b> <span class="mut">(' + byPayee[x].n + ' 筆)</span></span>').join('') + '</div>' +
+        (proofs ? '<div class="fthumbs" style="margin:6px 12px 10px">' + ui.fileList(proofs) + '</div>' : '') +
+        '<div class="tbl-wrap flat"><table class="tbl"><tbody>' + g.list.map((e) => '<tr class="click" data-act="expEdit" data-id="' + esc(e['支出ID']) + '"><td>' + esc(fmtD(e['日期'])) + '</td><td>' + esc(payeeOf(e).name) + '</td><td>' + esc(expLine(e)) + '</td><td class="fclip">' + (fileCount(e) ? '📎 ' + fileCount(e) : '') + '</td><td class="num">' + money(e['金額']) + '</td></tr>').join('') + '</tbody></table></div></div>';
+    }).join('');
+    return '<div class="ptop"><label class="mut" style="font-size:.85rem">付款日期從 <input type="date" class="btn sm" value="' + esc(since) + '" data-input="expSince"></label><span class="sp"></span><span class="mut">' + paid.length + ' 筆・' + money(sum(paid, (e) => e['金額'])) + '</span></div>' +
+      (cards || '<div class="card">' + ui.empty('這段期間沒有付款紀錄', '') + '</div>');
+  }
+  PB.inputs.expSince = (v) => PB.setParam('since', v);
+  A.expUnpay = (d) => PB.run('expenseUnpay', { batch: d.batch }, { confirm: { title: '取消這次付款', text: '這一批的支出會回到「應付」；付款憑證會留在各筆支出上。', danger: true, ok: '取消付款' } });
+
+  function monthView(all, mon) {
+    const list = all.filter((e) => day(e['日期']).slice(0, 7) === mon).sort((a, b) => byKey(day(a['日期']), day(b['日期'])));
+    const rows = list.map((e) => '<tr class="click" data-act="expEdit" data-id="' + esc(e['支出ID']) + '"><td>' + esc(fmtD(e['日期'])) + '</td><td>' + esc(expLine(e)) + '</td><td class="num">' + money(e['金額']) + '</td><td>' + esc(m.venueName(e['據點'])) + '</td><td>' + esc(payeeOf(e).name) + '</td><td><span class="badge ' + (str(e['付款狀態']) === '已付' ? 'ok' : 'warn') + '">' + esc(e['付款狀態']) + '</span>' + (day(e['付款日期']) ? ' <span class="mut">' + esc(fmtD(e['付款日期'])) + '</span>' : '') + '</td><td class="fclip">' + (fileCount(e) ? '📎 ' + fileCount(e) : '') + '</td><td class="mut" style="white-space:normal">' + esc(str(e['備註']).slice(0, 60)) + '</td></tr>').join('');
+    return '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th>類別</th><th class="num">金額</th><th>據點</th><th>受款</th><th>狀態</th><th></th><th>備註</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8" class="mut">這個月沒有支出</td></tr>') + '</tbody><tfoot><tr><td colspan="2">合計（應付 ' + money(sum(list.filter((e) => str(e['付款狀態']) !== '已付'), (e) => e['金額'])) + '）</td><td class="num">' + money(sum(list, (e) => e['金額'])) + '</td><td colspan="5"></td></tr></tfoot></table></div>';
   }
   A.expNew = () => ui.form('3_支出', {});
   A.expEdit = (d) => ui.form('3_支出', { id: d.id });
   A.expPaid = async (d) => {
     const v = await ui.ask('標記已付', '', { fields: [{ k: 'date', label: '付款日期', t: 'date', req: true, value: today() }], ok: '已付' });
-    if (v) PB.run('expensePaid', { ids: [d.id], date: v.date });
+    if (v) PB.run('expensePay', { ids: [d.id], date: v.date });
   };
   A.expPaidChecked = async () => {
     const ids = checked('exp');
     if (!ids.length) return ui.toast('請先勾選');
     const v = await ui.ask('標記已付 ' + ids.length + ' 筆', '', { fields: [{ k: 'date', label: '付款日期', t: 'date', req: true, value: today() }], ok: '已付' });
-    if (v) PB.run('expensePaid', { ids: ids, date: v.date });
+    if (v) PB.run('expensePay', { ids: ids, date: v.date });
   };
 
   function arTab(mon, p) {
@@ -447,7 +574,7 @@
     場地: { t: '1_據點_場地', cols: [['據點', (r) => m.venueName(r['據點'])], ['場地', (r) => r['場地名稱']], ['人數', (r) => r['人數上限']], ['類型', (r) => split(r['類型']).join('、')], ['狀態', (r) => r['狀態']]], sort: (r) => m.venueName(r['據點']) },
     時段: { t: '1_據點_時段', cols: [['據點', (r) => m.venueName(r['據點'])], ['時段', (r) => m.slotLabel(r)], ['場地', (r) => split(r['使用場地']).map(m.courtName).join('、')], ['期間', (r) => fmtD(r['生效日期']) + '～' + fmtD(r['結束日期'])], ['週期', (r) => r['週期']], ['可用日', (r) => (PB.ix.availBySlot[str(r['時段ID'])] || []).filter((a) => str(a['狀態']) === '可用' && day(a['日期']) >= today()).length + ' 天'], ['狀態', (r) => r['狀態']], ['產生可用日', (r) => availGen(r).t, (r) => availGen(r).h]],
       sort: (r) => m.venueName(r['據點']) + '週' + '一二三四五六日'.indexOf(str(r['星期'])),
-      acts: (r) => btn('產生可用日', 'slotAvail', { id: r['時段ID'] }) + btn('產生球敘草稿', 'slotDrafts', { id: r['時段ID'] }, 'ghost') + btn('可用日', 'availOf', { id: r['時段ID'] }, 'ghost') },
+      acts: (r) => btn('產生可用日', 'slotAvail', { id: r['時段ID'] }) + btn('可用日', 'availOf', { id: r['時段ID'] }, 'ghost') },
     可用日: { t: '1_據點_可用日', custom: true },
     人員: { t: '1_人員', cols: [['姓名', (r) => r['姓名']], ['角色', (r) => split(r['角色']).map((x) => (PB.get('0_角色', x) || {})['角色名稱'] || x).join('、')], ['Email', (r) => r['Email']], ['電話', (r) => r['電話']], ['LINE', (r) => (str(r['LINE_userId']) ? '已綁定' : '')], ['狀態', (r) => r['在職狀態']]],
       acts: (r) => (str(r['在職狀態']) === '待審核' ? btn('核准', 'staffOk', { id: r['人員ID'] }, 'pri') : '') + btn('請款資料', 'secret', { id: r['人員ID'] }, 'ghost') },
@@ -618,7 +745,7 @@
   PB.app({
     app: 'admin',
     title: '管理後台',
-    version: '2.6',
+    version: '2.7',
     screens: [Dash, Queue].concat(PB.schedScreen ? [PB.schedScreen] : []).concat([Finance, Data]),
     links: () => (PB.cfg.opsUrl ? [{ label: '營運工作台', url: PB.cfg.opsUrl, icon: 'swap', mobile: true }] : []),
   });

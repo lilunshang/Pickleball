@@ -280,7 +280,14 @@
   m.sesLabel = (s) => {
     if (!s) return '';
     const c = PB.get('2_課程班級', s['班級']);
-    return fmtD(s['日期']) + ' ' + m.hm(s['開始時間']) + '｜' + m.classLabel(c) + (s['第幾堂'] && !m.isSingle(c) ? ' 第' + s['第幾堂'] + '堂' : '');
+    return fmtD(s['日期']) + ' ' + m.hm(s['開始時間']) + '｜' + m.classLabel(c) + (m.isMakeupSes(s) ? ' 期末補課堂' : s['第幾堂'] && !m.isSingle(c) ? ' 第' + s['第幾堂'] + '堂' : '');
+  };
+  /** v2.6：期末補課堂（期制班 第幾堂 > 總堂數；學員 OA L04 為請假的學員自動加的）。只有排了補課的學員要來 */
+  m.isMakeupSes = (s) => {
+    if (!s) return false;
+    const c = PB.get('2_課程班級', s['班級']);
+    const total = num(c && c['總堂數']);
+    return !!c && !m.isSingle(c) && total > 0 && num(s['第幾堂']) > total;
   };
   /** 參照欄位的顯示文字 */
   m.label = (t, r) => {
@@ -430,7 +437,7 @@
       st: str(g['狀態']),
     };
   };
-  m.gameBadge = (st) => '<span class="badge ' + ({ 草稿: 'warn', 開放報名: 'ok', 已額滿: 'brand', 已結束: '', 取消: 'bad' }[st] || '') + '">' + esc(st) + '</span>';
+  m.gameBadge = (st, g) => (st === '草稿' && g && str(g['開放報名時間']) ? '<span class="badge info">' + esc(str(g['開放報名時間']).slice(5, 16).replace('-', '/')) + ' 自動開放</span>' : '<span class="badge ' + ({ 草稿: 'warn', 開放報名: 'ok', 已額滿: 'brand', 已結束: '', 取消: 'bad' }[st] || '') + '">' + esc(st) + '</span>');
 
   // ---- 學員 ----
   m.stu = (s) => {
@@ -637,9 +644,11 @@
     const hint = f.hint ? '<span class="hint">' + esc(f.hint) + '</span>' : '';
     const hide = f.when && !whenOk(f.when, vals) ? ' style="display:none"' : '';
     const wrap = (inner) => '<div class="fld" data-k="' + esc(f.k) + '"' + hide + '><label for="' + id + '">' + esc(f.label || f.k) + req + '</label>' + inner + hint + '</div>';
+    if ((locked || f.t === 'ro') && f.t === 'files') return wrap('<div class="ro">' + (ui.fileList(v) || '—') + '</div>');
     if (locked || f.t === 'ro') return wrap('<div class="ro">' + esc(displayVal(f, v)) + '</div>');
     const val = v === undefined || v === null ? '' : v;
     const t = f.t;
+    if (t === 'files') return wrap(ui.filesField(f, val, id, before));
     if (t === 'long') return wrap('<textarea id="' + id + '" name="' + esc(f.k) + '">' + esc(val) + '</textarea>');
     if (t === 'bool') return '<div class="fld" data-k="' + esc(f.k) + '"' + hide + '><label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" name="' + esc(f.k) + '"' + (val === true || val === 'true' ? ' checked' : '') + '> ' + esc(f.label || f.k) + '</label>' + hint + '</div>';
     if (t === 'ref' && f.ref === '1_據點_時段') return wrap(slotPicker(f, val, vals, id));
@@ -691,12 +700,82 @@
     const list = ids.map((x) => PB.get('1_據點_時段', x)).filter(Boolean);
     return list.length ? '已選 ' + list.length + ' 個：' + esc(list.map((r) => '週' + str(r['星期']) + ' ' + m.hm(r['開始時間'], r['結束時間'])).join('、')) : '<span class="mut">尚未選擇</span>';
   }
+  // ---- v2.7 上傳照片／PDF（欄位型別 files：值＝雲端硬碟網址，一行一個） ----
+  const fileId = (u) => (str(u).match(/\/d\/([\w-]{20,})/) || str(u).match(/[?&]id=([\w-]{20,})/) || [])[1] || '';
+  const isUrl = (u) => /^https?:\/\//.test(str(u));
+  /** 唯讀顯示：縮圖＋連結（AppSheet 上傳的相對路徑只顯示檔名） */
+  ui.fileList = (v) => str(v).split('\n').map(str).filter(Boolean).map((u) => isUrl(u)
+    ? '<a class="fthumb" href="' + esc(u) + '" target="_blank" rel="noopener" title="開啟">' + (fileId(u) ? '<img loading="lazy" alt="" src="https://drive.google.com/thumbnail?id=' + esc(fileId(u)) + '&sz=w240" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{textContent:\'檔案\'}))">' : '<span>檔案</span>') + '</a>'
+    : '<span class="fthumb ftxt" title="AppSheet 上傳的檔案">' + esc(u.split('/').pop()) + '</span>').join('');
+  ui.filesField = (f, val, id, before) => {
+    const table = (before && before._table) || f._table || '';
+    return '<div class="files" data-files="' + esc(f.k) + '"><input type="hidden" name="' + esc(f.k) + '" value="' + esc(val) + '">' +
+      '<div class="fthumbs">' + filesInner(val) + '</div>' +
+      '<label class="btn sm fadd">' + PB.icon('plus') + '新增照片／PDF<input type="file" accept="image/*,application/pdf" multiple data-upload="' + esc(f.k) + '" data-table="' + esc(table) + '" hidden></label>' +
+      '<span class="fbusy mut"></span></div>';
+  };
+  function filesInner(val) {
+    return str(val).split('\n').map(str).filter(Boolean).map((u, i) => '<span class="fitem">' + ui.fileList(u) + '<button type="button" class="fdel" data-fdel="' + i + '" aria-label="移除" title="從這筆移除（檔案仍留在雲端硬碟）">×</button></span>').join('');
+  }
+  /** 照片縮到長邊 1600px（JPEG 0.82），PDF 原檔 */
+  async function shrink(file) {
+    if (!/^image\//.test(file.type) || /gif/.test(file.type)) return file;
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      const s = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * s);
+      c.height = Math.round(bmp.height * s);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
+      return blob && blob.size < file.size ? new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : file;
+    } catch (e) { return file; }
+  }
+  const toB64 = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(file); });
+  /** 上傳一個檔案 → 網址（失敗回傳 ''）；table／field 決定權限與資料夾 */
+  PB.upload = async (table, field, file) => {
+    const f = await shrink(file);
+    if (f.size > 10 * 1024 * 1024) { ui.toast(file.name + ' 超過 10MB', 'bad'); return ''; }
+    const out = await PB.runMany([{ op: 'fileUpload', args: { table: table, field: field, name: file.name, mime: f.type || 'image/jpeg', data: await toB64(f) } }], { quiet: true });
+    const r = out && out.results[0];
+    if (!r || !r.ok) { ui.toast((r && r.message) || '上傳失敗', 'bad'); return ''; }
+    return r.data.url;
+  };
+  document.addEventListener('change', async (e) => {
+    const inp = e.target.closest && e.target.closest('input[data-upload]');
+    if (!inp || !inp.files || !inp.files.length) return;
+    const box = inp.closest('.files');
+    const hid = box.querySelector('input[type=hidden]');
+    const busy = box.querySelector('.fbusy');
+    const files = Array.from(inp.files);
+    inp.value = '';
+    for (let i = 0; i < files.length; i++) {
+      busy.textContent = '上傳中 ' + (i + 1) + '／' + files.length + '…';
+      const url = await PB.upload(inp.dataset.table, inp.dataset.upload, files[i]);
+      if (url) { hid.value = str(hid.value).split('\n').concat(url).map(str).filter(Boolean).join('\n'); box.querySelector('.fthumbs').innerHTML = filesInner(hid.value); }
+    }
+    busy.textContent = '';
+  });
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('[data-fdel]');
+    if (!b) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const box = b.closest('.files');
+    const hid = box.querySelector('input[type=hidden]');
+    const list = str(hid.value).split('\n').map(str).filter(Boolean);
+    list.splice(Number(b.dataset.fdel), 1);
+    hid.value = list.join('\n');
+    box.querySelector('.fthumbs').innerHTML = filesInner(hid.value);
+  }, true);
+
   function displayVal(f, v) {
     if (f.t === 'ref') return split(v).map((id) => m.label(f.ref, PB.get(f.ref, id)) || id).join('、');
     if (f.t === 'money') return v === '' ? '' : money(v);
     if (f.t === 'bool') return v === true ? '是' : '否';
     if (f.t === 'date') return fmtD(v);
     if (f.t === 'dt') return fmtDT(v);
+    if (f.t === 'files') return str(v).split('\n').filter(Boolean).length + ' 個檔案';
     return Array.isArray(v) ? v.join('、') : str(v);
   }
   function whenOk(when, vals) {
@@ -790,6 +869,7 @@
     if (o.id && !before) return ui.toast('資料已不存在，請重新整理', 'bad');
     let fields = spec.fields.filter((f) => !f.optional || (db.cols[table] || []).indexOf(f.k) >= 0);
     if (o.only) fields = fields.filter((f) => o.only.indexOf(f.k) >= 0);
+    fields = fields.map((f) => (f.t === 'files' ? Object.assign({ _table: table }, f) : f)); // v2.7：上傳要知道是哪張表
     const init = Object.assign({}, before || defaultsOf(fields), o.values || {});
     const body = fields.map((f) => fieldHtml(f, init[f.k], init, before)).join('');
     let savedId = null;

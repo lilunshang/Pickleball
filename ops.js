@@ -53,7 +53,8 @@
         const leave = att.filter((a) => str(a['狀態']) === '請假').length;
         const mk = att.filter((a) => str(a['狀態']) === '補課出席').length;
         const info = c ? m.cls(c) : null;
-        const expect = info ? info.active.length - leave + mk : 0;
+        const mkSes = m.isMakeupSes(s);
+        const expect = mkSes ? mk : info ? info.active.length - leave + mk : 0;
         const off = st === '取消' || st === '改期';
         if (!off) people += expect;
         let right = st === '已完成' ? '<span class="badge ok">已點名 ' + att.filter((a) => /出席/.test(str(a['狀態']))).length + '</span>' :
@@ -65,7 +66,7 @@
         if (!coach && !off) noStaff += 1;
         const title = c && m.isSingle(c) ? '【專項】' + str(c['課程名稱']) : m.classLabel(c);
         items.push({ v: str(s['據點']), st: str(s['開始時間']), en: str(s['結束時間']), kind: 'c', off: off, act: 'openSes', id: s['場次ID'],
-          t: esc(title) + (s['第幾堂'] && !(c && m.isSingle(c)) ? ' <span class="mut">第' + s['第幾堂'] + '/' + (info ? info.total : '') + '堂</span>' : '') + (c && str(c['課程狀態']) === '籌備中' ? ' <span class="badge warn">' + (m.isSingle(c) ? '待成班' : '籌備中') + '</span>' : ''),
+          t: esc(title) + (mkSes ? ' <span class="badge info">期末補課堂</span>' : s['第幾堂'] && !(c && m.isSingle(c)) ? ' <span class="mut">第' + s['第幾堂'] + '/' + (info ? info.total : '') + '堂</span>' : '') + (c && str(c['課程狀態']) === '籌備中' ? ' <span class="badge warn">' + (m.isSingle(c) ? '待成班' : '籌備中') + '</span>' : ''),
           s: esc(m.courtName(s['使用場地'])) + '・教練 ' + (coach ? esc(coach) : '<b class="bad-t">未排</b>'), r: right });
       });
       games.forEach((g) => {
@@ -75,7 +76,7 @@
         const hosts = x.hosts.map((h) => esc(h.name) + (h.in ? ' ✓' : '')).join('、');
         if (!hosts && !off) noStaff += 1;
         items.push({ v: str(g['據點']), st: str(g['開始時間']), en: str(g['結束時間']), kind: 'g', off: off, act: 'openGame', id: g['球敘ID'],
-          t: esc(m.gameLabel(g)) + ' ' + m.gameBadge(x.st),
+          t: esc(m.gameLabel(g)) + ' ' + m.gameBadge(x.st, g),
           s: esc(x.courts.map((c) => c.name).join('、')) + '・場主 ' + (hosts || '<b class="bad-t">未排</b>'),
           r: '<span class="badge">報名 ' + x.active.length + '/' + x.limit + '</span>' + (x.wait.length ? '<span class="badge warn">候補 ' + x.wait.length + '</span>' : '') + (x.walkin.length ? '<span class="badge warn">現場 ' + x.walkin.length + '</span>' : '') + (x.checked ? '<span class="badge ok">簽到 ' + x.checked + '</span>' : '') });
       });
@@ -114,6 +115,7 @@
   const Q = [];
   const q = (def) => Q.push(def);
   const fut = (dk) => day(dk) >= today();
+  const MAKEUP_FULL = /\[期末補課堂：可用日不足/;
 
   q({
     id: 'pay', title: '轉帳／現金待對帳', hint: '對照銀行入帳明細或場主交款；截圖不算入帳',
@@ -154,10 +156,19 @@
   });
   q({
     id: 'makeup', title: '請假待補課', hint: '找程度相近、有空位的班，跟學員確認後安排；不保證原教練',
-    items: () => PB.rows('2_出缺勤').filter((a) => str(a['狀態']) === '請假' && !(PB.ix.attBySrc[str(a['出缺勤ID'])] || []).length && (!day(a['補課期限']) || fut(a['補課期限'])) && str((PB.get('2_上課場次', a['上課場次']) || {})['場次狀態']) !== '改期'),
+    items: () => PB.rows('2_出缺勤').filter((a) => str(a['狀態']) === '請假' && !(PB.ix.attBySrc[str(a['出缺勤ID'])] || []).length && (!day(a['補課期限']) || fut(a['補課期限'])) && str((PB.get('2_上課場次', a['上課場次']) || {})['場次狀態']) !== '改期' && !MAKEUP_FULL.test(str(a['備註']))),
     row: (a) => {
       const s = PB.get('2_上課場次', a['上課場次']);
       return row({ t: esc(m.stuName(a['學員'])), s: esc('請假：' + m.sesLabel(s) + (day(a['補課期限']) ? '・補課期限 ' + fmtD(a['補課期限']) : '')), r: btn('安排補課', 'makeup', { id: a['出缺勤ID'] }, 'pri') + btn('學員', 'openStu', { id: a['學員'] }, 'ghost') });
+    },
+  });
+  // v2.6：期末補課堂排不進去（學員 OA L04：這一面接下來沒有可用日）→ 已寄信給管理層
+  q({
+    id: 'makeupFull', title: '期末補課堂排不進去', hint: '這班之後同時段同球面沒有可用日：請新增可用日（系統下一輪會自動補排），或手動安排到其他班補課',
+    items: () => PB.rows('2_出缺勤').filter((a) => str(a['狀態']) === '請假' && MAKEUP_FULL.test(str(a['備註'])) && !(PB.ix.attBySrc[str(a['出缺勤ID'])] || []).length),
+    row: (a) => {
+      const s = PB.get('2_上課場次', a['上課場次']);
+      return row({ t: esc(m.stuName(a['學員'])), s: esc('請假：' + m.sesLabel(s) + '・' + m.venueName(s && s['據點'])), r: btn('安排補課', 'makeup', { id: a['出缺勤ID'] }, 'pri') + btn('學員', 'openStu', { id: a['學員'] }, 'ghost') });
     },
   });
   q({
@@ -201,7 +212,7 @@
   });
   q({
     id: 'draft', title: '球敘草稿（待開放報名）', hint: '核對日期、時間、據點、面數、費用、程度、場主後再開放',
-    items: () => PB.rows('2_球敘場次').filter((g) => str(g['狀態']) === '草稿' && fut(g['日期'])).sort((a, b) => byKey(day(a['日期']), day(b['日期']))),
+    items: () => PB.rows('2_球敘場次').filter((g) => str(g['狀態']) === '草稿' && !str(g['開放報名時間']) && fut(g['日期'])).sort((a, b) => byKey(day(a['日期']), day(b['日期']))),
     row: (g) => row({ check: 'draft', id: g['球敘ID'], act: 'openGame', t: esc(fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間'])) + ' ' + esc(m.venueName(g['據點'])), s: esc([m.gameLabel(g), split(g['使用場地']).map(m.courtName).join('、'), str(g['費用']) !== '' ? money(g['費用']) + '／人' : '未填費用'].join('・')), r: btn('開放報名', 'gameOpen', { id: g['球敘ID'] }, 'pri') }),
     bulk: { label: '開放勾選的球敘', act: 'gameOpenChecked' },
   });
@@ -411,7 +422,7 @@
       const st = str(s['場次狀態']);
       const att = PB.ix.attBySes[str(s['場次ID'])] || [];
       const lv = att.filter((a) => str(a['狀態']) === '請假').length;
-      return row({ act: 'openSes', id: s['場次ID'], when: esc(fmtD(s['日期']).replace(/（.）/, '')) + '<small>週' + wd(s['日期']) + '</small>', t: '第 ' + esc(s['第幾堂']) + ' 堂 ' + (st === '預定' ? (day(s['日期']) < t ? '<span class="badge bad">未點名</span>' : '') : '<span class="badge ' + (st === '已完成' ? 'ok' : st === '改期' ? '' : 'bad') + '">' + esc(st === '取消' ? '停課' : st) + '</span>'), s: esc(m.hm(s['開始時間'], s['結束時間']) + '・' + m.courtName(s['使用場地']) + '・教練 ' + (m.staffName(s['授課教練']) || '未排') + (str(s['改期原因']) ? '・改期原因 ' + s['改期原因'] : '')), r: lv ? '<span class="badge warn">請假 ' + lv + '</span>' : '' });
+      return row({ act: 'openSes', id: s['場次ID'], when: esc(fmtD(s['日期']).replace(/（.）/, '')) + '<small>週' + wd(s['日期']) + '</small>', t: (m.isMakeupSes(s) ? '期末補課堂 <span class="mut">' + (PB.ix.attBySes[str(s['場次ID'])] || []).filter((a) => str(a['狀態']) === '補課出席').length + ' 人</span> ' : '第 ' + esc(s['第幾堂']) + ' 堂 ') + (st === '預定' ? (day(s['日期']) < t ? '<span class="badge bad">未點名</span>' : '') : '<span class="badge ' + (st === '已完成' ? 'ok' : st === '改期' ? '' : 'bad') + '">' + esc(st === '取消' ? '停課' : st) + '</span>'), s: esc(m.hm(s['開始時間'], s['結束時間']) + '・' + m.courtName(s['使用場地']) + '・教練 ' + (m.staffName(s['授課教練']) || '未排') + (str(s['改期原因']) ? '・改期原因 ' + s['改期原因'] : '')), r: lv ? '<span class="badge warn">請假 ' + lv + '</span>' : '' });
     }).join('');
     return '<div class="acts">' + acts.join('') + '</div>' + info + result + hint +
       sigList(x.active, '已報名', 'class') + sigList(x.hold, '保留中（順延）', 'class') + sigList(x.wait, '候補', 'class') +
@@ -642,7 +653,8 @@
     const attBy = {};
     att.forEach((a) => { attBy[str(a['學員'])] = a; });
     const x = m.cls(c);
-    const roster = (x ? x.active : []).map((r) => r['學員']);
+    const mkSes = m.isMakeupSes(s);
+    const roster = mkSes ? [] : (x ? x.active : []).map((r) => r['學員']); // v2.6：期末補課堂只列排了補課的學員
     att.filter((a) => roster.indexOf(str(a['學員'])) < 0).forEach((a) => roster.push(str(a['學員'])));
     const can = st === '預定' && PB.forms['2_課程班級'];
     const acts = can ? [ui.btn('改期', 'sesMove', { id: id }, 'pri'), ui.btn('換教練', 'sesCoach', { id: id }), ui.btn('停課', 'sesCancel', { id: id }, 'bad')] : [];
@@ -674,6 +686,7 @@
       ['教練', esc(m.staffName(s['授課教練']) || '未排')],
       ['改期', orig ? esc('由 ' + fmtD(orig['日期']) + ' 改到這天（' + str(s['改期原因']) + '）') : moved ? esc('已改到 ' + fmtD(moved['日期'])) : ''],
       ['日誌', (PB.ix.journalBySes[id] || []).length ? '已寫' : st === '已完成' ? '<span class="badge warn">未寫</span>' : ''],
+      ['補課堂', mkSes ? '期末補課堂：只有排了補課的學員要來（系統依請假自動安排）' : ''],
       ['備註', esc(s['備註'])],
     ]) + sec('學員', roster.length + ' 人') + card(rows || ui.empty('沒有學員'));
   }
@@ -772,7 +785,7 @@
         '<label class="search">' + PB.icon('search') + '<input placeholder="搜尋據點、日期" value="' + esc(p.q || '') + '" data-input="gameSearch"></label></div>';
       const gRow = (g) => {
         const x = m.game(g);
-        return row({ act: 'openGame', id: g['球敘ID'], when: m.hm(g['開始時間']) + '<small>' + m.hm(g['結束時間']).slice(0, 5) + '</small>', t: esc(m.venueName(g['據點']) + '・' + m.gameLabel(g)) + ' ' + m.gameBadge(x.st) + (x.cancelPending ? ' <span class="badge info">取消處理中</span>' : ''), s: esc(x.courts.map((c) => c.name).join('、') + '・' + (str(g['費用']) !== '' ? money(g['費用']) : '未填費用') + '・場主 ' + (x.hosts.map((h) => h.name).join('、') || '未排')), r: '<span class="badge">' + x.active.length + '/' + x.limit + '</span>' + (x.wait.length ? '<span class="badge warn">候補 ' + x.wait.length + '</span>' : '') });
+        return row({ act: 'openGame', id: g['球敘ID'], when: m.hm(g['開始時間']) + '<small>' + m.hm(g['結束時間']).slice(0, 5) + '</small>', t: esc(m.venueName(g['據點']) + '・' + m.gameLabel(g)) + ' ' + m.gameBadge(x.st, g) + (x.cancelPending ? ' <span class="badge info">取消處理中</span>' : ''), s: esc(x.courts.map((c) => c.name).join('、') + '・' + (str(g['費用']) !== '' ? money(g['費用']) : '未填費用') + '・場主 ' + (x.hosts.map((h) => h.name).join('、') || '未排')), r: '<span class="badge">' + x.active.length + '/' + x.limit + '</span>' + (x.wait.length ? '<span class="badge warn">候補 ' + x.wait.length + '</span>' : '') });
       };
       // 依日期分組，點日期展開（搜尋時全部展開）
       const groups = uniq(list.map((g) => day(g['日期']))).map((d) => {
@@ -809,7 +822,7 @@
     const courts = x.courts.map((c) => sec(c.name, c.list.length + '／' + c.cap + ' 人') + card(c.list.map((r) => sigRow(r, 'game')).join('') || ui.empty('還沒有人'))).join('');
     const noCourt = x.active.filter((r) => !split(g['使用場地']).some((c) => c === str(r['場地'])));
     return '<div class="acts">' + acts.join('') + '</div>' + kv([
-      ['狀態', m.gameBadge(x.st) + (x.cancelPending ? ' <span class="badge info">取消處理中：系統正在通知學員</span>' : '')],
+      ['狀態', m.gameBadge(x.st, g) + (x.cancelPending ? ' <span class="badge info">取消處理中：系統正在通知學員</span>' : '')],
       ['時間', esc(fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間']))],
       ['地點', esc(m.venueName(g['據點']) + '・' + x.courts.map((c) => c.name).join('、'))],
       ['類型', esc((str(g['球敘類型']) || '不限') + (lv ? '：' + lv + (str(g['球敘類型']) === '分級' ? ' 以上' : '') : '') + (str(g['球敘類型']) === 'DUPR' ? '：' + str(g['DUPR下限']) + '–' + str(g['DUPR上限']) : ''))],
@@ -1267,7 +1280,7 @@
   PB.app({
     app: 'ops',
     title: '營運工作台',
-    version: '2.6',
+    version: '2.7',
     screens: [Today, Queue, Classes, Games, Students, Kb, Publish, Sources],
     links: () => (!PB.cfg.kb && PB.cfg.kbUrl ? [{ label: '知識庫', url: PB.cfg.kbUrl, icon: 'kb', mobile: true }] : []),
   });
