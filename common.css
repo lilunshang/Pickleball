@@ -534,3 +534,18 @@ a.row{color:inherit;text-decoration:none}
 .lease-cnt{font-size:.86rem}
 .lease-plan{font-size:.86rem}
 .lease-plan ul{margin:4px 0 0;padding-left:18px}
+/* v2.9 租約步驟、球面勾選 */
+.lsteps{display:flex;gap:4px;margin-bottom:10px}
+.lsteps button{flex:1;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 4px;font-size:.84rem;color:var(--mut);cursor:pointer}
+.lsteps button.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+.lsteps button.done{border-color:var(--brand);color:var(--brand)}
+#lsCourts{display:flex;flex-direction:column;gap:4px}
+.lcourt{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer;background:var(--surface)}
+.lcourt.hit{border-color:var(--brand-2)}
+.lcourt input[type=checkbox]{width:16px;height:16px;accent-color:var(--brand)}
+.lcourt .mut{font-size:.8rem}
+.lcourt.new{position:relative;background:var(--info-soft);cursor:default}
+.lcourt.new input:not([type=checkbox]){border:1px solid var(--line);border-radius:6px;padding:4px 8px;background:var(--surface);min-height:0}
+.lcourt.new .fdel{position:static;flex:none}
+.lease-prev[hidden]{display:none}
+@media (max-width:640px){.sheet .tbl td[data-stop]{white-space:normal!important}.sheet .tbl td[data-stop] .btn{margin:2px 0}}

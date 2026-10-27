@@ -1280,7 +1280,7 @@
   PB.app({
     app: 'ops',
     title: '營運工作台',
-    version: '2.8',
+    version: '2.9',
     screens: [Today, Queue, Classes, Games, Students, Kb, Publish, Sources],
     links: () => (!PB.cfg.kb && PB.cfg.kbUrl ? [{ label: '知識庫', url: PB.cfg.kbUrl, icon: 'kb', mobile: true }] : []),
   });

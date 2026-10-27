@@ -600,7 +600,7 @@
   // 主檔設定（依 Forms 規格的通用清單＋表單）
   // ================================================================
   const D = {
-    據點: { t: '1_據點', cols: [['名稱', (r) => r['據點名稱']], ['類別', (r) => r['據點類別'] || ''], ['區域', (r) => r['區域']], ['場主', (r) => m.staffName(r['場主'])], ['面數', (r) => (PB.ix.courtByVenue[str(r['據點ID'])] || []).length], ['狀態', (r) => r['狀態']]] },
+    據點: { t: '1_據點', open: 'venueOpen', cols: [['名稱', (r) => r['據點名稱']], ['類別', (r) => r['據點類別'] || ''], ['區域', (r) => r['區域']], ['場主', (r) => m.staffName(r['場主'])], ['面數', (r) => (PB.ix.courtByVenue[str(r['據點ID'])] || []).length], ['狀態', (r) => r['狀態']]] },
     場地: { t: '1_據點_場地', cols: [['據點', (r) => m.venueName(r['據點'])], ['場地', (r) => r['場地名稱']], ['人數', (r) => r['人數上限']], ['類型', (r) => split(r['類型']).join('、')], ['狀態', (r) => r['狀態']]], sort: (r) => m.venueName(r['據點']) },
     時段: { t: '1_據點_時段', cols: [['據點', (r) => m.venueName(r['據點'])], ['時段', (r) => m.slotLabel(r)], ['場地', (r) => split(r['使用場地']).map(m.courtName).join('、')], ['期間', (r) => fmtD(r['生效日期']) + '～' + fmtD(r['結束日期'])], ['週期', (r) => r['週期']], ['可用日', (r) => (PB.ix.availBySlot[str(r['時段ID'])] || []).filter((a) => str(a['狀態']) === '可用' && day(a['日期']) >= today()).length + ' 天'], ['狀態', (r) => r['狀態']], ['產生可用日', (r) => availGen(r).t, (r) => availGen(r).h]],
       sort: (r) => m.venueName(r['據點']) + '週' + '一二三四五六日'.indexOf(str(r['星期'])),
@@ -649,11 +649,11 @@
     { id: 'record', label: '紀錄', icon: 'kb', desc: '決策紀錄、文件中心、通知紀錄', keys: ['決策紀錄', '文件', '通知紀錄'] },
   ];
   const DDESC = {
-    據點: '每個上課／球敘地點。面數由「場地」計算。',
+    據點: '點一個據點看詳情：上方可新增租約、球面、時段；下方列出這個據點的租約、球面、時段與可用日。',
     場地: '據點裡的每一面球場；類型決定能排課程或球敘。',
     時段: '據點每週固定可用的時間。按「產生可用日」依期間與週期展開待確認的日期（約 15 分鐘內完成）。',
     可用日: '時段實際能用的日期；確認「可用」後才能排課、開球敘。',
-    租約: '新租一段場地：按「登錄租約」一次填完，系統自動建好球面、時段、可用日（直接可用）、包場合作方案與場租應付。可以直接貼上「20261027_光電球場_一三五1900-2100_共2面共22日(20261109~1230)_共30800(每面每時段700)」這種格式。',
+    租約: '所有據點的包場租約。新租約建議從「據點」點進該據點再按「新增租約」：① 租約（金額、簽約當天付款）② 球面（勾既有、或新增）③ 時段與日期，最後一次建立。可以貼上「20261027_光電球場_一三五1900-2100_共2面共22日(20261109~1230)_共30800(每面每時段700)」自動帶入。',
     合作方案: '場地租金、分潤、外包等合作條件（只有管理層看得到）。',
     合作夥伴: '非人員、非據點的合作對象（廠商、學校窗口等）。',
     課程類型: '課程的「規則」：標準教練費、請假上限、補課期限。每個班級、模板、教練費率都要指定一個類型。',
@@ -687,7 +687,7 @@
       if (kw) list = list.filter((r) => def.cols.map((c) => str(c[1](r))).join(' ').toLowerCase().indexOf(kw) >= 0);
       if (def.sort) list = list.slice().sort((a, b) => byKey(def.sort(a), def.sort(b)));
       const key = PB.db.keys[def.t];
-      const rows = list.map((r) => '<tr class="click" data-act="dataEdit" data-t="' + def.t + '" data-id="' + esc(r[key]) + '">' + def.cols.map((c) => '<td>' + c[2](r, c[1](r)) + '</td>').join('') + (def.acts ? '<td data-stop style="text-align:right">' + def.acts(r) + '</td>' : '') + '</tr>').join('');
+      const rows = list.map((r) => '<tr class="click" data-act="' + (def.open || 'dataEdit') + '" data-t="' + def.t + '" data-id="' + esc(r[key]) + '">' + def.cols.map((c) => '<td>' + c[2](r, c[1](r)) + '</td>').join('') + (def.acts ? '<td data-stop style="text-align:right">' + def.acts(r) + '</td>' : '') + '</tr>').join('');
       const canNew = PB.forms[def.t] && PB.forms[def.t].create;
       return head(canNew ? ui.btn('新增' + k, 'dataNew', { t: def.t }, 'pri', 'plus') : '') +
         '<div class="ptop"><label class="search">' + PB.icon('search') + '<input placeholder="搜尋' + esc(k) + '" value="' + esc(p.q || '') + '" data-input="dataSearch"></label><span class="sp"></span><span class="mut">' + list.length + ' 筆</span></div>' +
@@ -743,7 +743,7 @@
       const paid = ex.filter((e) => str(e['付款狀態']) === '已付').length;
       return '<tr class="click" data-act="dataEdit" data-t="3_合作方案" data-id="' + esc(pid) + '"><td style="white-space:normal">' + esc(r['方案名稱']) + '</td><td>' + esc(m.venueName(r['據點'])) + '</td><td>' + esc(fmtD(r['生效日期']) + '～' + fmtD(r['失效日期'])) + '</td><td class="num">' + money(r['合約金額']) + '</td><td>' + (ex.length ? '<span class="badge ' + (paid === ex.length ? 'ok' : 'warn') + '">場租 ' + (paid === ex.length ? '已付' : '應付') + '</span>' : '<span class="mut">—</span>') + '</td><td>' + (str(r['合約']) ? '<span class="fclip">📎</span>' : '') + '</td></tr>';
     }).join('');
-    return '<div class="acts">' + btn('登錄租約', 'leaseNew', {}, 'pri', 'plus') + '</div>' +
+    return '<div class="acts">' + btn('新增租約', 'leaseNew', {}, 'pri', 'plus') + '</div>' +
       '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>租約</th><th>據點</th><th>期間</th><th class="num">金額</th><th>場租</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="6" class="mut">還沒有租約</td></tr>') + '</tbody></table></div>';
   }
 
@@ -791,24 +791,57 @@
     return o;
   }
 
-  const LS_ = { v: {}, off: new Set(), timer: null, seq: 0, prev: null };
-  A.leaseNew = async () => {
-    LS_.v = { venue: '', newVenue: '', area: '', courts: 2, wds: [], start: '', end: '', dates: '', total: '', unit: '', sign: today(), pay: '轉帳', expect: 0, contract: '' };
+  // ---- v2.9 登錄租約：① 租約 ② 球面 ③ 時段與日期（最後一步按「確認登錄」一次寫入） ----
+  const LS_ = { step: 1, v: {}, off: new Set(), sel: new Set(), add: [], timer: null, seq: 0, fixedVenue: '' };
+  const vCourts = (vid) => PB.rows('1_據點_場地').filter((c) => str(c['據點']) === vid).sort((a, b) => byKey(str(a['場地名稱']), str(b['場地名稱'])));
+  A.leaseNew = async (d) => {
+    d = d || {};
+    LS_.step = 1;
     LS_.off = new Set();
-    LS_.prev = null;
-    const vs = PB.rows('1_據點').slice().sort((a, b) => byKey(str(a['據點名稱']), str(b['據點名稱'])));
-    const body = '<div id="leaseBox">' +
-      '<div class="fld"><label>快速貼上（可略過）</label><textarea name="paste" rows="2" placeholder="20261027_光電球場_一三五1900-2100_共2面共22日(20261109~1230)_共30800(每面每時段700)"></textarea><button type="button" class="btn sm" data-lease="parse" style="align-self:flex-start;margin-top:4px">帶入</button></div>' +
-      '<div class="fld-row"><div class="fld"><label>據點<b>*</b></label><select name="venue"><option value="">請選擇</option>' + vs.map((v) => '<option value="' + esc(v['據點ID']) + '">' + esc(v['據點名稱']) + '</option>').join('') + '<option value="__new">＋ 新據點</option></select><input name="newVenue" placeholder="新據點名稱" style="margin-top:6px;display:none"></div>' +
-      '<div class="fld"><label>區域</label><input name="area" list="leaseAreas" placeholder="例：綜合大樓四樓、光電球場"><datalist id="leaseAreas"></datalist><span class="hint">球面會叫「區域 A」「區域 B」…，同區域已有的先用</span></div></div>' +
-      '<div class="fld-row"><div class="fld"><label>面數<b>*</b></label><input type="number" name="courts" min="1" max="26" value="2"></div><div class="fld"><label>時間<b>*</b></label><div style="display:flex;gap:6px;align-items:center"><input type="time" name="start"><span>–</span><input type="time" name="end"></div></div></div>' +
-      '<div class="fld"><label>星期<b>*</b></label><div class="multi" data-lwds>' + WDS.split('').map((w) => '<label><input type="checkbox" value="' + w + '">' + w + '</label>').join('') + '</div></div>' +
+    LS_.sel = new Set();
+    LS_.add = [];
+    LS_.fixedVenue = str(d.venue);
+    LS_.v = { venue: str(d.venue), newVenue: '', area: '', wds: [], start: '', end: '', dates: '', total: '', unit: '', sign: today(), pay: '轉帳', paid: true, expect: 0, expectCourts: 0, name: '', contract: '' };
+    // 續約：沿用上一份租約的球面、星期、時間
+    if (d.copy) {
+      const plan = PB.get('3_合作方案', d.copy) || {};
+      LS_.v.venue = str(plan['據點']);
+      const inVenue = PB.rows('1_據點_時段').filter((x) => str(x['據點']) === LS_.v.venue);
+      let slots = inVenue.filter((x) => str(x['說明']) === str(plan['方案名稱']));
+      // 續約的續約：時段沿用第一份租約的名稱 → 改找期間和這份租約重疊的時段
+      if (!slots.length) {
+        const a = day(plan['生效日期']), b = day(plan['失效日期']) || a;
+        slots = inVenue.filter((x) => a && day(x['生效日期']) && day(x['生效日期']) <= b && (!day(x['結束日期']) || day(x['結束日期']) >= a));
+      }
+      if (slots.length) {
+        LS_.v.wds = uniq(slots.map((x) => str(x['星期'])));
+        LS_.v.start = str(slots[0]['開始時間']).slice(0, 5);
+        LS_.v.end = str(slots[0]['結束時間']).slice(0, 5);
+        split(slots[0]['使用場地']).forEach((c) => LS_.sel.add(c));
+      }
+    }
+    const vs = PB.rows('1_據點').slice().sort((x, y) => byKey(str(x['據點名稱']), str(y['據點名稱'])));
+    const v = LS_.v;
+    const body = '<div id="leaseBox"><div class="lsteps">' + ['租約', '球面', '時段與日期'].map((t, i) => '<button type="button" data-lstep="' + (i + 1) + '">' + (i + 1) + '　' + t + '</button>').join('') + '</div>' +
+      // ① 租約
+      '<section data-ls="1"><div class="fld"><label>快速貼上（可略過）</label><textarea name="paste" rows="2" placeholder="20261027_光電球場_一三五1900-2100_共2面共22日(20261109~1230)_共30800(每面每時段700)"></textarea><button type="button" class="btn sm" data-lease="parse" style="align-self:flex-start;margin-top:4px">帶入</button><span class="hint">會一起帶入球面數、星期、時間與日期</span></div>' +
+      '<div class="fld"><label>據點<b>*</b></label><select name="venue"' + (LS_.fixedVenue ? ' disabled' : '') + '><option value="">請選擇</option>' + vs.map((x) => '<option value="' + esc(x['據點ID']) + '"' + (str(x['據點ID']) === v.venue ? ' selected' : '') + '>' + esc(x['據點名稱']) + '</option>').join('') + '<option value="__new">＋ 新據點</option></select><input name="newVenue" placeholder="新據點名稱" style="margin-top:6px;display:none"></div>' +
+      '<div class="fld-row"><div class="fld"><label>簽約日</label><input type="date" name="sign" value="' + esc(v.sign) + '"></div><div class="fld"><label>租約名稱</label><input name="name" placeholder="空白＝自動（據點 區域 星期 時間 期間）"></div></div>' +
+      '<div class="fld-row"><div class="fld"><label>合約總額</label><input type="number" name="total" min="0"></div><div class="fld"><label>每面每時段</label><input type="number" name="unit" min="0"><span class="hint">填一個就好；兩個都填會核對</span></div></div>' +
+      '<div class="fld"><label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" name="paid" checked> 簽約當天已付款（公司帳戶）</label></div>' +
+      '<div class="fld-row"><div class="fld"><label>付款方式</label><select name="pay">' + (PB.enums['現金轉帳'] || ['現金', '轉帳']).map((x) => '<option' + (x === '轉帳' ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select></div><div class="fld"></div></div>' +
+      '<div class="fld"><label>合約檔案</label>' + ui.filesField({ k: '合約', _table: '3_合作方案' }, '', 'leasefile') + '</div></section>' +
+      // ② 球面
+      '<section data-ls="2" hidden><div class="fld"><label>區域</label><input name="area" list="leaseAreas" placeholder="例：綜合大樓四樓、光電球場"><datalist id="leaseAreas"></datalist><span class="hint">新增的球面會叫「區域 A」「區域 B」…</span></div>' +
+      '<div class="fld"><label>這份租約用哪幾面</label><div id="lsCourts"></div><button type="button" class="btn sm" data-lease="addCourt" style="align-self:flex-start;margin-top:6px">' + PB.icon('plus') + '新增球面</button><span class="hint">新增的球面：類型 課程＋球敘、人數上限 8、啟用（之後可在據點詳情修改）</span></div></section>' +
+      // ③ 時段與日期
+      '<section data-ls="3" hidden><div class="fld-row"><div class="fld"><label>星期<b>*</b></label><div class="multi" data-lwds>' + WDS.split('').map((w) => '<label><input type="checkbox" value="' + w + '"' + (v.wds.indexOf(w) >= 0 ? ' checked' : '') + '>' + w + '</label>').join('') + '</div></div>' +
+      '<div class="fld"><label>時間<b>*</b></label><div style="display:flex;gap:6px;align-items:center"><input type="time" name="start" value="' + esc(v.start) + '"><span>–</span><input type="time" name="end" value="' + esc(v.end) + '"></div></div></div>' +
       '<div class="fld"><label>日期<b>*</b></label><input name="dates" placeholder="指定日期：20261018、1101、1115　或期間：20261109~1230（依勾選的星期展開）"><span class="hint">展開後點日期可以排除（例如那天學校不借）</span></div>' +
-      '<div class="fld-row"><div class="fld"><label>合約總額</label><input type="number" name="total" min="0"></div><div class="fld"><label>每面每時段</label><input type="number" name="unit" min="0"></div></div>' +
-      '<div class="fld-row"><div class="fld"><label>簽約日</label><input type="date" name="sign"></div><div class="fld"><label>付款方式</label><select name="pay">' + (PB.enums['現金轉帳'] || ['現金', '轉帳']).map((x) => '<option' + (x === '轉帳' ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select></div></div>' +
-      '<div class="fld"><label>合約檔案</label>' + ui.filesField({ k: '合約', _table: '3_合作方案' }, '', 'leasefile') + '</div>' +
-      '<div id="leasePrev" class="lease-prev"><span class="mut">填好後這裡會顯示要建立的內容</span></div></div>';
-    const r = await ui.modal({ title: '登錄租約', body: body, sticky: true, actions: [{ label: '取消' }, { label: '確認登錄', kind: 'pri', click: async () => {
+      '<div class="note" style="font-size:.82rem">系統依「據點＋星期＋時間＋球面」找時段：已有就沿用並延長期間，沒有就新增一個（每個星期一個）；每個日期寫一筆可用日（直接「可用」）。</div></section>' +
+      '<div id="leasePrev" class="lease-prev" hidden></div></div>';
+    const r = await ui.modal({ title: LS_.fixedVenue ? '新增租約｜' + m.venueName(LS_.fixedVenue) : '新增租約', body: body, sticky: true, actions: [{ label: '取消' }, { label: '下一步', kind: 'pri', click: async () => {
+      if (LS_.step < 3) { const why = stepCheck(LS_.step); if (why) { ui.toast(why, 'bad'); return false; } goStep(LS_.step + 1); return false; }
       const args = leaseArgs();
       if (!args.ok) { ui.toast(args.why, 'bad'); return false; }
       const out = await PB.run('leaseCreate', args.a);
@@ -816,15 +849,60 @@
     } }] });
     if (r) PB.render();
   };
+  function goStep(n) {
+    const box = document.getElementById('leaseBox');
+    if (!box) return;
+    LS_.step = n;
+    box.querySelectorAll('section[data-ls]').forEach((sec) => { sec.hidden = sec.dataset.ls !== String(n); });
+    box.querySelectorAll('[data-lstep]').forEach((b) => { b.classList.toggle('on', b.dataset.lstep === String(n)); b.classList.toggle('done', +b.dataset.lstep < n); });
+    const pri = document.querySelector('.modal-f .btn.pri');
+    if (pri) pri.textContent = n < 3 ? '下一步' : '確認登錄';
+    document.getElementById('leasePrev').hidden = n !== 3;
+    if (n === 2) courtsHtml();
+    leaseRead();
+    leasePreview();
+    const mb = box.closest('.modal-b') || box.parentNode;
+    if (mb) mb.scrollTop = 0;
+  }
+  function stepCheck(n) {
+    const v = leaseRead();
+    if (n === 1) {
+      if (!v.venue || (v.venue === '__new' && !v.newVenue)) return '請選據點';
+      if (!num(v.total) && !num(v.unit)) return '請填合約總額或每面每時段';
+    }
+    if (n === 2 && !LS_.sel.size && !LS_.add.length) return '請至少選 1 面球面（或新增）';
+    return '';
+  }
+  /** ② 球面清單：據點既有的（勾選）＋本次新增的 */
+  function courtsHtml() {
+    const el = document.getElementById('lsCourts');
+    if (!el) return;
+    const v = LS_.v;
+    const mine = v.venue && v.venue !== '__new' ? vCourts(v.venue) : [];
+    const area = v.area;
+    const rows = mine.map((c) => {
+      const id = str(c['場地ID']);
+      const off = str(c['狀態']) === '暫停使用';
+      return '<label class="lcourt' + (area && str(c['場地名稱']).indexOf(area) === 0 ? ' hit' : '') + '"><input type="checkbox" data-lcourt="' + esc(id) + '"' + (LS_.sel.has(id) ? ' checked' : '') + '><b>' + esc(c['場地名稱']) + '</b><span class="mut">' + esc(split(c['類型']).join('・') + '・' + (num(c['人數上限']) || '') + ' 人' + (off ? '・暫停使用' : '')) + '</span></label>';
+    }).join('') + LS_.add.map((c, i) => '<div class="lcourt new"><span class="badge info">新</span><input data-lnew="' + i + '" value="' + esc(c.name) + '"><span class="mut">人數</span><input type="number" data-lcap="' + i + '" value="' + c.cap + '" style="width:64px"><button type="button" class="fdel" data-ldel="' + i + '" title="移除">×</button></div>').join('');
+    const cnt = LS_.sel.size + LS_.add.length;
+    el.innerHTML = (rows || '<span class="mut">這個據點還沒有球面，請按「新增球面」</span>') +
+      '<div class="lease-cnt">已選 <b>' + cnt + '</b> 面' + (v.expectCourts ? (cnt === v.expectCourts ? ' <span class="badge ok">與「共 ' + v.expectCourts + ' 面」相符</span>' : ' <span class="badge warn">貼上的是共 ' + v.expectCourts + ' 面</span>') : '') + '</div>';
+  }
+  function nextCourtName() {
+    const v = LS_.v;
+    const used = (v.venue && v.venue !== '__new' ? vCourts(v.venue).map((c) => str(c['場地名稱'])) : []).concat(LS_.add.map((c) => c.name));
+    for (let i = 0; i < 26; i++) { const nm = (v.area ? v.area + ' ' : '') + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i] + (v.area ? '' : ' 面'); if (used.indexOf(nm) < 0) return nm; }
+    return '';
+  }
   function leaseRead() {
     const box = document.getElementById('leaseBox');
-    if (!box) return null;
+    if (!box) return LS_.v;
     const q = (n) => box.querySelector('[name="' + n + '"]');
     const v = LS_.v;
-    v.venue = q('venue').value;
+    v.venue = LS_.fixedVenue || q('venue').value;
     v.newVenue = q('newVenue').value.trim();
     v.area = q('area').value.trim();
-    v.courts = num(q('courts').value);
     v.start = q('start').value;
     v.end = q('end').value;
     v.wds = Array.from(box.querySelectorAll('[data-lwds] input:checked')).map((i) => i.value);
@@ -833,21 +911,33 @@
     v.unit = q('unit').value;
     v.sign = q('sign').value;
     v.pay = q('pay').value;
+    v.paid = q('paid').checked;
+    v.name = q('name').value.trim();
     v.contract = box.querySelector('.files input[type=hidden]').value;
+    box.querySelectorAll('[data-lnew]').forEach((i) => { LS_.add[+i.dataset.lnew].name = i.value.trim(); });
+    box.querySelectorAll('[data-lcap]').forEach((i) => { LS_.add[+i.dataset.lcap].cap = num(i.value) || 8; });
     q('newVenue').style.display = v.venue === '__new' ? '' : 'none';
-    const areas = v.venue && v.venue !== '__new' ? uniq(PB.rows('1_據點_場地').filter((c) => str(c['據點']) === v.venue).map((c) => str(c['場地名稱']).replace(/\s*[A-Z]$/, '')).filter(Boolean)) : [];
-    box.querySelector('#leaseAreas').innerHTML = areas.map((a) => '<option value="' + esc(a) + '">').join('');
+    const areas = v.venue && v.venue !== '__new' ? uniq(vCourts(v.venue).map((c) => str(c['場地名稱']).replace(/\s*[A-Z]( 面)?$/, '')).filter(Boolean)) : [];
+    box.querySelector('#leaseAreas').innerHTML = areas.map((x) => '<option value="' + esc(x) + '">').join('');
     return v;
   }
   function leaseFill(o) {
     const box = document.getElementById('leaseBox');
     const set = (n, val) => { if (val !== undefined && val !== null) box.querySelector('[name="' + n + '"]').value = val; };
-    if (o.venue) set('venue', o.venue);
-    else if (o.newVenue) { set('venue', '__new'); set('newVenue', o.newVenue); }
-    set('area', o.area); set('courts', o.courts); set('start', o.start); set('end', o.end); set('dates', o.dates); set('total', o.total); set('unit', o.unit); set('sign', o.sign);
+    if (!LS_.fixedVenue) { if (o.venue) set('venue', o.venue); else if (o.newVenue) { set('venue', '__new'); set('newVenue', o.newVenue); } }
+    set('area', o.area); set('start', o.start); set('end', o.end); set('dates', o.dates); set('total', o.total); set('unit', o.unit); set('sign', o.sign);
     if (o.wds) box.querySelectorAll('[data-lwds] input').forEach((i) => { i.checked = o.wds.indexOf(i.value) >= 0; });
     LS_.v.expect = o.expect || 0;
+    LS_.v.expectCourts = o.courts || 0;
     LS_.off = new Set();
+    leaseRead();
+    // 球面：先勾同區域既有的，不夠再新增
+    LS_.sel = new Set();
+    LS_.add = [];
+    const v = LS_.v;
+    const need = o.courts || 0;
+    if (need && v.venue && v.venue !== '__new') vCourts(v.venue).filter((c) => (!v.area || str(c['場地名稱']).indexOf(v.area) === 0) && str(c['狀態']) !== '暫停使用').slice(0, need).forEach((c) => LS_.sel.add(str(c['場地ID'])));
+    while (LS_.sel.size + LS_.add.length < need) LS_.add.push({ name: nextCourtName(), cap: 8 });
   }
   function leaseDates() {
     const v = LS_.v;
@@ -857,54 +947,144 @@
     const v = leaseRead();
     const all = leaseDates();
     const dates = all.filter((d) => !LS_.off.has(d));
-    if (!v.venue || (v.venue === '__new' && !v.newVenue)) return { ok: false, why: '請選據點' };
-    if (!v.start || !v.end) return { ok: false, why: '請填時間' };
-    if (!dates.length) return { ok: false, why: '請填日期（期間要勾星期）' };
-    if (!num(v.total) && !num(v.unit)) return { ok: false, why: '請填合約總額或每面每時段' };
+    const why = stepCheck(1) || stepCheck(2);
+    if (why) return { ok: false, why: why, all: all };
+    if (!v.start || !v.end) return { ok: false, why: '請填時間', all: all };
+    if (!dates.length) return { ok: false, why: '請填日期（期間要勾星期）', all: all };
     const bad = dates.filter((d) => v.wds.length && v.wds.indexOf(wdOf(d)) < 0);
-    if (bad.length) return { ok: false, why: bad.map(fmtD).join('、') + ' 不是勾選的星期' };
-    return { ok: true, all: all, a: { venue: v.venue === '__new' ? '' : v.venue, newVenue: v.venue === '__new' ? v.newVenue : '', area: v.area, courts: v.courts, start: v.start, end: v.end, dates: dates, total: num(v.total) || '', unit: num(v.unit) || '', signDate: v.sign, payMethod: v.pay, contract: v.contract } };
+    if (bad.length) return { ok: false, why: bad.map(fmtD).join('、') + ' 不是勾選的星期', all: all };
+    return { ok: true, all: all, a: { venue: v.venue === '__new' ? '' : v.venue, newVenue: v.venue === '__new' ? v.newVenue : '', area: v.area, courtIds: Array.from(LS_.sel), newCourts: LS_.add.filter((c) => c.name), start: v.start, end: v.end, dates: dates, total: num(v.total) || '', unit: num(v.unit) || '', signDate: v.sign, payMethod: v.pay, paidNow: v.paid, name: v.name, contract: v.contract } };
   }
   function leasePreview() {
     clearTimeout(LS_.timer);
+    if (LS_.step !== 3) return;
     LS_.timer = setTimeout(async () => {
       const el = document.getElementById('leasePrev');
       if (!el) return;
       const args = leaseArgs();
       const all = args.all || leaseDates();
       const v = LS_.v;
+      const nC = LS_.sel.size + LS_.add.length;
       const chips = all.length ? '<div class="lease-dates">' + all.map((d) => '<button type="button" class="ldate' + (LS_.off.has(d) ? ' off' : '') + '" data-ldate="' + d + '">' + esc(fmtD(d)) + '</button>').join('') + '</div>' : '';
       const n = all.filter((d) => !LS_.off.has(d)).length;
-      const cnt = '<div class="lease-cnt">共 <b>' + n + '</b> 日' + (v.expect ? (n === v.expect ? ' <span class="badge ok">與「共 ' + v.expect + ' 日」相符</span>' : ' <span class="badge warn">貼上的是共 ' + v.expect + ' 日，請點掉不租的日期</span>') : '') + (num(v.unit) && v.courts && n ? '・' + v.courts + ' 面 × ' + n + ' 日 × ' + money(v.unit) + '＝<b>' + money(num(v.unit) * v.courts * n) + '</b>' : '') + '</div>';
+      const cnt = '<div class="lease-cnt">共 <b>' + n + '</b> 日' + (v.expect ? (n === v.expect ? ' <span class="badge ok">與「共 ' + v.expect + ' 日」相符</span>' : ' <span class="badge warn">貼上的是共 ' + v.expect + ' 日，請點掉不租的日期</span>') : '') + (num(v.unit) && nC && n ? '・' + nC + ' 面 × ' + n + ' 日 × ' + money(v.unit) + '＝<b>' + money(num(v.unit) * nC * n) + '</b>' : '') + '</div>';
       if (!args.ok) { el.innerHTML = chips + cnt + '<div class="mut" style="font-size:.84rem">' + esc(args.why) + '</div>'; return; }
       const seq = ++LS_.seq;
       el.innerHTML = chips + cnt + '<div class="mut">預覽中…</div>';
       const r = await PB.read('leasePreview', args.a);
       if (seq !== LS_.seq || !document.getElementById('leasePrev')) return;
       if (!r) { el.innerHTML = chips + cnt; return; }
-      el.innerHTML = chips + cnt + '<div class="lease-plan"><b>會建立：</b><ul>' +
+      el.innerHTML = chips + cnt + '<div class="lease-plan"><b>確認登錄後會建立：</b><ul>' +
         (r.venue.isNew ? '<li>新據點「' + esc(r.venue.name) + '」</li>' : '') +
         '<li>球面：' + r.courts.map((c) => esc(c.name) + (c.isNew ? '<span class="badge info">新</span>' : '')).join('、') + '</li>' +
-        '<li>時段：' + r.slots.map((s) => '週' + s.wd + '（' + s.n + ' 日' + (s.reuse ? '，沿用既有時段' : '') + (s.skip ? '，' + s.skip + ' 日已存在' : '') + '）').join('、') + '</li>' +
-        '<li>可用日 ' + r.avail + ' 天（直接「可用」）</li><li>包場租約「' + esc(r.plan) + '」' + money(r.amount) + (r.unitHour ? '（每面每小時 ' + money(r.unitHour) + '）' : '') + '</li><li>場租應付 ' + money(r.amount) + '（受款：據點）</li></ul></div>' +
+        '<li>時段：' + r.slots.map((s2) => '週' + s2.wd + ' ' + esc(v.start + '–' + v.end) + '（' + (s2.reuse ? '沿用既有時段' : '新增時段') + '，' + s2.n + ' 日' + (s2.skip ? '，其中 ' + s2.skip + ' 日已有' : '') + '）').join('、') + '</li>' +
+        '<li>可用日 ' + r.avail + ' 天（直接「可用」）</li><li>租約「' + esc(r.plan) + '」' + money(r.amount) + (r.unitHour ? '（每面每小時 ' + money(r.unitHour) + '）' : '') + '</li><li>場租支出 ' + money(r.amount) + '：' + (v.paid ? v.sign + ' 已付（' + esc(v.pay) + '）' : '應付') + '</li></ul></div>' +
         (r.warnings.length ? r.warnings.map((w) => '<div class="note warn">' + esc(w) + '</div>').join('') : '');
-    }, 450);
+    }, 400);
   }
-  document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('#leaseBox') && !e.target.closest('[name=paste]')) { leaseRead(); leasePreview(); } });
-  document.addEventListener('change', (e) => { if (e.target.closest && e.target.closest('#leaseBox')) { leaseRead(); leasePreview(); } });
+  document.addEventListener('input', (e) => {
+    if (!e.target.closest || !e.target.closest('#leaseBox') || e.target.closest('[name=paste]')) return;
+    leaseRead();
+    if (e.target.name === 'area' && LS_.step === 2) { const el = document.activeElement; courtsHtml(); if (el) el.focus(); }
+    leasePreview();
+  });
+  document.addEventListener('change', (e) => {
+    if (!e.target.closest || !e.target.closest('#leaseBox')) return;
+    const c = e.target.closest('[data-lcourt]');
+    if (c) { if (c.checked) LS_.sel.add(c.dataset.lcourt); else LS_.sel.delete(c.dataset.lcourt); courtsHtml(); }
+    if (e.target.name === 'venue') { LS_.sel = new Set(); courtsHtml(); }
+    leaseRead();
+    leasePreview();
+  });
   document.addEventListener('click', (e) => {
-    const b = e.target.closest && e.target.closest('#leaseBox [data-lease], #leaseBox [data-ldate]');
+    const b = e.target.closest && e.target.closest('#leaseBox [data-lease], #leaseBox [data-ldate], #leaseBox [data-lstep], #leaseBox [data-ldel]');
     if (!b) return;
     e.preventDefault();
+    leaseRead();
+    if (b.dataset.lstep) {
+      const to = +b.dataset.lstep;
+      for (let i = 1; i < to; i++) { const why = stepCheck(i); if (why) { ui.toast(why, 'bad'); goStep(i); return; } }
+      return goStep(to);
+    }
     if (b.dataset.lease === 'parse') {
       const o = parseLease(document.querySelector('#leaseBox [name=paste]').value);
       if (!o.start && !o.dates) return ui.toast('看不懂這個格式，請直接填下面的欄位', 'bad');
       leaseFill(o);
-    } else { const d = b.dataset.ldate; if (LS_.off.has(d)) LS_.off.delete(d); else LS_.off.add(d); }
-    leaseRead();
+      return ui.toast('已帶入，請檢查後按「下一步」');
+    }
+    if (b.dataset.lease === 'addCourt') { LS_.add.push({ name: nextCourtName(), cap: 8 }); courtsHtml(); return; }
+    if (b.dataset.ldel !== undefined) { LS_.add.splice(+b.dataset.ldel, 1); courtsHtml(); return; }
+    const d = b.dataset.ldate;
+    if (LS_.off.has(d)) LS_.off.delete(d); else LS_.off.add(d);
     leasePreview();
   });
 
+  // ================================================================
+  // v2.9 據點詳情：上方按鈕＋下方 inline（租約、球面、時段、可用日）
+  // ================================================================
+  function openVenue(id) {
+    ui.sheet(() => { const v = PB.get('1_據點', id); return v ? str(v['據點名稱']) : null; }, () => venueBody(id));
+  }
+  A.venueOpen = (d) => openVenue(d.id);
+  const sec2 = (title, cnt, right) => '<div class="sec"><h2>' + esc(title) + '</h2>' + (cnt !== undefined ? '<span class="cnt">' + cnt + '</span>' : '') + '<span class="sp"></span>' + (right || '') + '</div>';
+  function venueBody(id) {
+    const v = PB.get('1_據點', id);
+    const t = today();
+    const acts = [btn('新增租約', 'leaseNew', { venue: id }, 'pri', 'plus'), btn('新增球面', 'courtNew', { venue: id }, '', 'plus'), btn('新增時段', 'slotNew', { venue: id }, 'ghost', 'plus'), btn('編輯據點', 'dataEdit', { t: '1_據點', id: id }, 'ghost')];
+    const kv2 = [['類別', str(v['據點類別'])], ['區域', str(v['區域'])], ['地址', str(v['地址'])], ['場主', m.staffName(v['場主'])], ['狀態', str(v['狀態'])], ['簽到座標', str(v['座標']) || '<span class="badge warn">未設定（現場簽到需要）</span>']].filter((x) => x[1]);
+    const plans = PB.has('3_合作方案') ? PB.rows('3_合作方案').filter((p) => str(p['合作對象類型']) === '據點' && str(p['據點']) === id).sort((a, b) => byKey(day(b['生效日期']), day(a['生效日期']))) : [];
+    const exp = PB.rows('3_支出');
+    const planRows = plans.map((p) => {
+      const pid = str(p['方案ID']);
+      const ex = exp.filter((e) => str(e['備註']).indexOf('F03:' + pid + ':') >= 0);
+      const paid = ex.length && ex.every((e) => str(e['付款狀態']) === '已付');
+      const live = !day(p['失效日期']) || day(p['失效日期']) >= t;
+      const amt = str(p['合作模式']) === '按次租用' ? money(p['每面每小時單價']) + '／面／時' : str(p['合約金額']) ? money(p['合約金額']) : '';
+      return '<tr class="click" data-act="dataEdit" data-t="3_合作方案" data-id="' + esc(pid) + '"><td style="white-space:normal"><b>' + esc(p['方案名稱']) + '</b><br><span class="mut" style="font-size:.8rem">' + esc(str(p['合作模式']) + '・' + fmtD(p['生效日期']) + '～' + fmtD(p['失效日期'])) + '</span></td><td class="num">' + amt + '</td><td>' + (ex.length ? '<span class="badge ' + (paid ? 'ok' : 'warn') + '">場租' + (paid ? '已付' : '應付') + '</span>' : '') + (live ? '' : ' <span class="badge">已到期</span>') + (str(p['合約']) ? ' <span class="fclip">📎</span>' : '') + '</td><td data-stop style="text-align:right">' + (str(p['合作模式']) === '包場租約' ? btn('續約', 'leaseNew', { copy: pid }, 'ghost') : '') + '</td></tr>';
+    }).join('');
+    const courts = vCourts(id);
+    const courtRows = courts.map((c) => '<tr class="click" data-act="dataEdit" data-t="1_據點_場地" data-id="' + esc(c['場地ID']) + '"><td><b>' + esc(c['場地名稱']) + '</b></td><td>' + esc(split(c['類型']).join('・')) + '</td><td class="num">' + esc(c['人數上限']) + ' 人</td><td>' + (str(c['狀態']) === '暫停使用' ? '<span class="badge warn">暫停使用</span>' : '<span class="badge ok">啟用</span>') + '</td></tr>').join('');
+    const slots = PB.rows('1_據點_時段').filter((s) => str(s['據點']) === id).sort((a, b) => byKey(WDS.indexOf(str(a['星期'])) + str(a['開始時間']), WDS.indexOf(str(b['星期'])) + str(b['開始時間'])));
+    const slotRows = slots.map((s) => {
+      const av = (PB.ix.availBySlot[str(s['時段ID'])] || []).filter((a) => day(a['日期']) >= t);
+      const ok = av.filter((a) => str(a['狀態']) === '可用');
+      const pend = av.filter((a) => str(a['狀態']) === '待確認').length;
+      const last = ok.map((a) => day(a['日期'])).sort().pop();
+      return '<tr class="click" data-act="dataEdit" data-t="1_據點_時段" data-id="' + esc(s['時段ID']) + '"><td><b>週' + esc(s['星期']) + ' ' + esc(m.hm(s['開始時間'], s['結束時間'])) + '</b><br><span class="mut" style="font-size:.8rem">' + esc(split(s['使用場地']).map(m.courtName).join('、')) + '</span></td><td style="font-size:.84rem">' + esc(split(s['用途']).join('・')) + (str(s['狀態']) !== '使用中' ? ' <span class="badge">' + esc(s['狀態']) + '</span>' : '') + '</td><td style="font-size:.84rem">可用 <b>' + ok.length + '</b> 天' + (last ? '<br><span class="mut">到 ' + esc(fmtD(last)) + '</span>' : '') + (pend ? '<br><span class="badge warn">待確認 ' + pend + '</span>' : '') + '</td><td data-stop style="text-align:right;white-space:nowrap">' + btn('加日期', 'availAddDlg', { id: s['時段ID'] }, 'pri') + btn('可用日', 'availOf', { id: s['時段ID'] }, 'ghost') + '</td></tr>';
+    }).join('');
+    const tbl = (rows, empty) => '<div class="tbl-wrap"><table class="tbl"><tbody>' + (rows || '<tr><td class="mut">' + empty + '</td></tr>') + '</tbody></table></div>';
+    return '<div class="acts">' + acts.join('') + '</div>' + kv(kv2.map((x) => [x[0], x[0] === '簽到座標' && !str(v['座標']) ? x[1] : esc(x[1])])) +
+      sec2('租約與合作方案', plans.length) + tbl(planRows, '還沒有租約：按上方「新增租約」') +
+      sec2('球面', courts.length, btn('新增', 'courtNew', { venue: id }, 'sm ghost', 'plus')) + tbl(courtRows, '還沒有球面') +
+      sec2('時段', slots.length, btn('新增', 'slotNew', { venue: id }, 'sm ghost', 'plus')) + tbl(slotRows, '還沒有時段') +
+      '<p class="mut" style="font-size:.8rem">流程：簽新約 →「新增租約」（球面、時段、可用日一次建好）；同一份約多租幾天 → 時段的「加日期」；下一期 → 租約的「續約」（沿用球面與時間，填新日期與金額）。</p>';
+  }
+  const kv = (pairs) => '<dl class="kv">' + pairs.filter((p) => p && p[1] !== '' && p[1] !== undefined && p[1] !== null).map((p) => '<dt>' + esc(p[0]) + '</dt><dd>' + p[1] + '</dd>').join('') + '</dl>';
+  A.courtNew = (d) => ui.form('1_據點_場地', { values: { 據點: d.venue, 人數上限: 8, 類型: ['課程', '球敘'], 狀態: '啟用' } });
+  A.slotNew = (d) => ui.form('1_據點_時段', { values: { 據點: d.venue, 用途: ['課程', '球敘'], 週期: '指定日期' } });
+  A.availAddDlg = async (d) => {
+    const s = PB.get('1_據點_時段', d.id);
+    const wd = str(s['星期']);
+    const st = { off: new Set() };
+    const body = '<p class="mut" style="margin:0 0 8px">' + esc(m.venueName(s['據點']) + '｜週' + wd + ' ' + m.hm(s['開始時間'], s['結束時間']) + '｜' + split(s['使用場地']).map(m.courtName).join('、')) + '</p>' +
+      '<div class="fld"><label>日期</label><input name="dates" id="aaDates" placeholder="例：1206、1213、1220　或 20261206~1227（只取週' + esc(wd) + '）"></div><div id="aaPrev" class="lease-prev"><span class="mut">輸入後這裡會列出日期，點一下可以排除</span></div>';
+    const calc = () => parseDates((document.getElementById('aaDates') || {}).value || '', [wd], +today().slice(0, 4));
+    const draw = () => {
+      const el = document.getElementById('aaPrev');
+      if (!el) return;
+      const all = calc();
+      const have = (PB.ix.availBySlot[str(s['時段ID'])] || []).filter((a) => str(a['狀態']) !== '取消').map((a) => day(a['日期']));
+      el.innerHTML = all.length ? '<div class="lease-dates">' + all.map((x) => '<button type="button" class="ldate' + (st.off.has(x) ? ' off' : '') + '" data-aad="' + x + '">' + esc(fmtD(x)) + (have.indexOf(x) >= 0 ? '（已有）' : '') + '</button>').join('') + '</div><div class="lease-cnt">新增 <b>' + all.filter((x) => !st.off.has(x) && have.indexOf(x) < 0).length + '</b> 天（直接「可用」）</div>' : '<span class="mut">沒有符合週' + esc(wd) + '的日期</span>';
+    };
+    const onIn = (e) => { if (e.target.id === 'aaDates') draw(); };
+    const onClick = (e) => { const b = e.target.closest && e.target.closest('[data-aad]'); if (!b) return; e.preventDefault(); const x = b.dataset.aad; if (st.off.has(x)) st.off.delete(x); else st.off.add(x); draw(); };
+    document.addEventListener('input', onIn);
+    document.addEventListener('click', onClick, true);
+    const r = await ui.modal({ title: '加日期', body: body, sticky: true, actions: [{ label: '取消' }, { label: '加入', kind: 'pri', click: () => { const ds = calc().filter((x) => !st.off.has(x)); if (!ds.length) { ui.toast('請填日期', 'bad'); return false; } return ds; } }] });
+    document.removeEventListener('input', onIn);
+    document.removeEventListener('click', onClick, true);
+    if (r) PB.run('availAdd', { slot: d.id, dates: r });
+  };
 
   // 通知紀錄查詢（v2）：按「查詢」才讀全部紀錄（開頁只帶近 30 天）
   const NQ = { res: null, busy: false, f: null };
@@ -955,7 +1135,7 @@
   PB.app({
     app: 'admin',
     title: '管理後台',
-    version: '2.8',
+    version: '2.9',
     screens: [Dash, Queue].concat(PB.schedScreen ? [PB.schedScreen] : []).concat([Finance, Data]),
     links: () => (PB.cfg.opsUrl ? [{ label: '營運工作台', url: PB.cfg.opsUrl, icon: 'swap', mobile: true }] : []),
   });
