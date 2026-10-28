@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
  * 每個畫面是一個 { id, label, icon, show, badge, render } 物件；新增畫面＝在 SCREENS 加一個。
@@ -398,9 +398,15 @@
       acts.push(ui.btn('未成班', 'classAct', { id: id, a: '未成班' }, 'bad' + (x.canDecide && !x.pending ? '' : '" disabled title="' + esc(decideHint || '排程處理中'))));
       if (str(c['彈性場地'])) acts.push(ui.btn('用彈性場地加開一班', 'copyClass', { id: id }));
     }
+    // v3.5：確定開課、還沒上課 → 改回籌備中／取消開課
+    if (x.st === '確定開課' && PB.forms['2_課程班級'] && !classStarted(x)) {
+      acts.push(ui.btn('改回籌備中', 'classAct', { id: id, a: '改回籌備中' }, (x.pending ? '" disabled title="排程處理中' : '')));
+      acts.push(ui.btn('取消開課', 'classAct', { id: id, a: '取消開課' }, 'bad' + (x.pending ? '" disabled title="排程處理中' : '')));
+    }
     if (['籌備中', '確定開課', '進行中'].indexOf(x.st) >= 0) acts.push(ui.btn('後台報名', 'sigNew', { type: '課程', target: id }, '', 'plus'));
     acts.push(ui.btn('報名連結', 'copyLink', { type: '課程', id: id }, 'ghost', 'link'));
     if (PB.forms['2_課程班級']) acts.push(ui.btn('編輯', 'classEdit', { id: id }, 'ghost'));
+    if (canDeleteClass(x)) acts.push(ui.btn('刪除班級', 'classDelete', { id: id }, 'bad'));
     const info = kv([
       ['狀態', m.classBadge(x.st) + (x.pending ? ' <span class="badge info">「' + esc(c['開班動作']) + '」排程處理中</span>' : '')],
       ['據點', esc(m.venueName(c['據點']) + '・' + m.courtName(c['使用場地'])) + (str(c['彈性場地']) ? '<br><span class="mut">彈性場地：' + esc(m.courtName(c['彈性場地'])) + '（決定日前保留）</span>' : '')],
@@ -430,6 +436,23 @@
       (cancelled.length ? '<details style="margin-top:12px"><summary class="mut">已取消 ' + cancelled.length + ' 筆</summary>' + card(cancelled.map((r) => sigRow(r)).join('')) + '</details>' : '');
   }
 
+  /** v3.5：已經開始上課（有已完成／已點名的場次或出缺勤） */
+  function classStarted(x) {
+    return x.ses.some((s) => str(s['場次狀態']) === '已完成' || str(s['點名確認時間']) || (PB.ix.attBySes[str(s['場次ID'])] || []).length);
+  }
+  /** v3.3：建錯的班級可以刪（管理層；沒有任何報名、場次沒上過課、沒有出缺勤）— 後端會再檢查一次 */
+  function canDeleteClass(x) {
+    if (!isMgmt() || !PB.forms['2_課程班級'] || x.sigs.length) return false;
+    return !classStarted(x);
+  }
+  A.classDelete = async (d) => {
+    const c = PB.get('2_課程班級', d.id);
+    const x = m.cls(c);
+    const v = await ui.ask('刪除班級：' + m.classLabel(c), '只用在<b>建錯、根本不存在</b>的班級：班級和 ' + x.ses.length + ' 堂場次會從資料庫刪除，不能復原（日曆事件約 15 分鐘內移除）。<br>真的有開但不開了，請用「未成班」或把課程狀態改成「取消」，紀錄才會保留。', { fields: [{ k: 'note', label: '刪除原因', t: 'text', req: true, hint: '例：誤建，實際沒有這堂課' }], danger: true, ok: '刪除' });
+    if (!v) return;
+    PB.run('classDelete', { id: d.id, note: v.note });
+  };
+
   /** 單堂專項課詳情：成班進度、決定時間、開放報名時間；沒有順延、請假、補課 */
   function singleBody(id, x) {
     const c = x.c;
@@ -441,10 +464,12 @@
       acts.push(ui.btn('提早確認成班', 'classAct', { id: id, a: '確認成班' }, 'pri' + (x.pending ? '" disabled title="排程處理中' : '')));
       acts.push(ui.btn('未成班（取消這堂）', 'classAct', { id: id, a: '未成班' }, 'bad' + (x.pending ? '" disabled title="排程處理中' : '')));
     }
+    if (x.st === '確定開課' && can && !classStarted(x)) acts.push(ui.btn('取消開課', 'classAct', { id: id, a: '取消開課' }, 'bad' + (x.pending ? '" disabled title="排程處理中' : ''))); // v3.5
     if (['籌備中', '確定開課'].indexOf(x.st) >= 0) acts.push(ui.btn('後台報名', 'sigNew', { type: '課程', target: id }, '', 'plus'));
     acts.push(ui.btn('報名連結', 'copyLink', { type: '課程', id: id }, 'ghost', 'link'));
     if (ses) acts.push(ui.btn('場次', 'openSes', { id: ses['場次ID'] }, 'ghost'));
     if (can) acts.push(ui.btn('編輯', 'classEdit', { id: id }, 'ghost'));
+    if (canDeleteClass(x)) acts.push(ui.btn('刪除班級', 'classDelete', { id: id }, 'bad'));
     const spec = PB.get('0_專項', c['專項']);
     const decideTxt = isPre ? (x.late ? '<span class="badge bad">已過 ' + esc(fmtDT(x.decideAt)) + '，排程還沒處理</span>' : esc(fmtDT(x.decideAt)) + ' 系統自動判斷（已付達 ' + x.min + ' 人成班）') : '';
     const info = kv([
@@ -503,6 +528,15 @@
     }
     if (d.a === '未成班') {
       return PB.run('classAction', { id: d.id, action: '未成班' }, { confirm: { title: '未成班：' + m.classLabel(c), text: '場次全部取消、場地轉成球敘草稿；已付學員會在 LINE 收到「順延／轉班／退款」三選項。', danger: true, ok: '設為未成班' } });
+    }
+    // v3.5：確定開課 → 改回籌備中／取消開課（取消開課＝開班動作「未成班」）
+    if (d.a === '改回籌備中') {
+      return PB.run('classAction', { id: d.id, action: '改回籌備中' }, { confirm: { title: '改回籌備中：' + m.classLabel(c), text: '用在開課要延後、要重新招生的情況。<ul style="margin:6px 0 0;padding-left:18px"><li>報名、已付的款項、上課場次都保留</li><li>還沒付的尾款作廢、已入帳的堂數沖回（之後再確認成班會重新開立、入帳）</li><li>學員與教練會收到「開課時間調整」通知</li><li>彈性場地如果已經轉成球敘草稿，不會還原</li></ul>', ok: '改回籌備中' } });
+    }
+    if (d.a === '取消開課') {
+      const txt = x.single ? '這一堂取消；已付學員會在 LINE 收到「改報其他堂／課程抵用金／退款」，3 天未回覆轉抵用金。教練會收到通知。'
+        : '這一期不開了：<ul style="margin:6px 0 0;padding-left:18px"><li>場次全部取消、場地轉成球敘草稿</li><li>還沒付的尾款作廢、已入帳的堂數沖回</li><li>已付款的學員在 LINE 選「順延／轉班／退款」；沒付款的報名直接取消</li><li>學員與教練會收到「課程取消」通知</li></ul>';
+      return PB.run('classAction', { id: d.id, action: '未成班' }, { confirm: { title: '取消開課：' + (x.single ? m.singleLabel(c) : m.classLabel(c)), text: txt, danger: true, ok: '取消開課' } });
     }
     const v = await ui.ask('順延：' + m.classLabel(c), '最多順延 1 次；已報名的學員自動帶到新日期並收到通知。', { fields: [{ k: 'date', label: '順延到', t: 'date', req: true, hint: '要是上課時段的「可用」日' }], ok: '順延' });
     if (v) PB.run('classAction', { id: d.id, action: '順延', date: v.date });
@@ -664,6 +698,8 @@
     att.filter((a) => roster.indexOf(str(a['學員'])) < 0).forEach((a) => roster.push(str(a['學員'])));
     const can = st === '預定' && PB.forms['2_課程班級'];
     const acts = can ? [ui.btn('改期', 'sesMove', { id: id }, 'pri'), ui.btn('換教練', 'sesCoach', { id: id }), ui.btn('停課', 'sesCancel', { id: id }, 'bad')] : [];
+    // v3.3：改期後的新場次（還沒點名）可以修正或撤銷
+    if (can && str(s['原場次']) && !str(s['點名確認時間'])) acts.push(ui.btn('修正改期', 'sesMoveFix', { id: id }), ui.btn('撤銷改期', 'sesMoveUndo', { id: id }, 'ghost'));
     acts.push(ui.btn('班級', 'openClass', { id: s['班級'] }, 'ghost'));
     if (st === '已完成') acts.push(ui.btn('看日誌', 'journal', { id: id }, 'ghost'));
     const fixable = st === '已完成' && day(s['日期']) >= addDays(today(), -(PB.cfg.fixDays || 120)) && !!PB.forms['2_課程班級'];
@@ -735,6 +771,36 @@
     const v = await ui.ask('改期：' + m.sesLabel(s), '原場次會標記「改期」保留紀錄，另建一堂新場次；學員與教練約 ' + PB.cfg.scanMin + ' 分鐘內收到改期通知。', { fields: fields, ok: '改期' });
     if (!v) return;
     PB.run('sessionReschedule', { id: d.id, date: v.date, start: v.start, end: v.end, court: (courts.find((c) => c.l === v.court) || {}).v, coach: (coaches().find((c) => c.l === v.coach) || {}).v, reason: v.reason, force: v.force === true });
+  };
+  // v3.3：修正改期 — 改期時日期／時間填錯，直接改這一堂（不再多建一列）
+  A.sesMoveFix = async (d) => {
+    const s = PB.get('2_上課場次', d.id);
+    const o = PB.get('2_上課場次', s['原場次']);
+    const courts = (PB.ix.courtByVenue[str(s['據點'])] || []).map((c) => ({ v: str(c['場地ID']), l: str(c['場地名稱']) }));
+    const fields = [
+      { k: 'date', label: '正確日期', t: 'date', req: true, value: day(s['日期']) },
+      { k: 'start', label: '開始時間', t: 'time', value: str(s['開始時間']).slice(0, 5) },
+      { k: 'end', label: '結束時間', t: 'time', value: str(s['結束時間']).slice(0, 5) },
+      { k: 'court', label: '場地', t: 'enum', opts: courts.map((c) => c.l), value: m.courtName(s['使用場地']) },
+      { k: 'coach', label: '授課教練', t: 'enum', opts: coaches().map((c) => c.l), value: m.staffName(s['授課教練']) },
+      { k: 'reason', label: '改期原因（要改才填）', t: 'text', hint: '目前：' + (str(s['改期原因']) || '未填') },
+      { k: 'note', label: '修正說明（記在備註）', t: 'text', hint: '例：原本誤填 11/7，應為 11/14' },
+    ];
+    if (isMgmt()) fields.push({ k: 'force', label: '略過可用日與場地檢查（管理層）', t: 'bool' });
+    const v = await ui.ask('修正改期：' + m.sesLabel(s), '原場次 ' + esc(o ? fmtD(o['日期']) : '') + ' 改到 ' + esc(fmtD(s['日期'])) + '，日期或時間填錯時用這裡直接改，不會再多一筆改期紀錄。<br>改期通知還沒發出 → 學員只會收到一則（修正後的時間）；已經發出 → 會再收到一則時間異動。日曆約 15 分鐘內更新。<br>要改回原本的時間請用「撤銷改期」。', { fields: fields, ok: '修正' });
+    if (!v) return;
+    PB.run('sessionRescheduleFix', { id: d.id, date: v.date, start: v.start, end: v.end, court: (courts.find((c) => c.l === v.court) || {}).v, coach: (coaches().find((c) => c.l === v.coach) || {}).v, reason: v.reason, note: v.note, force: v.force === true });
+  };
+  // v3.3：撤銷改期 — 不該改期時，刪掉這一堂、原場次恢復預定
+  A.sesMoveUndo = async (d) => {
+    const s = PB.get('2_上課場次', d.id);
+    const o = PB.get('2_上課場次', s['原場次']);
+    if (!o) return ui.toast('找不到原場次', 'bad');
+    const fields = [{ k: 'note', label: '原因（記在原場次備註）', t: 'text', hint: '例：誤按改期、颱風沒來照常上課' }];
+    if (isMgmt()) fields.push({ k: 'force', label: '略過原時間的場地檢查（管理層）', t: 'bool' });
+    const v = await ui.ask('撤銷改期：' + m.sesLabel(s), '刪除這一堂（' + esc(fmtD(s['日期'])) + '），原場次 <b>' + esc(fmtD(o['日期']) + ' ' + m.hm(o['開始時間'], o['結束時間'])) + '</b> 恢復上課。<br>學員與教練約 ' + PB.cfg.scanMin + ' 分鐘內收到「照原時間上課」通知；日曆約 15 分鐘內更新。', { fields: fields, danger: true, ok: '撤銷改期' });
+    if (!v) return;
+    PB.run('sessionRescheduleUndo', { id: d.id, note: v.note, force: v.force === true });
   };
   /** 教練這天這段時間能不能排（不可排日期、同時段已有課）；可以 → '' */
   function coachBusy(coachId, dk, start, end, skipSes) {

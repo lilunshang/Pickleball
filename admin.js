@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜管理後台 admin.js v3.1（2026/10/27：據點與場地改版：據點左清單＋右分頁、跨據點總表、可用日月曆）；v3.0（球拍租借收入另列、不進分潤）；v2.4（2026/10/26：專項列表加「費用」）
+ * 理論上匹克球｜管理後台 admin.js v3.4（2026/10/28：批次新增時段、複製到其他星期、租約一天多個時段）；v3.1（2026/10/27：據點與場地改版：據點左清單＋右分頁、跨據點總表、可用日月曆）；v3.0（球拍租借收入另列、不進分潤）；v2.4（2026/10/26：專項列表加「費用」）
  * 特助、主理人：總覽 Dashboard、管理待處理、財務（人員月結、分潤、支出、應收）、主檔設定
  * Dashboard 全部在瀏覽器計算（換月份不發請求）；口徑：
  *   球敘收入＝當月球敘的報名實收（含待對帳、扣退款），v3.0 起扣掉球拍租借（另列「租拍收入」，全歸公司、不分潤）　課程收入＝當月扣堂數 × 每堂單價（與 F02 相同）
@@ -824,7 +824,7 @@
     LS_.sel = new Set();
     LS_.add = [];
     LS_.fixedVenue = str(d.venue);
-    LS_.v = { venue: str(d.venue), newVenue: '', area: '', wds: [], start: '', end: '', dates: '', total: '', unit: '', sign: today(), pay: '轉帳', paid: true, expect: 0, expectCourts: 0, name: '', contract: '' };
+    LS_.v = { venue: str(d.venue), newVenue: '', area: '', wds: [], times: [['', '']], dates: '', total: '', unit: '', sign: today(), pay: '轉帳', paid: true, expect: 0, expectCourts: 0, name: '', contract: '' };
     // 續約：沿用上一份租約的球面、星期、時間
     if (d.copy) {
       const plan = PB.get('3_合作方案', d.copy) || {};
@@ -838,8 +838,8 @@
       }
       if (slots.length) {
         LS_.v.wds = uniq(slots.map((x) => str(x['星期'])));
-        LS_.v.start = str(slots[0]['開始時間']).slice(0, 5);
-        LS_.v.end = str(slots[0]['結束時間']).slice(0, 5);
+        // v3.4：一份租約可能有多個時間 → 全部帶入
+        LS_.v.times = uniq(slots.map((x) => str(x['開始時間']).slice(0, 5) + '|' + str(x['結束時間']).slice(0, 5))).sort().map((x) => x.split('|'));
         split(slots[0]['使用場地']).forEach((c) => LS_.sel.add(c));
       }
     }
@@ -858,10 +858,10 @@
       '<section data-ls="2" hidden><div class="fld"><label>區域</label><input name="area" list="leaseAreas" placeholder="例：綜合大樓四樓、光電球場"><datalist id="leaseAreas"></datalist><span class="hint">新增的球面會叫「區域 A」「區域 B」…</span></div>' +
       '<div class="fld"><label>這份租約用哪幾面</label><div id="lsCourts"></div><button type="button" class="btn sm" data-lease="addCourt" style="align-self:flex-start;margin-top:6px">' + PB.icon('plus') + '新增球面</button><span class="hint">新增的球面：類型 課程＋球敘、人數上限 8、啟用（之後可在據點詳情修改）</span></div></section>' +
       // ③ 時段與日期
-      '<section data-ls="3" hidden><div class="fld-row"><div class="fld"><label>星期<b>*</b></label><div class="multi" data-lwds>' + WDS.split('').map((w) => '<label><input type="checkbox" value="' + w + '"' + (v.wds.indexOf(w) >= 0 ? ' checked' : '') + '>' + w + '</label>').join('') + '</div></div>' +
-      '<div class="fld"><label>時間<b>*</b></label><div style="display:flex;gap:6px;align-items:center"><input type="time" name="start" value="' + esc(v.start) + '"><span>–</span><input type="time" name="end" value="' + esc(v.end) + '"></div></div></div>' +
+      '<section data-ls="3" hidden><div class="fld"><label>星期<b>*</b></label><div class="multi" data-lwds>' + WDS.split('').map((w) => '<label><input type="checkbox" value="' + w + '"' + (v.wds.indexOf(w) >= 0 ? ' checked' : '') + '>' + w + '</label>').join('') + '</div></div>' +
+      '<div class="fld"><label>時間<b>*</b><span class="hint" style="margin-left:6px">一天租好幾個時段就加幾列</span></label>' + trowsHtml('lease', v.times, leasePreview) + '</div>' +
       '<div class="fld"><label>日期<b>*</b></label><input name="dates" placeholder="指定日期：20261018、1101、1115　或期間：20261109~1230（依勾選的星期展開）"><span class="hint">展開後點日期可以排除（例如那天學校不借）</span></div>' +
-      '<div class="note" style="font-size:.82rem">系統依「據點＋星期＋時間＋球面」找時段：已有就沿用並延長期間，沒有就新增一個（每個星期一個）；每個日期寫一筆可用日（直接「可用」）。</div></section>' +
+      '<div class="note" style="font-size:.82rem">系統依「據點＋星期＋時間＋球面」找時段：已有就沿用並延長期間，沒有就新增一個（每個星期 × 每個時間一個）；每個日期寫一筆可用日（直接「可用」）。</div></section>' +
       '<div id="leasePrev" class="lease-prev" hidden></div></div>';
     const r = await ui.modal({ title: LS_.fixedVenue ? '新增租約｜' + m.venueName(LS_.fixedVenue) : '新增租約', body: body, sticky: true, actions: [{ label: '取消' }, { label: '下一步', kind: 'pri', click: async () => {
       if (LS_.step < 3) { const why = stepCheck(LS_.step); if (why) { ui.toast(why, 'bad'); return false; } goStep(LS_.step + 1); return false; }
@@ -926,8 +926,7 @@
     v.venue = LS_.fixedVenue || q('venue').value;
     v.newVenue = q('newVenue').value.trim();
     v.area = q('area').value.trim();
-    v.start = q('start').value;
-    v.end = q('end').value;
+    if (box.querySelector('[data-trows="lease"]')) v.times = trowsRead('lease');
     v.wds = Array.from(box.querySelectorAll('[data-lwds] input:checked')).map((i) => i.value);
     v.dates = q('dates').value;
     v.total = q('total').value;
@@ -948,7 +947,8 @@
     const box = document.getElementById('leaseBox');
     const set = (n, val) => { if (val !== undefined && val !== null) box.querySelector('[name="' + n + '"]').value = val; };
     if (!LS_.fixedVenue) { if (o.venue) set('venue', o.venue); else if (o.newVenue) { set('venue', '__new'); set('newVenue', o.newVenue); } }
-    set('area', o.area); set('start', o.start); set('end', o.end); set('dates', o.dates); set('total', o.total); set('unit', o.unit); set('sign', o.sign);
+    set('area', o.area); set('dates', o.dates);
+    if (o.start && o.end) { LS_.v.times = [[o.start, o.end]]; trowsSet('lease', LS_.v.times); } set('total', o.total); set('unit', o.unit); set('sign', o.sign);
     if (o.wds) box.querySelectorAll('[data-lwds] input').forEach((i) => { i.checked = o.wds.indexOf(i.value) >= 0; });
     LS_.v.expect = o.expect || 0;
     LS_.v.expectCourts = o.courts || 0;
@@ -972,11 +972,13 @@
     const dates = all.filter((d) => !LS_.off.has(d));
     const why = stepCheck(1) || stepCheck(2);
     if (why) return { ok: false, why: why, all: all };
-    if (!v.start || !v.end) return { ok: false, why: '請填時間', all: all };
+    const tv = trowsValid(v.times || []);
+    if (!tv.times.length) return { ok: false, why: '請填時間', all: all };
+    if (tv.err) return { ok: false, why: tv.err, all: all };
     if (!dates.length) return { ok: false, why: '請填日期（期間要勾星期）', all: all };
     const bad = dates.filter((d) => v.wds.length && v.wds.indexOf(wdOf(d)) < 0);
     if (bad.length) return { ok: false, why: bad.map(fmtD).join('、') + ' 不是勾選的星期', all: all };
-    return { ok: true, all: all, a: { venue: v.venue === '__new' ? '' : v.venue, newVenue: v.venue === '__new' ? v.newVenue : '', area: v.area, courtIds: Array.from(LS_.sel), newCourts: LS_.add.filter((c) => c.name), start: v.start, end: v.end, dates: dates, total: num(v.total) || '', unit: num(v.unit) || '', signDate: v.sign, payMethod: v.pay, paidNow: v.paid, name: v.name, contract: v.contract } };
+    return { ok: true, all: all, a: { venue: v.venue === '__new' ? '' : v.venue, newVenue: v.venue === '__new' ? v.newVenue : '', area: v.area, courtIds: Array.from(LS_.sel), newCourts: LS_.add.filter((c) => c.name), times: tv.times.map((t) => ({ start: t[0], end: t[1] })), dates: dates, total: num(v.total) || '', unit: num(v.unit) || '', signDate: v.sign, payMethod: v.pay, paidNow: v.paid, name: v.name, contract: v.contract } };
   }
   function leasePreview() {
     clearTimeout(LS_.timer);
@@ -988,9 +990,10 @@
       const all = args.all || leaseDates();
       const v = LS_.v;
       const nC = LS_.sel.size + LS_.add.length;
+      const nT = Math.max(1, trowsValid(v.times || []).times.length);
       const chips = all.length ? '<div class="lease-dates">' + all.map((d) => '<button type="button" class="ldate' + (LS_.off.has(d) ? ' off' : '') + '" data-ldate="' + d + '">' + esc(fmtD(d)) + '</button>').join('') + '</div>' : '';
       const n = all.filter((d) => !LS_.off.has(d)).length;
-      const cnt = '<div class="lease-cnt">共 <b>' + n + '</b> 日' + (v.expect ? (n === v.expect ? ' <span class="badge ok">與「共 ' + v.expect + ' 日」相符</span>' : ' <span class="badge warn">貼上的是共 ' + v.expect + ' 日，請點掉不租的日期</span>') : '') + (num(v.unit) && nC && n ? '・' + nC + ' 面 × ' + n + ' 日 × ' + money(v.unit) + '＝<b>' + money(num(v.unit) * nC * n) + '</b>' : '') + '</div>';
+      const cnt = '<div class="lease-cnt">共 <b>' + n + '</b> 日' + (v.expect ? (n === v.expect ? ' <span class="badge ok">與「共 ' + v.expect + ' 日」相符</span>' : ' <span class="badge warn">貼上的是共 ' + v.expect + ' 日，請點掉不租的日期</span>') : '') + (num(v.unit) && nC && n ? '・' + nC + ' 面 × ' + n + ' 日' + (nT > 1 ? ' × ' + nT + ' 個時段' : '') + ' × ' + money(v.unit) + '＝<b>' + money(num(v.unit) * nC * n * nT) + '</b>' : '') + '</div>';
       if (!args.ok) { el.innerHTML = chips + cnt + '<div class="mut" style="font-size:.84rem">' + esc(args.why) + '</div>'; return; }
       const seq = ++LS_.seq;
       el.innerHTML = chips + cnt + '<div class="mut">預覽中…</div>';
@@ -1000,7 +1003,7 @@
       el.innerHTML = chips + cnt + '<div class="lease-plan"><b>確認登錄後會建立：</b><ul>' +
         (r.venue.isNew ? '<li>新據點「' + esc(r.venue.name) + '」</li>' : '') +
         '<li>球面：' + r.courts.map((c) => esc(c.name) + (c.isNew ? '<span class="badge info">新</span>' : '')).join('、') + '</li>' +
-        '<li>時段：' + r.slots.map((s2) => '週' + s2.wd + ' ' + esc(v.start + '–' + v.end) + '（' + (s2.reuse ? '沿用既有時段' : '新增時段') + '，' + s2.n + ' 日' + (s2.skip ? '，其中 ' + s2.skip + ' 日已有' : '') + '）').join('、') + '</li>' +
+        '<li>時段：' + r.slots.map((s2) => '週' + s2.wd + ' ' + esc(s2.start + '–' + s2.end) + '（' + (s2.reuse ? '沿用既有時段' : '新增時段') + '，' + s2.n + ' 日' + (s2.skip ? '，其中 ' + s2.skip + ' 日已有' : '') + '）').join('、') + '</li>' +
         '<li>可用日 ' + r.avail + ' 天（直接「可用」）</li><li>租約「' + esc(r.plan) + '」' + money(r.amount) + (r.unitHour ? '（每面每小時 ' + money(r.unitHour) + '）' : '') + '</li><li>場租支出 ' + money(r.amount) + '：' + (v.paid ? v.sign + ' 已付（' + esc(v.pay) + '）' : '應付') + '</li></ul></div>' +
         (r.warnings.length ? r.warnings.map((w) => '<div class="note warn">' + esc(w) + '</div>').join('') : '');
     }, 400);
@@ -1141,7 +1144,7 @@
     if (def.sort) list = list.slice().sort((a, b) => byKey(def.sort(a), def.sort(b)));
     const cols = def.cols.filter((c) => c[0] !== '據點');
     const ncol = cols.length + (def.acts ? 1 : 0);
-    const addBtn = k === '場地' ? btn('新增球面', 'courtNew', { venue: vid }, 'pri', 'plus') : btn('新增時段', 'slotNew', { venue: vid }, 'pri', 'plus');
+    const addBtn = k === '場地' ? btn('新增球面', 'courtNew', { venue: vid }, 'pri', 'plus') : (vid ? btn('批次新增時段', 'slotBatch', { venue: vid }, 'pri', 'plus') : '') + btn('新增時段', 'slotNew', { venue: vid }, vid ? '' : 'pri', 'plus');
     return head + '<div class="acts">' + addBtn + '</div>' +
       '<div class="tbl-wrap"><table class="tbl"><thead><tr>' + cols.map((c) => '<th>' + esc(c[0]) + '</th>').join('') + (def.acts ? '<th></th>' : '') + '</tr></thead><tbody>' + (grpRows(list, vOf, (r) => genRow(def, r), ncol, vid) || '<tr><td colspan="' + ncol + '" class="mut">沒有資料</td></tr>') + '</tbody></table></div>';
   }
@@ -1171,7 +1174,7 @@
     const x = info[id];
     const cnt = { 租約: x.plans.length, 球面: x.courts.length, 時段: x.slots.length, 可用日: x.ok };
     const tabs = '<div class="vtabs">' + VTABS.map((tb) => '<button class="vtab' + (tb === tab ? ' on' : '') + '" data-act="param2" data-k="vt" data-v="' + tb + '">' + tb + (cnt[tb] !== undefined ? '<span class="c">' + cnt[tb] + '</span>' : '') + (tb === '可用日' && x.pend ? '<span class="vl-dot"></span>' : '') + '</button>').join('') + '</div>';
-    const acts = [btn('新增租約', 'leaseNew', { venue: id }, 'pri', 'plus'), btn('新增球面', 'courtNew', { venue: id }, '', 'plus'), btn('新增時段', 'slotNew', { venue: id }, 'ghost', 'plus'), btn('編輯據點', 'dataEdit', { t: '1_據點', id: id }, 'ghost')].join('');
+    const acts = [btn('新增租約', 'leaseNew', { venue: id }, 'pri', 'plus'), btn('新增球面', 'courtNew', { venue: id }, '', 'plus'), btn('批次新增時段', 'slotBatch', { venue: id }, '', 'plus'), btn('新增時段', 'slotNew', { venue: id }, 'ghost', 'plus'), btn('編輯據點', 'dataEdit', { t: '1_據點', id: id }, 'ghost')].join('');
     const body = { 概要: vOverview, 租約: vPlansTab, 球面: vCourtsTab, 時段: vSlotsTab, 可用日: availPane }[tab](id, p, x);
     const stBadge = '<span class="badge ' + ({ 合作中: 'ok', 籌備中: 'info', 暫停: 'warn' }[str(v['狀態'])] || '') + '">' + esc(str(v['狀態']) || '合作中') + '</span>';
     return bar + '<div class="vsplit"><aside class="vl"><div class="vl-s"><label class="search">' + PB.icon('search') + '<input data-input="vSearch" placeholder="搜尋據點" value="' + esc(p.vq || '') + '"></label></div><div class="vl-list">' + (list || '<div class="vl-g">沒有符合的據點</div>') + '</div></aside>' +
@@ -1206,7 +1209,7 @@
     const ok = av.filter((a) => str(a['狀態']) === '可用');
     const pend = av.filter((a) => str(a['狀態']) === '待確認').length;
     const last = ok.map((a) => day(a['日期'])).sort().pop();
-    return '<tr class="click" data-act="dataEdit" data-t="1_據點_時段" data-id="' + esc(s['時段ID']) + '"><td><b>週' + esc(s['星期']) + ' ' + esc(m.hm(s['開始時間'], s['結束時間'])) + '</b></td><td style="white-space:normal">' + esc(split(s['使用場地']).map(m.courtName).join('、')) + '</td><td style="font-size:.84rem">' + esc(split(s['用途']).join('・')) + (str(s['狀態']) && str(s['狀態']) !== '使用中' ? ' <span class="badge">' + esc(s['狀態']) + '</span>' : '') + '</td><td style="font-size:.84rem">' + esc(fmtD(s['生效日期']) + '～' + fmtD(s['結束日期'])) + '</td><td style="font-size:.84rem">可用 <b>' + ok.length + '</b> 天' + (last ? '<br><span class="mut">到 ' + esc(fmtD(last)) + '</span>' : '') + (pend ? '<br><span class="badge warn">待確認 ' + pend + '</span>' : '') + '</td><td data-stop style="text-align:right;white-space:nowrap">' + btn('加日期', 'availAddDlg', { id: s['時段ID'] }, 'pri') + btn('看可用日', 'vGo', { vt: '可用日', as: s['時段ID'] }, 'ghost') + '</td></tr>';
+    return '<tr class="click" data-act="dataEdit" data-t="1_據點_時段" data-id="' + esc(s['時段ID']) + '"><td><b>週' + esc(s['星期']) + ' ' + esc(m.hm(s['開始時間'], s['結束時間'])) + '</b></td><td style="white-space:normal">' + esc(split(s['使用場地']).map(m.courtName).join('、')) + '</td><td style="font-size:.84rem">' + esc(split(s['用途']).join('・')) + (str(s['狀態']) && str(s['狀態']) !== '使用中' ? ' <span class="badge">' + esc(s['狀態']) + '</span>' : '') + '</td><td style="font-size:.84rem">' + esc(fmtD(s['生效日期']) + '～' + fmtD(s['結束日期'])) + '</td><td style="font-size:.84rem">可用 <b>' + ok.length + '</b> 天' + (last ? '<br><span class="mut">到 ' + esc(fmtD(last)) + '</span>' : '') + (pend ? '<br><span class="badge warn">待確認 ' + pend + '</span>' : '') + '</td><td data-stop style="text-align:right;white-space:nowrap">' + btn('加日期', 'availAddDlg', { id: s['時段ID'] }, 'pri') + btn('看可用日', 'vGo', { vt: '可用日', as: s['時段ID'] }, 'ghost') + btn('複製到其他星期', 'slotBatch', { copy: s['時段ID'] }, 'ghost') + '</td></tr>';
   }
   function vOverview(id, p, x) {
     const v = PB.get('1_據點', id);
@@ -1244,8 +1247,8 @@
     return tblH(['球面', '類型', '>人數上限', '狀態'], rows, '還沒有球面：按上方「新增球面」');
   }
   function vSlotsTab(id, p, x) {
-    return tblH(['時段', '球面', '用途', '期間', '可用日', ''], x.slots.map(slotRow).join(''), '還沒有時段：按上方「新增租約」或「新增時段」') +
-      '<p class="mut" style="font-size:.8rem">時段＝每週固定的星期＋時間＋球面；同一份約多租幾天 → 時段的「加日期」。</p>';
+    return tblH(['時段', '球面', '用途', '期間', '可用日', ''], x.slots.map(slotRow).join(''), '還沒有時段：按上方「新增租約」或「批次新增時段」') +
+      '<p class="mut" style="font-size:.8rem">時段＝每週固定的星期＋時間＋球面；同一份約多租幾天 → 時段的「加日期」；同樣的時間要用到別的星期 →「複製到其他星期」。</p>';
   }
 
   // ---- 據點內的可用日：月曆／清單，勾選多天一起確認或取消 ----
@@ -1356,6 +1359,194 @@
     document.removeEventListener('click', onClick, true);
     if (r) PB.run('availAdd', { slot: d.id, dates: r });
   };
+
+
+  // ================================================================
+  // v3.4 時間列（批次新增時段、新增租約第 3 步共用）：一列一組開始～結束，可加列、刪列、套預設
+  // ================================================================
+  const TPRE = { day: [['10:00', '12:00'], ['14:00', '16:00'], ['16:00', '18:00']], eve: [['18:00', '20:00'], ['20:00', '22:00']] };
+  const TCB = {};
+  const tHours = (t) => { const a = t[0].split(':').map(Number), b = t[1].split(':').map(Number); return t[0] && t[1] ? ((b[0] * 60 + b[1]) - (a[0] * 60 + a[1])) / 60 : 0; };
+  function trowsInner(k, times) {
+    return times.map((t, i) => {
+      const h = tHours(t);
+      return '<div class="trow"><input type="time" data-tk="' + k + '" data-ti="' + i + '" data-te="0" value="' + esc(t[0]) + '" aria-label="開始時間"><span class="mut">到</span><input type="time" data-tk="' + k + '" data-ti="' + i + '" data-te="1" value="' + esc(t[1]) + '" aria-label="結束時間">' +
+        '<span class="trow-h">' + (t[0] && t[1] ? (h > 0 ? h + ' 小時' : '<span class="bad-t">結束要晚於開始</span>') : '') + '</span>' +
+        (times.length > 1 ? '<button type="button" class="fdel" data-tdel="' + k + '" data-ti="' + i + '" title="刪除這個時間" aria-label="刪除這個時間">×</button>' : '') + '</div>';
+    }).join('');
+  }
+  function trowsHtml(k, times, onChange) {
+    TCB[k] = onChange;
+    return '<div class="trows" data-trows="' + k + '">' + trowsInner(k, times) + '</div><div class="trow-acts"><button type="button" class="btn sm" data-tadd="' + k + '">' + PB.icon('plus') + '加一個時間</button>' +
+      '<button type="button" class="btn sm ghost" data-tpre="' + k + '" data-p="day">早上＋下午（10–12、14–16、16–18）</button><button type="button" class="btn sm ghost" data-tpre="' + k + '" data-p="eve">晚上（18–20、20–22）</button></div>';
+  }
+  /** 從畫面讀時間列 → [[開始, 結束]…]（含沒填完的列） */
+  function trowsRead(k) {
+    const box = document.querySelector('[data-trows="' + k + '"]');
+    if (!box) return [];
+    const out = [];
+    box.querySelectorAll('input[data-tk]').forEach((i) => { const r = +i.dataset.ti; out[r] = out[r] || ['', '']; out[r][+i.dataset.te] = i.value; });
+    return out.filter(Boolean);
+  }
+  /** 填完且合理的時間（排序、去重）；重疊回傳 err */
+  function trowsValid(times) {
+    const ok = uniq(times.filter((t) => t[0] && t[1] && tHours(t) > 0).map((t) => t[0] + '|' + t[1])).map((x) => x.split('|')).sort((a, b) => byKey(a[0], b[0]));
+    let err = '';
+    for (let i = 1; i < ok.length; i++) if (ok[i][0] < ok[i - 1][1]) err = ok[i - 1][0] + '–' + ok[i - 1][1] + ' 和 ' + ok[i][0] + '–' + ok[i][1] + ' 重疊';
+    return { times: ok, err: err };
+  }
+  function trowsSet(k, times) {
+    const box = document.querySelector('[data-trows="' + k + '"]');
+    if (box) box.innerHTML = trowsInner(k, times.length ? times : [['', '']]);
+    if (TCB[k]) TCB[k]();
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('[data-tadd],[data-tdel],[data-tpre]');
+    if (!b) return;
+    e.preventDefault();
+    const k = b.dataset.tadd || b.dataset.tdel || b.dataset.tpre;
+    let t = trowsRead(k);
+    if (b.dataset.tadd) {
+      const last = t[t.length - 1];
+      const s = last && last[1] ? last[1] : '';
+      const h = s ? Math.min(23, +s.slice(0, 2) + 2) : 0;
+      t.push(s ? [s, (h === 23 && +s.slice(0, 2) >= 22 ? '23:59' : ('0' + h).slice(-2) + s.slice(2))] : ['', '']);
+    } else if (b.dataset.tdel) t.splice(+b.dataset.ti, 1);
+    else t = TPRE[b.dataset.p].map((x) => x.slice());
+    trowsSet(k, t);
+    const ins = document.querySelectorAll('[data-trows="' + k + '"] input');
+    if (b.dataset.tadd && ins.length) ins[ins.length - 2].focus();
+  });
+  document.addEventListener('input', (e) => {
+    const i = e.target;
+    if (!i || !i.dataset || !i.dataset.tk) return;
+    const row = i.closest('.trow');
+    const t = trowsRead(i.dataset.tk)[+i.dataset.ti];
+    const hEl = row && row.querySelector('.trow-h');
+    if (hEl && t) { const h = tHours(t); hEl.innerHTML = t[0] && t[1] ? (h > 0 ? h + ' 小時' : '<span class="bad-t">結束要晚於開始</span>') : ''; }
+    if (TCB[i.dataset.tk]) TCB[i.dataset.tk]();
+  });
+
+  // ================================================================
+  // v3.4 批次新增時段：星期 × 時間 × 日期範圍 → 時段＋可用日（直接「可用」）
+  //   規則與後端 slotBatch_ 相同：同星期＋時間＋同一組球面已有時段 → 沿用；同一面時間重疊 → 跳過；取消過的日期維持取消
+  // ================================================================
+  const SB_ = { venue: '', wds: new Set(), off: new Set(), courts: new Set(), use: new Set(), from: '', to: '', note: '', copy: '' };
+  const hm5 = (v) => str(v).slice(0, 5);
+  function sbPlan() {
+    const tv = trowsValid(trowsRead('sb'));
+    const wds = WDS.split('').filter((w) => SB_.wds.has(w));
+    const courts = Array.from(SB_.courts);
+    const dates = {};
+    if (SB_.from && SB_.to && SB_.from <= SB_.to) for (let d = SB_.from, n = 0; d <= SB_.to && n < 400; d = addDays(d, 1), n++) if (SB_.wds.has(wdOf(d))) (dates[wdOf(d)] = dates[wdOf(d)] || []).push(d);
+    const slots = PB.rows('1_據點_時段').filter((s) => str(s['據點']) === SB_.venue && str(s['狀態']) !== '停用');
+    const same = (x, y) => x.length === y.length && x.every((v) => y.indexOf(v) >= 0);
+    const ovl = (a1, b1, a2, b2) => a1 < b2 && a2 < b1;
+    const cells = [];
+    wds.forEach((wd) => tv.times.forEach((t) => {
+      const ds = (dates[wd] || []).filter((d) => !SB_.off.has(d));
+      const reuse = slots.find((s) => str(s['星期']) === wd && hm5(s['開始時間']) === t[0] && hm5(s['結束時間']) === t[1] && same(split(s['使用場地']), courts));
+      const c = { wd: wd, t: t, kind: reuse ? 'reuse' : 'new', n: 0, skip: 0, cancelled: 0, clash: null };
+      if (!reuse) {
+        const cl = slots.find((s) => str(s['星期']) === wd && ovl(t[0], t[1], hm5(s['開始時間']), hm5(s['結束時間']).replace('23:59', '24:00')) && split(s['使用場地']).some((x) => courts.indexOf(x) >= 0) &&
+          (!day(s['生效日期']) || !ds.length || day(s['生效日期']) <= ds[ds.length - 1]) && (!day(s['結束日期']) || !ds.length || day(s['結束日期']) >= ds[0]));
+        if (cl) { c.kind = 'clash'; c.clash = cl; } else c.n = ds.length;
+      } else {
+        const have = {};
+        (PB.ix.availBySlot[str(reuse['時段ID'])] || []).forEach((a) => { have[day(a['日期'])] = str(a['狀態']); });
+        ds.forEach((d) => { if (!have[d]) c.n += 1; else if (have[d] === '取消') c.cancelled += 1; else c.skip += 1; });
+      }
+      cells.push(c);
+    }));
+    return { tv: tv, wds: wds, cells: cells, dates: dates, total: cells.reduce((x, c) => x + c.n, 0) };
+  }
+  function sbDraw() {
+    const el = document.getElementById('sbPrev');
+    if (!el) return;
+    const box = document.getElementById('sbBox');
+    SB_.wds = new Set(Array.from(box.querySelectorAll('[data-sbwd] input:checked')).map((i) => i.value));
+    SB_.courts = new Set(Array.from(box.querySelectorAll('[data-sbc] input:checked')).map((i) => i.value));
+    SB_.use = new Set(Array.from(box.querySelectorAll('[data-sbu] input:checked')).map((i) => i.value));
+    SB_.from = box.querySelector('#sbFrom').value;
+    SB_.to = box.querySelector('#sbTo').value;
+    SB_.note = box.querySelector('#sbNote').value.trim();
+    const p = sbPlan();
+    const pri = document.querySelector('.modal-f .btn.pri');
+    const why = !SB_.wds.size ? '先勾星期' : !p.tv.times.length ? '請填時間' : p.tv.err ? p.tv.err : !SB_.courts.size ? '請至少勾 1 面球面' : !SB_.from || !SB_.to ? '請填日期' : SB_.from > SB_.to ? '開始日期不能晚於結束日期' : '';
+    if (pri) { pri.disabled = !!why || !p.total; pri.textContent = p.total && !why ? '建立（可用日 ' + p.total + ' 天）' : '建立'; }
+    if (why) { el.innerHTML = '<span class="mut">' + esc(why) + '</span>'; return; }
+    const lab = { new: '新增', reuse: '沿用', clash: '重疊' };
+    let mx = '<tr><th></th>' + p.wds.map((w) => '<th>週' + w + '</th>').join('') + '</tr>';
+    p.tv.times.forEach((t) => {
+      mx += '<tr><td class="sb-t">' + esc(t[0] + '–' + t[1]) + '</td>' + p.wds.map((w) => {
+        const c = p.cells.find((x) => x.wd === w && x.t === t);
+        const sub = c.kind === 'clash' ? '跳過' : c.n + ' 天' + (c.skip ? '<small>已有 ' + c.skip + '</small>' : '') + (c.cancelled ? '<small>取消 ' + c.cancelled + '</small>' : '');
+        return '<td><div class="sb-c ' + c.kind + '"' + (c.clash ? ' title="和 ' + esc(m.slotLabel(c.clash)) + ' 重疊"' : '') + '><b>' + lab[c.kind] + '</b>' + sub + '</div></td>';
+      }).join('') + '</tr>';
+    });
+    const all = uniq([].concat.apply([], Object.keys(p.dates).map((w) => p.dates[w]))).sort();
+    const byM = {};
+    all.forEach((d) => { (byM[d.slice(0, 7)] = byM[d.slice(0, 7)] || []).push(d); });
+    const mon = Object.keys(byM).sort().map((ym) => '<div class="sb-mon"><span class="sb-mh">' + (+ym.slice(5)) + ' 月・' + byM[ym].filter((d) => !SB_.off.has(d)).length + ' 天</span><div class="lease-dates">' +
+      byM[ym].map((d) => '<button type="button" class="ldate' + (SB_.off.has(d) ? ' off' : '') + '" data-sbd="' + d + '">' + esc(fmtD(d)) + '</button>').join('') + '</div></div>').join('');
+    const nNew = p.cells.filter((c) => c.kind === 'new' && c.n).length;
+    const nRe = p.cells.filter((c) => c.kind === 'reuse').length;
+    const nCl = p.cells.filter((c) => c.kind === 'clash');
+    const can = p.cells.reduce((x, c) => x + c.cancelled, 0);
+    el.innerHTML = '<div class="sb-h">星期 × 時間</div><div class="tbl-wrap"><table class="sb-mx">' + mx + '</table></div>' +
+      '<div class="sb-lg"><span><i class="new"></i>新增時段</span><span><i class="reuse"></i>沿用既有時段，只補日期</span><span><i class="clash"></i>和同一面的時段重疊，跳過</span></div>' +
+      '<div class="sb-h">日期<span class="mut">（點一下可排除這一天）</span></div>' + (mon || '<span class="mut">範圍內沒有勾選的星期</span>') +
+      '<div class="lease-plan"><b>建立後會有：</b><ul><li>新增時段 ' + nNew + ' 個' + (nRe ? '、沿用 ' + nRe + ' 個' : '') + '</li><li>可用日 <b>' + p.total + '</b> 天（直接「可用」）</li>' +
+      (nCl.length ? '<li>重疊跳過 ' + nCl.length + ' 格：' + esc(uniq(nCl.map((c) => m.slotLabel(c.clash))).join('、')) + '</li>' : '') + '</ul></div>' +
+      (can ? '<div class="note warn">' + can + ' 天之前取消過，維持取消；要恢復請到「可用日」分頁</div>' : '') +
+      (!p.total ? '<div class="note">沒有要新增的可用日（日期都已經有了，或時段都重疊）</div>' : '');
+  }
+  A.slotBatch = async (d) => {
+    d = d || {};
+    const src = d.copy ? PB.get('1_據點_時段', d.copy) : null;
+    SB_.venue = str(d.venue) || str(src && src['據點']);
+    if (!SB_.venue) return ui.toast('先選一個據點', 'bad');
+    SB_.off = new Set();
+    SB_.copy = src ? str(src['時段ID']) : '';
+    const courts = PB.rows('1_據點_場地').filter((c) => str(c['據點']) === SB_.venue).sort((a, b) => byKey(str(a['場地名稱']), str(b['場地名稱'])));
+    const onC = src ? split(src['使用場地']) : courts.filter((c) => str(c['狀態']) !== '暫停使用').map((c) => str(c['場地ID']));
+    const onU = src ? split(src['用途']) : ['課程', '球敘'];
+    const from = src && day(src['生效日期']) > today() ? day(src['生效日期']) : today();
+    const to = src && day(src['結束日期']) >= from ? day(src['結束日期']) : '';
+    const times = src ? [[hm5(src['開始時間']), hm5(src['結束時間'])]] : [['', '']];
+    const body = '<div id="sbBox">' +
+      (src ? '<div class="note">複製 <b>' + esc(m.slotLabel(src)) + '</b> 的時間、球面、用途；勾要複製到的星期</div>' : '') +
+      '<div class="fld"><label>星期<b>*</b></label><div class="sb-wds"><div class="multi" data-sbwd>' + WDS.split('').map((w) => '<label><input type="checkbox" value="' + w + '"' + (src && str(src['星期']) === w ? ' disabled' : '') + '>' + w + '</label>').join('') + '</div>' +
+      '<span class="sb-q"><button type="button" class="btn sm ghost" data-sbq="12345">平日</button><button type="button" class="btn sm ghost" data-sbq="67">週末</button><button type="button" class="btn sm ghost" data-sbq="">清除</button></span></div></div>' +
+      '<div class="fld"><label>時間<b>*</b><span class="hint" style="margin-left:6px">一列一個時段</span></label>' + trowsHtml('sb', times, sbDraw) + '</div>' +
+      '<div class="fld-row"><div class="fld"><label for="sbFrom">可用日期<b>*</b></label><div class="sb-range"><input type="date" id="sbFrom" value="' + esc(from) + '"><span class="mut">～</span><input type="date" id="sbTo" value="' + esc(to) + '"></div></div>' +
+      '<div class="fld"><label for="sbNote">說明</label><input id="sbNote" placeholder="選填，例：11–12 月平日白天"></div></div>' +
+      '<div class="fld-row"><div class="fld"><label>球面<b>*</b></label><div class="multi" data-sbc>' + (courts.map((c) => '<label><input type="checkbox" value="' + esc(c['場地ID']) + '"' + (onC.indexOf(str(c['場地ID'])) >= 0 ? ' checked' : '') + '>' + esc(c['場地名稱']) + (str(c['狀態']) === '暫停使用' ? '（暫停）' : '') + '</label>').join('') || '<span class="mut">這個據點還沒有球面，請先「新增球面」</span>') + '</div></div>' +
+      '<div class="fld"><label>用途</label><div class="multi" data-sbu>' + ['課程', '球敘'].map((u) => '<label><input type="checkbox" value="' + u + '"' + (onU.indexOf(u) >= 0 ? ' checked' : '') + '>' + u + '</label>').join('') + '</div></div></div>' +
+      '<div id="sbPrev" class="lease-prev sb-prev"></div></div>';
+    const r = await ui.modal({ title: '批次新增時段｜' + m.venueName(SB_.venue), body: body, sticky: true, onOpen: () => setTimeout(sbDraw, 0), actions: [{ label: '取消' }, { label: '建立', kind: 'pri', click: async () => {
+      sbDraw();
+      const p = sbPlan();
+      if (p.tv.err) { ui.toast(p.tv.err, 'bad'); return false; }
+      if (!p.total) { ui.toast('沒有要新增的可用日', 'bad'); return false; }
+      const out = await PB.run('slotBatch', { venue: SB_.venue, wds: p.wds, times: p.tv.times.map((t) => ({ start: t[0], end: t[1] })), from: SB_.from, to: SB_.to, courtIds: Array.from(SB_.courts), use: Array.from(SB_.use), off: Array.from(SB_.off), note: SB_.note });
+      return out ? true : false;
+    } }] });
+    if (r) PB.render();
+  };
+  document.addEventListener('change', (e) => { if (e.target.closest && e.target.closest('#sbBox') && !e.target.dataset.tk) sbDraw(); });
+  document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('#sbBox') && (e.target.id === 'sbNote')) SB_.note = e.target.value.trim(); });
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('#sbBox [data-sbd], #sbBox [data-sbq]');
+    if (!b) return;
+    e.preventDefault();
+    if (b.dataset.sbd) { const x = b.dataset.sbd; if (SB_.off.has(x)) SB_.off.delete(x); else SB_.off.add(x); }
+    else {
+      const pick = b.dataset.sbq.split('').map((n) => WDS[+n - 1]);
+      document.querySelectorAll('#sbBox [data-sbwd] input').forEach((i) => { if (!i.disabled) i.checked = pick.indexOf(i.value) >= 0; });
+    }
+    sbDraw();
+  });
 
   // 通知紀錄查詢（v2）：按「查詢」才讀全部紀錄（開頁只帶近 30 天）
   const NQ = { res: null, busy: false, f: null };
