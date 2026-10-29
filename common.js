@@ -415,7 +415,7 @@
       total: num(c['總堂數']) || live.length,
       next: live.find((s) => str(s['場次狀態']) === '預定' && day(s['日期']) >= t) || null,
       limit: limit, min: min, paid: paid, used: active.length + hold.length, decide: decide,
-      canDecide: st === '籌備中' && !!start && (single || t >= decide || paid >= limit),
+      canDecide: st === '籌備中' && !!start && (single || t >= decide || paid >= min), // v3.5：已付達人數下限就能確認成班（原本要額滿）
       pending: !!str(c['開班動作']) && !str(c['開班處理時間']),
       st: st,
     };

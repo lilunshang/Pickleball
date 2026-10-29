@@ -390,7 +390,7 @@
     if (x.single) return singleBody(id, x);
     const t = today();
     const isPre = x.st === '籌備中';
-    const decideHint = isPre ? (x.canDecide ? '' : '決定日 ' + fmtD(x.decide) + ' 起可確認（已付達上限 ' + x.limit + ' 人可提前）') : '';
+    const decideHint = isPre ? (x.canDecide ? '' : '已付首堂達人數下限 ' + x.min + ' 人就能確認成班（目前 ' + x.paid + ' 人）；決定日 ' + fmtD(x.decide) + ' 起不限人數') : '';
     const acts = [];
     if (isPre && PB.forms['2_課程班級']) {
       acts.push(ui.btn('確認成班', 'classAct', { id: id, a: '確認成班' }, 'pri' + (x.canDecide && !x.pending ? '' : '" disabled title="' + esc(decideHint || '排程處理中'))));
@@ -524,7 +524,7 @@
       return PB.run('classAction', { id: d.id, action: '未成班' }, { confirm: { title: '未成班：' + m.singleLabel(c), text: '這堂取消；已付學員會在 LINE 收到「改報其他堂／課程抵用金／退款」，3 天未回覆轉抵用金。', danger: true, ok: '設為未成班' } });
     }
     if (d.a === '確認成班') {
-      return PB.run('classAction', { id: d.id, action: '確認成班' }, { confirm: { title: '確認成班：' + m.classLabel(c), text: '已付首堂 ' + x.paid + ' 人（門檻 ' + x.min + '、上限 ' + x.limit + '）。<br>系統會開尾款、入帳堂數、把彈性場地轉成球敘草稿，並通知學員開課。<br><b>請先確認開課日期、教練、場地都已定案。</b>', ok: '確認成班' } });
+      return PB.run('classAction', { id: d.id, action: '確認成班' }, { confirm: { title: '確認成班：' + m.classLabel(c), text: '已付首堂 ' + x.paid + ' 人（門檻 ' + x.min + '、上限 ' + x.limit + '）。<br>系統會開尾款、入帳堂數、把彈性場地轉成球敘草稿，並通知學員開課。還沒額滿時學員仍可報名到上限（付全額）。<br><b>請先確認開課日期、教練、場地都已定案。</b>', ok: '確認成班' } });
     }
     if (d.a === '未成班') {
       return PB.run('classAction', { id: d.id, action: '未成班' }, { confirm: { title: '未成班：' + m.classLabel(c), text: '場次全部取消、場地轉成球敘草稿；已付學員會在 LINE 收到「順延／轉班／退款」三選項。', danger: true, ok: '設為未成班' } });
@@ -901,11 +901,67 @@
       ['費用', str(g['費用']) !== '' ? esc(money(g['費用']) + '／人') : '<span class="badge bad">未填（不能開放報名）</span>'],
       ...(x.rackets !== null ? [['球拍租借', esc('已報名的人租 ' + x.rackets + ' 支') + (x.racketStock !== null ? esc('・據點庫存 ' + x.racketStock + ' 支（同時段共用）') : '')]] : []), // v3.0
       ['名額', esc('已報名 ' + x.active.length + '／上限 ' + x.limit + '・剩 ' + x.left) + (x.walkin.length ? ' <span class="badge warn">現場待確認 ' + x.walkin.length + '</span>' : '') + (x.checked ? ' <span class="badge ok">簽到 ' + x.checked + '</span>' : '')],
-      ['場主', esc(x.hosts.map((h) => h.name + (h.in ? '（已到場）' : '')).join('、') || (x.st === '草稿' ? '開放報名後自動排' : '未排'))],
+      ['場主', hostCell(g, x, can && ['草稿', '開放報名', '已額滿'].indexOf(x.st) >= 0 && day(g['日期']) >= t)],
       ['計分', esc((str(g['每場分數']) || '15') + ' 分' + (g['需贏2分'] === false ? '・不需贏 2 分' : ''))],
     ]) + courts + (noCourt.length ? sec('未分面', noCourt.length + ' 人') + card(noCourt.map((r) => sigRow(r, 'game')).join('')) : '') +
       (x.wait.length ? sec('候補', x.wait.length + ' 人') + card(x.wait.map((r) => sigRow(r, 'game')).join('')) : '');
   }
+  // ---- v3.5：球敘場主（加／換／移除）----
+  function hostCell(g, x, edit) {
+    const gid = str(g['球敘ID']);
+    const list = x.hosts.map((h) => {
+      const locked = h.in || str(h.d['費用結算']) || num(h.d['現場收款金額']) > 0;
+      return '<span class="host-i">' + esc(h.name) + (h.in ? ' <span class="badge ok">已到場</span>' : '') +
+        (edit && !locked ? ' ' + btn('換人', 'hostSwap', { duty: h.d['排班ID'] }, 'ghost') + btn('移除', 'hostDel', { duty: h.d['排班ID'] }, 'ghost') : '') + '</span>';
+    }).join('');
+    const empty = x.hosts.length ? '' : '<span class="mut">' + (x.st === '草稿' ? '開放報名後自動排（也可以先指定）' : '未排') + '</span> ';
+    return '<div class="host-list">' + list + empty + (edit ? btn('加場主', 'hostAdd', { id: gid }, '', 'plus') : '') + '</div>';
+  }
+  /** 可排的場主：在職人員；據點的場主排前面；同時段已在別場當場主的標出來 */
+  function hostChoices(g, except) {
+    const v = PB.get('1_據點', g['據點']) || {};
+    const venueHosts = split(v['場主']);
+    const dk = day(g['日期']);
+    const mine = (PB.ix.dutyByGame[str(g['球敘ID'])] || []).map((d) => str(d['人員']));
+    return PB.rows('1_人員').filter((p) => (!str(p['在職狀態']) || str(p['在職狀態']) === '在職') && mine.indexOf(str(p['人員ID'])) < 0 && str(p['人員ID']) !== except).map((p) => {
+      const pid = str(p['人員ID']);
+      const busy = PB.rows('2_場主排班').filter((d) => str(d['人員']) === pid && str(d['球敘']) !== str(g['球敘ID'])).map((d) => PB.get('2_球敘場次', d['球敘']))
+        .find((o) => o && str(o['狀態']) !== '取消' && day(o['日期']) === dk && hm5(o['開始時間']) < hm5(g['結束時間']) && hm5(g['開始時間']) < hm5(o['結束時間']));
+      const why = busy ? '同時段在' + m.venueName(busy['據點']) : '';
+      const tag = venueHosts.indexOf(pid) >= 0 ? '據點場主' : '';
+      return { v: pid, l: str(p['姓名']), why: why, l2: str(p['姓名']) + (tag ? '・' + tag : '') + (why ? '（' + why + '）' : '') };
+    }).sort((a, b) => (!!a.why !== !!b.why ? (a.why ? 1 : -1) : (venueHosts.indexOf(b.v) >= 0) - (venueHosts.indexOf(a.v) >= 0) || a.l.localeCompare(b.l, 'zh-Hant')));
+  }
+  const hm5 = (v) => str(v).slice(0, 5);
+  async function hostPick(title, text, g, except) {
+    const list = hostChoices(g, except);
+    if (!list.length) { ui.toast('沒有可以排的在職人員', 'bad'); return null; }
+    const fields = [{ k: 'who', label: '場主', t: 'enum', req: true, opts: list.map((x) => x.l2), hint: '據點場主排在前面；括號是同時段已有其他球敘' }];
+    if (isMgmt()) fields.push({ k: 'force', label: '同時段有其他球敘也照樣指派（管理層）', t: 'bool' });
+    const v = await ui.ask(title, text, { fields: fields, ok: '確定' });
+    if (!v) return null;
+    const pick = list.find((x) => x.l2 === v.who);
+    if (!pick) return null;
+    if (pick.why && v.force !== true) { ui.toast(pick.l + ' 不能排：' + pick.why, 'bad'); return null; }
+    return { staff: pick.v, force: v.force === true };
+  }
+  A.hostAdd = async (d) => {
+    const g = PB.get('2_球敘場次', d.id);
+    const r = await hostPick('加場主：' + m.gameLabel(g), esc(fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間']) + '・' + m.venueName(g['據點'])) + '。合作方案依人員自動帶入；場主會在場主 OA 收到排班通知。', g, '');
+    if (r) PB.run('gameHostAdd', { id: d.id, staff: r.staff, force: r.force });
+  };
+  A.hostSwap = async (d) => {
+    const du = PB.get('2_場主排班', d.duty);
+    const g = PB.get('2_球敘場次', du['球敘']);
+    const r = await hostPick('換場主：' + m.gameLabel(g), '目前：' + esc(m.staffName(du['人員'])) + '。換人後新場主收到排班通知、原場主收到取消通知；場主費由月結依新場主的合作方案計算。', g, str(du['人員']));
+    if (r) PB.run('gameHostReplace', { duty: d.duty, staff: r.staff, force: r.force });
+  };
+  A.hostDel = (d) => {
+    const du = PB.get('2_場主排班', d.duty);
+    const g = PB.get('2_球敘場次', du['球敘']);
+    const left = (PB.ix.dutyByGame[str(g['球敘ID'])] || []).length - 1;
+    return PB.run('gameHostRemove', { duty: d.duty }, { confirm: { title: '移除場主：' + m.staffName(du['人員']), text: '他會在場主 OA 收到「排班取消」。' + (left ? '' : '<br><b>移除後這場沒有場主，請記得補排。</b>'), danger: true, ok: '移除' } });
+  };
   A.gameNew = () => ui.form('2_球敘場次', { onSaved: (id) => id && openGame(id) });
   A.gameEdit = (d) => ui.form('2_球敘場次', { id: d.id });
   A.gameOpen = (d) => PB.run('gameOpen', { ids: [d.id] }, { confirm: { title: '開放報名', text: '開放後學員就看得到並可報名；系統會排場主、建行事曆。請先核對日期、時間、據點、面數、費用、程度。', ok: '開放報名' } });
