@@ -619,7 +619,7 @@
     程度: { t: '0_程度', cols: [['程度', (r) => r['程度名稱']], ['排序', (r) => r['排序']], ['說明', (r) => str(r['說明']).slice(0, 40)]], sort: (r) => ('000' + num(r['排序'])).slice(-3) },
     專項: { t: '0_專項', cols: [['專項', (r) => r['專項名稱']], ['建議程度', (r) => m.levelName(r['程度'])], ['人數', (r) => (str(r['人數下限']) || '5') + '–' + (str(r['人數上限']) || '6')], ['費用', (r) => (num(r['費用']) > 0 ? num(r['費用']).toLocaleString() : '依據點')], ['說明', (r) => str(r['說明']).slice(0, 40)], ['啟用', (r) => (r['是否啟用'] === false ? '停用' : '啟用')]], sort: (r) => ('000' + num((PB.get('0_程度', r['程度']) || {})['排序'])).slice(-3) + str(r['專項名稱']) },
     // v3.6：球敘類型
-    球敘類型: { t: '0_球敘類型', cols: [['類型', (r) => r['類型名稱']], ['報名規則', (r) => str(r['報名規則']) || '不限'], ['學校', (r) => (num(r['學校費用']) > 0 ? money(r['學校費用']) : '—')], ['球館', (r) => (num(r['球館費用']) > 0 ? money(r['球館費用']) : '—')], ['每面人數', (r) => (str(r['每面人數下限']) || str(r['每面人數上限']) ? (str(r['每面人數下限']) || '—') + '–' + (str(r['每面人數上限']) || '依球面') : '依球面')], ['說明', (r) => str(r['說明']).slice(0, 40)], ['啟用', (r) => (r['是否啟用'] === false || str(r['是否啟用']).toUpperCase() === 'FALSE' ? '停用' : '啟用')]], sort: (r) => ('000' + num(r['排序'])).slice(-3) + str(r['類型名稱']) },
+    球敘類型: { t: '0_球敘類型', cols: [['類型', (r) => r['類型名稱']], ['報名規則', (r) => str(r['報名規則']) || '不限'], ['學校', (r) => (num(r['學校費用']) > 0 ? money(r['學校費用']) : '—')], ['球館', (r) => (num(r['球館費用']) > 0 ? money(r['球館費用']) : '—')], ['每面人數', (r) => (str(r['每面人數下限']) || str(r['每面人數上限']) ? (str(r['每面人數下限']) || '—') + '–' + (str(r['每面人數上限']) || '依球面') : '依球面')], ['場主', (r) => (r['需要場主'] === false || str(r['需要場主']).toUpperCase() === 'FALSE' ? '無場主' : '需要')], ['說明', (r) => str(r['說明']).slice(0, 40)], ['啟用', (r) => (r['是否啟用'] === false || str(r['是否啟用']).toUpperCase() === 'FALSE' ? '停用' : '啟用')]], sort: (r) => ('000' + num(r['排序'])).slice(-3) + str(r['類型名稱']) },
     課程類型: { t: '0_課程類型', cols: [['類型', (r) => r['課程類型']], ['標準教練費', (r) => (str(r['標準教練費']) ? money(r['標準教練費']) + '／' + str(r['計費方式']) : '')], ['請假上限', (r) => r['每期請假上限']], ['補課', (r) => (str(r['補課起算']) ? r['補課起算'] + ' + ' + (str(r['補課天數']) || 30) + ' 天' : '')]] },
     課程模板: { t: '0_課程模板', cols: [['模板', (r) => r['模板名稱']], ['類型', (r) => m.typeName(r['課程類型'])], ['人數', (r) => str(r['人數下限']) + '–' + str(r['人數上限'])], ['費用', (r) => (str(r['費用']) ? money(r['費用']) + '／' + str(r['計費方式']) : '')], ['堂數', (r) => r['總堂數']]] },
     教練費率: { t: '0_教練費率', cols: [['教練', (r) => m.staffName(r['教練'])], ['課程類型', (r) => m.typeName(r['課程類型'])], ['基準', (r) => r['基準']], ['費率', (r) => money(r['教練費']) + '／' + str(r['計價方式'])]], sort: (r) => m.staffName(r['教練']) },
@@ -827,11 +827,13 @@
     LS_.sel = new Set();
     LS_.add = [];
     LS_.fixedVenue = str(d.venue);
-    LS_.v = { venue: str(d.venue), newVenue: '', area: '', wds: [], times: [['', '']], dates: '', total: '', unit: '', sign: today(), pay: '轉帳', paid: true, expect: 0, expectCourts: 0, name: '', contract: '' };
+    LS_.v = { venue: str(d.venue), newVenue: '', area: '', wds: [], times: [['', '']], dates: '', total: '', unit: '', sign: today(), pay: '轉帳', paid: true, expect: 0, expectCourts: 0, name: '', contract: '', mode: '包場租約', scope: '全部', unitHour: '' };
     // 續約：沿用上一份租約的球面、星期、時間
     if (d.copy) {
       const plan = PB.get('3_合作方案', d.copy) || {};
       LS_.v.venue = str(plan['據點']);
+      if (str(plan['合作模式']) === '按次租用') { LS_.v.mode = '按次租用'; LS_.v.unitHour = str(plan['每面每小時單價']); } // v3.7
+      if (['課程', '球敘'].indexOf(str(plan['適用範圍'])) >= 0) LS_.v.scope = str(plan['適用範圍']);
       const inVenue = PB.rows('1_據點_時段').filter((x) => str(x['據點']) === LS_.v.venue);
       let slots = inVenue.filter((x) => str(x['說明']) === str(plan['方案名稱']));
       // 續約的續約：時段沿用第一份租約的名稱 → 改找期間和這份租約重疊的時段
@@ -853,8 +855,11 @@
       '<section data-ls="1"><div class="fld"><label>快速貼上（可略過）</label><textarea name="paste" rows="2" placeholder="20261027_光電球場_一三五1900-2100_共2面共22日(20261109~1230)_共30800(每面每時段700)"></textarea><button type="button" class="btn sm" data-lease="parse" style="align-self:flex-start;margin-top:4px">帶入</button><span class="hint">會一起帶入球面數、星期、時間與日期</span></div>' +
       '<div class="fld"><label>據點<b>*</b></label><select name="venue"' + (LS_.fixedVenue ? ' disabled' : '') + '><option value="">請選擇</option>' + vs.map((x) => '<option value="' + esc(x['據點ID']) + '"' + (str(x['據點ID']) === v.venue ? ' selected' : '') + '>' + esc(x['據點名稱']) + '</option>').join('') + '<option value="__new">＋ 新據點</option></select><input name="newVenue" placeholder="新據點名稱" style="margin-top:6px;display:none"></div>' +
       '<div class="fld-row"><div class="fld"><label>簽約日</label><input type="date" name="sign" value="' + esc(v.sign) + '"></div><div class="fld"><label>租約名稱</label><input name="name" placeholder="空白＝自動（據點 區域 星期 時間 期間）"></div></div>' +
-      '<div class="fld-row"><div class="fld"><label>合約總額</label><input type="number" name="total" min="0"></div><div class="fld"><label>每面每時段</label><input type="number" name="unit" min="0"><span class="hint">填一個就好；兩個都填會核對</span></div></div>' +
-      '<div class="fld"><label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" name="paid" checked> 簽約當天已付款（公司帳戶）</label></div>' +
+      // v3.7：合作模式、適用範圍
+      '<div class="fld-row"><div class="fld"><label>合作模式<b>*</b></label><select name="mode">' + [['包場租約', '包場租約（簽約付全額）'], ['按次租用', '按次租用（每月依實際場次算）']].map((o) => '<option value="' + o[0] + '"' + (v.mode === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></div><div class="fld"><label>適用範圍</label><select name="scope">' + ['全部', '課程', '球敘'].map((o) => '<option' + (v.scope === o ? ' selected' : '') + '>' + o + '</option>').join('') + '</select><span class="hint">同一個場地課程、球敘分開計價時，各登一份</span></div></div>' +
+      '<div class="fld-row" data-lmode="包場租約"><div class="fld"><label>合約總額</label><input type="number" name="total" min="0"></div><div class="fld"><label>每面每時段</label><input type="number" name="unit" min="0"><span class="hint">填一個就好；兩個都填會核對</span></div></div>' +
+      '<div class="fld" data-lmode="包場租約"><label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" name="paid" checked> 簽約當天已付款（公司帳戶）</label></div>' +
+      '<div class="fld" data-lmode="按次租用" hidden><label>每面每小時單價<b>*</b></label><input type="number" name="unitHour" min="0" value="' + esc(v.unitHour) + '"><span class="hint">不建場租支出；每月 1 日依上個月實際開成的課程／球敘自動算應付</span></div>' +
       '<div class="fld-row"><div class="fld"><label>付款方式</label><select name="pay">' + (PB.enums['現金轉帳'] || ['現金', '轉帳']).map((x) => '<option' + (x === '轉帳' ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select></div><div class="fld"></div></div>' +
       '<div class="fld"><label>合約檔案</label>' + ui.filesField({ k: '合約', _table: '3_合作方案' }, '', 'leasefile') + '</div></section>' +
       // ② 球面
@@ -894,7 +899,8 @@
     const v = leaseRead();
     if (n === 1) {
       if (!v.venue || (v.venue === '__new' && !v.newVenue)) return '請選據點';
-      if (!num(v.total) && !num(v.unit)) return '請填合約總額或每面每時段';
+      if (v.mode === '按次租用') { if (!num(v.unitHour)) return '請填每面每小時單價'; }
+      else if (!num(v.total) && !num(v.unit)) return '請填合約總額或每面每時段';
     }
     if (n === 2 && !LS_.sel.size && !LS_.add.length) return '請至少選 1 面球面（或新增）';
     return '';
@@ -937,6 +943,10 @@
     v.sign = q('sign').value;
     v.pay = q('pay').value;
     v.paid = q('paid').checked;
+    v.mode = q('mode').value; // v3.7
+    v.scope = q('scope').value;
+    v.unitHour = q('unitHour').value;
+    box.querySelectorAll('[data-lmode]').forEach((x) => { x.style.display = x.dataset.lmode !== v.mode ? 'none' : ''; x.hidden = false; });
     v.name = q('name').value.trim();
     v.contract = box.querySelector('.files input[type=hidden]').value;
     box.querySelectorAll('[data-lnew]').forEach((i) => { LS_.add[+i.dataset.lnew].name = i.value.trim(); });
@@ -981,7 +991,7 @@
     if (!dates.length) return { ok: false, why: '請填日期（期間要勾星期）', all: all };
     const bad = dates.filter((d) => v.wds.length && v.wds.indexOf(wdOf(d)) < 0);
     if (bad.length) return { ok: false, why: bad.map(fmtD).join('、') + ' 不是勾選的星期', all: all };
-    return { ok: true, all: all, a: { venue: v.venue === '__new' ? '' : v.venue, newVenue: v.venue === '__new' ? v.newVenue : '', area: v.area, courtIds: Array.from(LS_.sel), newCourts: LS_.add.filter((c) => c.name), times: tv.times.map((t) => ({ start: t[0], end: t[1] })), dates: dates, total: num(v.total) || '', unit: num(v.unit) || '', signDate: v.sign, payMethod: v.pay, paidNow: v.paid, name: v.name, contract: v.contract } };
+    return { ok: true, all: all, a: { venue: v.venue === '__new' ? '' : v.venue, newVenue: v.venue === '__new' ? v.newVenue : '', area: v.area, courtIds: Array.from(LS_.sel), newCourts: LS_.add.filter((c) => c.name), times: tv.times.map((t) => ({ start: t[0], end: t[1] })), dates: dates, total: num(v.total) || '', unit: num(v.unit) || '', signDate: v.sign, payMethod: v.pay, paidNow: v.paid, name: v.name, contract: v.contract, mode: v.mode, scope: v.scope, unitHour: num(v.unitHour) || '' } };
   }
   function leasePreview() {
     clearTimeout(LS_.timer);
@@ -1007,7 +1017,9 @@
         (r.venue.isNew ? '<li>新據點「' + esc(r.venue.name) + '」</li>' : '') +
         '<li>球面：' + r.courts.map((c) => esc(c.name) + (c.isNew ? '<span class="badge info">新</span>' : '')).join('、') + '</li>' +
         '<li>時段：' + r.slots.map((s2) => '週' + s2.wd + ' ' + esc(s2.start + '–' + s2.end) + '（' + (s2.reuse ? '沿用既有時段' : '新增時段') + '，' + s2.n + ' 日' + (s2.skip ? '，其中 ' + s2.skip + ' 日已有' : '') + '）').join('、') + '</li>' +
-        '<li>可用日 ' + r.avail + ' 天（直接「可用」）</li><li>租約「' + esc(r.plan) + '」' + money(r.amount) + (r.unitHour ? '（每面每小時 ' + money(r.unitHour) + '）' : '') + '</li><li>場租支出 ' + money(r.amount) + '：' + (v.paid ? v.sign + ' 已付（' + esc(v.pay) + '）' : '應付') + '</li></ul></div>' +
+        '<li>可用日 ' + r.avail + ' 天（直接「可用」）</li>' + (r.mode === '按次租用'
+          ? '<li>合作方案「' + esc(r.plan) + '」按次租用・' + esc(r.scope) + '・每面每小時 ' + money(r.unitHour) + '・每月結算</li><li>不建場租支出；全部開成約 ' + money(r.amount) + '（' + r.courtHours + ' 面時），實際依開成的場次月結</li>'
+          : '<li>租約「' + esc(r.plan) + '」' + (r.scope !== '全部' ? '（' + esc(r.scope) + '）' : '') + money(r.amount) + (r.unitHour ? '（每面每小時 ' + money(r.unitHour) + '）' : '') + '</li><li>場租支出 ' + money(r.amount) + '：' + (v.paid ? v.sign + ' 已付（' + esc(v.pay) + '）' : '應付') + '</li>') + '</ul></div>' +
         (r.warnings.length ? r.warnings.map((w) => '<div class="note warn">' + esc(w) + '</div>').join('') : '');
     }, 400);
   }

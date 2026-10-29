@@ -283,6 +283,7 @@
     id: str(r['球敘ID']), name: str(r['類型名稱']) || '球敘', rule: ['不限', '分級', 'DUPR'].indexOf(str(r['報名規則'])) >= 0 ? str(r['報名規則']) : '不限',
     desc: str(r['說明']), school: num(r['學校費用']), gym: num(r['球館費用']), min: num(r['每面人數下限']), max: num(r['每面人數上限']),
     sort: num(r['排序']), active: r['是否啟用'] !== false && str(r['是否啟用']).toUpperCase() !== 'FALSE',
+    host: r['需要場主'] !== false && str(r['需要場主']).toUpperCase() !== 'FALSE', // v3.7
   });
   m.gameTypes = (all) => PB.rows('0_球敘類型').map(gFromRow).filter((t) => all || t.active).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name, 'zh-Hant'));
   m.gameType = (v) => {
@@ -291,8 +292,8 @@
     const r = rows.find((x) => str(x['球敘ID']) === v) || (v && rows.find((x) => gNorm(x['類型名稱']) === gNorm(v)));
     if (r) return gFromRow(r);
     const lg = GAME_LEGACY[v];
-    if (lg) { const hit = rows.find((x) => gNorm(x['類型名稱']) === gNorm(lg[0])); return hit ? gFromRow(hit) : { id: v, name: lg[0], rule: lg[1], desc: '', school: 0, gym: 0, min: 0, max: 0, sort: 99, active: true, legacy: true }; }
-    return { id: v, name: v || '球敘', rule: '不限', desc: '', school: 0, gym: 0, min: 0, max: 0, sort: 99, active: false, unknown: true };
+    if (lg) { const hit = rows.find((x) => gNorm(x['類型名稱']) === gNorm(lg[0])); return hit ? gFromRow(hit) : { id: v, name: lg[0], rule: lg[1], desc: '', school: 0, gym: 0, min: 0, max: 0, sort: 99, active: true, legacy: true, host: true }; }
+    return { id: v, name: v || '球敘', rule: '不限', desc: '', school: 0, gym: 0, min: 0, max: 0, sort: 99, active: false, unknown: true, host: true };
   };
   m.gameTypeName = (v) => m.gameType(v).name;
   /** 類型＋規則細節（分級：L2 以上／DUPR 3–4） */
@@ -461,12 +462,15 @@
     const walkin = sigs.filter((r) => str(r['報名狀態']) === '現場待確認');
     const wait = sigs.filter((r) => str(r['報名狀態']) === '候補').sort((a, b) => num(a['候補順位']) - num(b['候補順位']));
     const courts = split(g['使用場地']);
-    const cap = sum(courts, (id) => (PB.get('1_據點_場地', id) || {})['人數上限']);
-    const limit = num(g['人數上限']) || cap;
-    const perCourt = courts.map((id) => {
+    // v3.7：有場主的類型每場保留 1 個名額給場主（佔第一面）；cap／limit 都是「學員可報」
+    const hostless = !m.gameType(g['球敘類型']).host;
+    const hostSeat = hostless ? 0 : C.hostSeat === undefined ? 1 : num(C.hostSeat);
+    const cap = Math.max(0, sum(courts, (id) => (PB.get('1_據點_場地', id) || {})['人數上限']) - hostSeat);
+    const limit = num(g['人數上限']) ? Math.max(0, num(g['人數上限']) - hostSeat) : cap;
+    const perCourt = courts.map((id, i) => {
       const c = PB.get('1_據點_場地', id) || {};
       const list = active.concat(walkin).filter((r) => str(r['場地']) === id);
-      return { id: id, name: str(c['場地名稱']) || id, cap: num(c['人數上限']), list: list };
+      return { id: id, name: str(c['場地名稱']) || id, cap: Math.max(0, num(c['人數上限']) - (i === 0 ? hostSeat : 0)), list: list };
     });
     const hosts = (ix.dutyByGame[str(g['球敘ID'])] || []).map((d) => ({ d: d, name: m.staffName(d['人員']), in: !!str(d['簽到時間']) }));
     // v3.0：球拍租借（2_報名 有 租拍數 欄才顯示）
@@ -475,7 +479,7 @@
     return {
       rackets: rkOn ? sum(active.concat(walkin), (r) => num(r['租拍數'])) : null,
       racketStock: rkOn && str(venue['可租球拍數']) !== '' ? num(venue['可租球拍數']) : null,
-      g: g, sigs: sigs, active: active, walkin: walkin, wait: wait, courts: perCourt, cap: cap, limit: limit,
+      g: g, sigs: sigs, active: active, walkin: walkin, wait: wait, courts: perCourt, cap: cap, limit: limit, hostless: hostless, hostSeat: hostSeat,
       left: Math.max(0, limit - active.length - walkin.length),
       checked: active.filter((r) => str(r['簽到時間'])).length,
       hosts: hosts,
