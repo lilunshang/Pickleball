@@ -276,7 +276,34 @@
   m.slotLabel = (s) => (s ? '週' + str(s['星期']) + ' ' + m.hm(s['開始時間'], s['結束時間']) + '｜' + split(s['用途']).join('・') : '');
   m.classLabel = (c) => (c ? str(c['課程名稱']) + (str(c['期別']) ? ' ' + str(c['期別']) : '') : '');
   m.classWhen = (c) => (c ? '週' + split(c['上課星期']).join('、') + ' ' + m.hm(c['開始時間'], c['結束時間']) : '');
-  m.gameLabel = (g) => (g ? str(g['球敘名稱']) || str(g['球敘類型']) + '球敘' : '');
+  // v3.6：球敘類型（0_球敘類型；2_球敘場次.球敘類型 存 球敘ID，舊資料的「不限／新手場／分級／DUPR」照舊能讀）
+  const GAME_LEGACY = { '': ['一般球敘', '不限'], 不限: ['一般球敘', '不限'], 新手場: ['新手友善球敘', '不限'], 分級: ['分級球敘', '分級'], DUPR: ['DUPR 球敘', 'DUPR'] };
+  const gNorm = (s) => str(s).replace(/\s+/g, '').toUpperCase();
+  const gFromRow = (r) => ({
+    id: str(r['球敘ID']), name: str(r['類型名稱']) || '球敘', rule: ['不限', '分級', 'DUPR'].indexOf(str(r['報名規則'])) >= 0 ? str(r['報名規則']) : '不限',
+    desc: str(r['說明']), school: num(r['學校費用']), gym: num(r['球館費用']), min: num(r['每面人數下限']), max: num(r['每面人數上限']),
+    sort: num(r['排序']), active: r['是否啟用'] !== false && str(r['是否啟用']).toUpperCase() !== 'FALSE',
+  });
+  m.gameTypes = (all) => PB.rows('0_球敘類型').map(gFromRow).filter((t) => all || t.active).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name, 'zh-Hant'));
+  m.gameType = (v) => {
+    v = str(v);
+    const rows = PB.rows('0_球敘類型');
+    const r = rows.find((x) => str(x['球敘ID']) === v) || (v && rows.find((x) => gNorm(x['類型名稱']) === gNorm(v)));
+    if (r) return gFromRow(r);
+    const lg = GAME_LEGACY[v];
+    if (lg) { const hit = rows.find((x) => gNorm(x['類型名稱']) === gNorm(lg[0])); return hit ? gFromRow(hit) : { id: v, name: lg[0], rule: lg[1], desc: '', school: 0, gym: 0, min: 0, max: 0, sort: 99, active: true, legacy: true }; }
+    return { id: v, name: v || '球敘', rule: '不限', desc: '', school: 0, gym: 0, min: 0, max: 0, sort: 99, active: false, unknown: true };
+  };
+  m.gameTypeName = (v) => m.gameType(v).name;
+  /** 類型＋規則細節（分級：L2 以上／DUPR 3–4） */
+  m.gameKind = (g) => {
+    const t = m.gameType(g['球敘類型']);
+    const lv = split(g['程度']).map(m.levelName).join('、');
+    if (t.rule === '分級') return t.name + (lv ? '：' + lv + ' 以上' : '');
+    if (t.rule === 'DUPR') return t.name + (str(g['DUPR下限']) || str(g['DUPR上限']) ? '：' + str(g['DUPR下限']) + '–' + str(g['DUPR上限']) : '');
+    return t.name;
+  };
+  m.gameLabel = (g) => (g ? str(g['球敘名稱']) || m.gameTypeName(g['球敘類型']) : '');
   m.sesLabel = (s) => {
     if (!s) return '';
     const c = PB.get('2_課程班級', s['班級']);
@@ -304,6 +331,7 @@
       case '0_課程類型': return str(r['課程類型']);
       case '0_課程模板': return str(r['模板名稱']);
       case '0_專項': return str(r['專項名稱']) + (str(r['程度']) ? '｜' + m.levelName(r['程度']) : '');
+      case '0_球敘類型': return str(r['類型名稱']) + (r['是否啟用'] === false || str(r['是否啟用']).toUpperCase() === 'FALSE' ? '（停用）' : '');
       case '0_角色': return str(r['角色名稱']);
       case '0_教練費率': return m.staffName(r['教練']) + '｜' + m.typeName(r['課程類型']) + '｜' + str(r['基準']);
       case '1_合作夥伴': return str(r['名稱']);
@@ -652,6 +680,11 @@
     });
     if (f.has) Object.keys(f.has).forEach((c) => { rows = rows.filter((r) => !str(r[c]) || split(r[c]).indexOf(f.has[c]) >= 0); });
     if (f.ref === '1_人員') rows = rows.filter((r) => ['在職', ''].indexOf(str(r['在職狀態'])) >= 0 || split(vals[f.k]).indexOf(str(r['人員ID'])) >= 0);
+    // v3.6：球敘類型只列啟用的（加上目前選的），依排序
+    if (f.ref === '0_球敘類型') {
+      rows = rows.filter((r) => m.gameType(r['球敘ID']).active || str(r['球敘ID']) === str(vals[f.k]));
+      return rows.map((r) => m.gameType(r['球敘ID'])).sort((a, b) => a.sort - b.sort).map((t) => ({ v: t.id, l: t.name + (t.active ? '' : '（停用）') }));
+    }
     const k = db.keys[f.ref];
     return rows.map((r) => ({ v: str(r[k]), l: m.label(f.ref, r) })).sort((a, b) => a.l.localeCompare(b.l, 'zh-Hant'));
   }
@@ -834,7 +867,7 @@
     return Array.isArray(v) ? v.join('、') : str(v);
   }
   function whenOk(when, vals) {
-    return Object.keys(when).every((c) => (when[c] === '*' ? !!str(vals[c]) : when[c].indexOf(str(vals[c])) >= 0));
+    return Object.keys(when).every((c) => (when[c] === '*' ? !!str(vals[c]) : when[c].rule ? when[c].rule.indexOf(m.gameType(vals[c]).rule) >= 0 : when[c].indexOf(str(vals[c])) >= 0));
   }
   function readFields(el, fields) {
     const v = {};

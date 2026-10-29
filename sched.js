@@ -16,8 +16,15 @@
   const T = '2_排課草稿';
   const S = { month: '', venue: '', placing: '', tray: 'spec', pending: {}, saving: false, timer: null, flash: '' };
   const WEEK = '一二三四五六日';
-  const GAME_TYPES = [['不限', '一般球敘'], ['新手場', '新手場'], ['分級', '分級球敘'], ['DUPR', 'DUPR 球敘']];
-  const gameName = (t) => (GAME_TYPES.find((x) => x[0] === (str(t) || '不限')) || [0, str(t) + '球敘'])[1];
+  // v3.6：球敘類型改讀 0_球敘類型（啟用的，依排序）；表還沒建時用舊的 4 種
+  const LEGACY_GAME_TYPES = [['不限', '一般球敘'], ['新手場', '新手場'], ['分級', '分級球敘'], ['DUPR', 'DUPR 球敘']];
+  const gameTypeList = () => (PB.rows('0_球敘類型').length ? m.gameTypes().map((t) => [t.id, t.name, t]) : LEGACY_GAME_TYPES);
+  const gameName = (t) => m.gameTypeName(t);
+  /** 類型依據點類別的費用（沒設定回傳 0） */
+  const typeFee = (vid, typeId) => { const t = m.gameType(typeId); return num(venueKind(vid) === '學校' ? t.school : t.gym); };
+  const slotVenue = (slotId) => str((PB.get('1_據點_時段', slotId) || {})['據點']);
+  /** 這格球敘的費用：手填 → 類型（學校／球館）→ 同時段上一場 */
+  const gameFee = (x) => (str(x.費用) !== '' ? num(x.費用) : typeFee(slotVenue(x.時段), x.球敘類型) || num(gameTpl(x.時段, x.日期)['費用']));
   const KIND_LABEL = { 專項: '專項', 期制: '期制課程', 球敘: '球敘' };
 
   // ---------------- 小工具 ----------------
@@ -222,7 +229,7 @@
       }
       if (kd === '球敘') {
         out.game += 1;
-        if (str(x.費用) === '' && str(gameTpl(x.時段, x.日期)['費用']) === '') issue(k, where + '：球敘還沒填費用');
+        if (!gameFee(x) && str(x.費用) === '') issue(k, where + '：球敘還沒填費用（類型也沒有設定這類據點的費用）');
       }
       if (kd !== '期制') {
         const avail = (PB.ix.availBySlot[str(x.時段)] || []).find((a) => day(a['日期']) === x.日期);
@@ -324,8 +331,8 @@
         meta = '第 1/' + sr.n + ' 堂・' + (x.教練 ? esc(m.staffName(x.教練)) : '未排教練');
         if (sr.short) { tag = '可用日不足'; }
       } else {
-        const fee = str(x.費用) !== '' ? num(x.費用) : num(gameTpl(x.時段, x.日期)['費用']);
-        meta = (fee ? money(fee) + '／人' : '未填費用');
+        const fee = gameFee(x);
+        meta = (fee || str(x.費用) !== '' ? money(fee) + '／人' : '未填費用');
       }
       if (c.dk !== '球敘' && !x.教練) { cls.push('nocoach'); tag = tag || '未排教練'; }
       if (An.conf[k]) { cls.push('conf'); tag = tag && tag !== '未排教練' ? tag : '衝突'; }
@@ -414,7 +421,10 @@
       const list = templates();
       chips = list.length ? '<div class="sb-lvrow">' + list.map((t) => '<button class="sb-chip c-tpl' + (S.placing === 'tpl:' + str(t['模板ID']) ? ' on' : '') + '" data-act="sbPlace" data-v="tpl:' + esc(t['模板ID']) + '"><span>' + esc(t['模板名稱']) + '</span><small>' + num(t['總堂數']) + ' 堂一期' + (str(t['費用']) ? '・' + money(t['費用']) : '') + '</small></button>').join('') + '</div>' : '<span class="mut">還沒有期制課程模板：請到「主檔與紀錄 → 課程設定 → 課程模板」新增（要填總堂數）</span>';
     } else {
-      chips = '<div class="sb-lvrow">' + GAME_TYPES.map((g) => '<button class="sb-chip c-game' + (S.placing === 'game:' + g[0] ? ' on' : '') + '" data-act="sbPlace" data-v="game:' + esc(g[0]) + '"><span>' + esc(g[1]) + '</span><small>費用沿用同時段上一場</small></button>').join('') + '</div>';
+      const list = gameTypeList();
+      const sub = (g) => { const t = g[2]; if (!t) return '費用沿用同時段上一場'; const fee = typeFee(S.venue, t.id); return (fee ? money(fee) + '／人' : '費用沿用同時段上一場') + (t.min || t.max ? '・每面 ' + (t.min || '') + '–' + (t.max || '') + ' 人' : ''); };
+      chips = '<div class="sb-lvrow">' + list.map((g) => '<button class="sb-chip c-game' + (S.placing === 'game:' + g[0] ? ' on' : '') + '" data-act="sbPlace" data-v="game:' + esc(g[0]) + '"' + (g[2] && g[2].desc ? ' title="' + esc(g[2].desc) + '"' : '') + '><span>' + esc(g[1]) + '</span><small>' + esc(sub(g)) + '</small></button>').join('') + '</div>' +
+        (PB.rows('0_球敘類型').length ? '' : '<span class="mut">還沒有建立球敘類型：請到「主檔與紀錄 → 課程設定 → 球敘類型」新增（目前先用舊的 4 種）</span>');
     }
     return '<div class="sb-tray">' + head + '<div class="sb-chips">' + chips + '</div></div>';
   }
@@ -516,7 +526,7 @@
       const opts = [];
       if (c.course) specs().forEach((x) => opts.push({ l: '專項｜' + lvShort(x['程度']) + '｜' + str(x['專項名稱']), kd: '專項', v: str(x['專項ID']) }));
       if (c.course) templates().forEach((t) => opts.push({ l: '期制｜' + str(t['模板名稱']) + '（' + num(t['總堂數']) + ' 堂）', kd: '期制', v: str(t['模板ID']) }));
-      if (c.game) GAME_TYPES.forEach((g) => opts.push({ l: '球敘｜' + g[1], kd: '球敘', v: g[0] }));
+      if (c.game) gameTypeList().forEach((g) => opts.push({ l: '球敘｜' + g[1], kd: '球敘', v: g[0] }));
       if (!opts.length) return ui.toast('這一面沒有可排的用途', 'bad');
       const v = await ui.ask('空的球面', esc(where) + (c.legacy && c.legacy.length ? '<br>這格原本有沒人報名的舊球敘草稿，發布時會取消。' : ''), { fields: [{ k: 'pick', label: '要排什麼', t: 'enum', req: true, opts: opts.map((o) => o.l) }], ok: '放上去' });
       if (!v) return;
@@ -564,9 +574,9 @@
   async function editGame(k, slot, dd, court, x, where) {
     const tpl = gameTpl(x.時段, x.日期);
     const body = '<p class="mut" style="margin:0 0 8px">' + esc(where) + '</p>' +
-      '<div class="fld"><label>球敘類型</label><select name="type">' + GAME_TYPES.map((g) => '<option value="' + esc(g[0]) + '"' + (g[0] === (x.球敘類型 || '不限') ? ' selected' : '') + '>' + esc(g[1]) + '</option>').join('') + '</select></div>' +
-      '<div class="fld"><label>費用（每人）</label><input type="number" name="fee" min="0" placeholder="' + esc(str(tpl['費用']) ? '同時段上一場 ' + num(tpl['費用']) : '') + '" value="' + esc(str(x.費用)) + '"><span class="hint">空白＝沿用同時段上一場' + (str(tpl['費用']) ? '（' + money(tpl['費用']) + '）' : '；沒有上一場，請填') + '</span></div>' +
-      '<p class="mut" style="font-size:.8rem;margin:6px 0 0">同一天同時段、類型與費用相同的球敘格，發布時合成一場（人數上限＝各面人數相加），到開放報名時間自動開放；名稱、程度、計分沿用同時段上一場。</p>';
+      '<div class="fld"><label>球敘類型</label><select name="type">' + (() => { const list = gameTypeList(); const cur = str(x.球敘類型); const has = list.some((g) => g[0] === cur); return (has || !cur ? '' : '<option value="' + esc(cur) + '" selected>' + esc(gameName(cur)) + '（停用／舊類型）</option>') + list.map((g) => '<option value="' + esc(g[0]) + '"' + (g[0] === cur ? ' selected' : '') + '>' + esc(g[1]) + '</option>').join(''); })() + '</select></div>' +
+      (() => { const tf = typeFee(slotVenue(x.時段), x.球敘類型); const hint = tf ? '空白＝依類型（' + venueKind(slotVenue(x.時段)) + ' ' + money(tf) + '）' : '空白＝沿用同時段上一場' + (str(tpl['費用']) ? '（' + money(tpl['費用']) + '）' : '；沒有上一場，請填'); return '<div class="fld"><label>費用（每人）</label><input type="number" name="fee" min="0" placeholder="' + esc(tf ? '類型 ' + tf : str(tpl['費用']) ? '同時段上一場 ' + num(tpl['費用']) : '') + '" value="' + esc(str(x.費用)) + '"><span class="hint">' + esc(hint) + '；換類型後依新類型</span></div>'; })() +
+      '<p class="mut" style="font-size:.8rem;margin:6px 0 0">同一天同時段、類型與費用相同的球敘格，發布時合成一場（人數依類型的每面上下限 × 面數；類型沒設定就用球面容量），到開放報名時間自動開放；計分沿用同時段上一場，名稱與程度只沿用同類型的上一場。</p>';
     const read = (el) => ({ 球敘類型: el.querySelector('[name=type]').value, 費用: el.querySelector('[name=fee]').value });
     const r = await ui.modal({
       title: '球敘｜' + gameName(x.球敘類型), body: body, sticky: true,

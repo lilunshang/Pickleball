@@ -897,7 +897,7 @@
       ['狀態', m.gameBadge(x.st, g) + (x.cancelPending ? ' <span class="badge info">取消處理中：系統正在通知學員</span>' : '')],
       ['時間', esc(fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間']))],
       ['地點', esc(m.venueName(g['據點']) + '・' + x.courts.map((c) => c.name).join('、'))],
-      ['類型', esc((str(g['球敘類型']) || '不限') + (lv ? '：' + lv + (str(g['球敘類型']) === '分級' ? ' 以上' : '') : '') + (str(g['球敘類型']) === 'DUPR' ? '：' + str(g['DUPR下限']) + '–' + str(g['DUPR上限']) : ''))],
+      ['類型', esc(m.gameKind(g)) + (m.gameType(g['球敘類型']).legacy || m.gameType(g['球敘類型']).unknown ? ' <span class="badge warn" title="0_球敘類型 找不到這個值；特助執行 migrateGameTypes() 後會換成新類型">舊類型</span>' : '')], // v3.6
       ['費用', str(g['費用']) !== '' ? esc(money(g['費用']) + '／人') : '<span class="badge bad">未填（不能開放報名）</span>'],
       ...(x.rackets !== null ? [['球拍租借', esc('已報名的人租 ' + x.rackets + ' 支') + (x.racketStock !== null ? esc('・據點庫存 ' + x.racketStock + ' 支（同時段共用）') : '')]] : []), // v3.0
       ['名額', esc('已報名 ' + x.active.length + '／上限 ' + x.limit + '・剩 ' + x.left) + (x.walkin.length ? ' <span class="badge warn">現場待確認 ' + x.walkin.length + '</span>' : '') + (x.checked ? ' <span class="badge ok">簽到 ' + x.checked + '</span>' : '')],
@@ -1162,9 +1162,9 @@
     }
     const g = row;
     const x = m.game(g);
-    const lv = split(g['程度']).map(m.levelName).join('、');
-    const kind = str(g['球敘類型']) === '新手場' ? '新手場（不限程度）' : str(g['球敘類型']) === '分級' ? '分級：' + lv + ' 以上' : str(g['球敘類型']) === 'DUPR' ? 'DUPR ' + str(g['DUPR下限']) + '–' + str(g['DUPR上限']) : '不限程度';
-    return ['【球敘】' + fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間']) + (str(g['球敘名稱']) ? '｜' + g['球敘名稱'] : ''), '地點：' + venueLine(g['據點']), '類型：' + kind, '費用：每人 ' + money(g['費用']), '名額：' + (x.st === '已額滿' || x.left <= 0 ? '目前額滿，可登記候補' : '剩 ' + x.left + ' 位'), '報名：' + m.signupUrl('球敘', g['球敘ID'], src)].join('\n');
+    const gt = m.gameType(g['球敘類型']); // v3.6
+    const kind = m.gameKind(g) + (gt.rule === '不限' ? '（不分級）' : '');
+    return ['【球敘】' + fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間']) + (str(g['球敘名稱']) ? '｜' + g['球敘名稱'] : ''), '地點：' + venueLine(g['據點']), '類型：' + kind, gt.desc ? '說明：' + gt.desc : '', '費用：每人 ' + money(g['費用']), '名額：' + (x.st === '已額滿' || x.left <= 0 ? '目前額滿，可登記候補' : '剩 ' + x.left + ' 位'), '報名：' + m.signupUrl('球敘', g['球敘ID'], src)].filter(Boolean).join('\n');
   }
   const Publish = {
     id: 'publish', label: '發布資訊', icon: 'mega', show: isSocial,
@@ -1409,7 +1409,7 @@
   PB.app({
     app: 'ops',
     title: '營運工作台',
-    version: '2.9',
+    version: '3.6',
     screens: [Today, Queue, Classes, Games, Students, Kb, Publish, Sources],
     links: () => (!PB.cfg.kb && PB.cfg.kbUrl ? [{ label: '知識庫', url: PB.cfg.kbUrl, icon: 'kb', mobile: true }] : []),
   });
