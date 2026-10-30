@@ -263,6 +263,12 @@
     items: () => PB.rows('4_工作任務').filter((t) => str(t['狀態']) !== '完成' && /^退款/.test(str(t['工作名稱']))),
     row: (t) => row({ act: 'taskEdit', id: t['任務ID'], t: esc(t['工作名稱']), s: esc('負責人 ' + (m.staffName(t['負責人']) || '未指派') + '・' + str(t['狀態']) + (day(t['Deadline']) ? '・期限 ' + fmtD(t['Deadline']) : '')) }),
   });
+  // v3.7：系統檢查（同營運工作台）
+  Q.push({
+    id: 'health', title: '系統檢查（排程漏跑／資料卡住）',
+    items: () => PB.healthItems(),
+    row: (x) => row({ t: esc(str(x['項目'])) + (str(x['等級']) === '急件' ? ' <span class="badge bad">急件</span>' : ''), s: esc(str(x['說明']) + (str(x['首次發現']) ? '・發現於 ' + fmtDT(x['首次發現']) : '')) + '<br><span class="mut">→ ' + esc(str(x['處理方式'])) + '</span>' }),
+  });
   Q.push({
     title: '通知發送失敗（近 7 天）',
     items: () => PB.rows('9_通知紀錄').filter((n) => str(n['發送結果']) === '失敗' && day(n['發送時間']) >= addDays(today(), -7)),

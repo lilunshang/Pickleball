@@ -117,6 +117,21 @@
   const fut = (dk) => day(dk) >= today();
   const MAKEUP_FULL = /\[期末補課堂：可用日不足/;
 
+  // v3.7：系統檢查（管理 GAS 每小時檢查排程漏跑、資料卡住；處理完下一次檢查就會消失）
+  q({
+    id: 'health', title: '系統檢查（排程漏跑／資料卡住）', hint: '系統每小時自動檢查一次；照每一筆的「→」處理，處理完最多 1 小時內會從清單消失。急件會另外寄信',
+    items: () => PB.healthItems(),
+    row: (x) => {
+      const tb = str(x['關聯表']);
+      const id = str(x['關聯ID']);
+      const sig = tb === '2_報名' ? PB.get('2_報名', id) : null;
+      const act = tb === '2_球敘場次' && PB.get('2_球敘場次', id) ? 'openGame' : tb === '2_課程班級' && PB.get('2_課程班級', id) ? 'openClass' : sig ? 'openStu' : '';
+      const who = sig ? m.stuName(sig['學員']) + '・' : '';
+      return row({ act: act, id: sig ? sig['學員'] : id,
+        t: esc(str(x['項目'])) + (str(x['等級']) === '急件' ? ' <span class="badge bad">急件</span>' : ''),
+        s: esc(who + str(x['說明']) + (str(x['首次發現']) ? '・發現於 ' + fmtDT(x['首次發現']) : '')) + '<br><span class="mut">→ ' + esc(str(x['處理方式'])) + '</span>' });
+    },
+  });
   q({
     id: 'pay', title: '轉帳／現金待對帳', hint: '對照銀行入帳明細或場主交款；截圖不算入帳',
     items: () => PB.rows('3_收款明細').filter((p) => str(p['對帳狀態']) === '待確認').sort((a, b) => byKey(day(a['收款日期']), day(b['收款日期']))),

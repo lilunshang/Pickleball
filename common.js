@@ -133,6 +133,24 @@
   PB.get = (t, id) => (db.by[t] && id !== undefined && id !== null ? db.by[t][str(id)] : undefined) || null;
   PB.has = (t) => !!db.t[t] && !db.missing[t];
 
+  /**
+   * v3.7：系統檢查（管理 GAS 每小時寫 9_系統檢查）→ 待處理清單用；急件在前
+   * 檢查本身超過 3 小時沒跑（9_排程狀態 管理GAS|健康檢查）也列一筆
+   */
+  PB.healthItems = () => {
+    if (!PB.has('9_系統檢查')) return [];
+    const list = PB.rows('9_系統檢查').filter((x) => str(x['檢查ID'])).slice()
+      .sort((a, b) => (str(a['等級']) === '急件' ? 0 : 1) - (str(b['等級']) === '急件' ? 0 : 1) || byKey(str(a['代碼']), str(b['代碼'])));
+    const beat = PB.has('9_排程狀態') ? PB.rows('9_排程狀態').find((b) => str(b['狀態ID']) === '管理GAS|健康檢查') : null;
+    const last = beat && str(beat['最後結束']) ? new Date(str(beat['最後結束']).replace(' ', 'T')) : null;
+    if (!last || isNaN(last) || Date.now() - last.getTime() > 3 * 3600000) {
+      list.unshift({ 檢查ID: 'H00', 代碼: 'H00', 等級: '急件', 項目: '系統檢查本身沒有在跑',
+        說明: last && !isNaN(last) ? '最後一次在 ' + fmtDT(str(beat['最後結束'])) : '還沒有執行紀錄',
+        處理方式: '到管理 GAS 執行 installTriggers()，再看「執行項目」有沒有錯誤' });
+    }
+    return list;
+  };
+
   function loadBoot(b) {
     PB.boot = b;
     PB.me = b.me;
