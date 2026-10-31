@@ -175,7 +175,7 @@
     items: () => PB.rows('2_出缺勤').filter((a) => str(a['狀態']) === '請假' && !(PB.ix.attBySrc[str(a['出缺勤ID'])] || []).length && (!day(a['補課期限']) || fut(a['補課期限'])) && str((PB.get('2_上課場次', a['上課場次']) || {})['場次狀態']) !== '改期' && !MAKEUP_FULL.test(str(a['備註']))),
     row: (a) => {
       const s = PB.get('2_上課場次', a['上課場次']);
-      return row({ t: esc(m.stuName(a['學員'])), s: esc('請假：' + m.sesLabel(s) + (day(a['補課期限']) ? '・補課期限 ' + fmtD(a['補課期限']) : '')), r: btn('安排補課', 'makeup', { id: a['出缺勤ID'] }, 'pri') + btn('學員', 'openStu', { id: a['學員'] }, 'ghost') });
+      return row({ t: esc(m.stuName(a['學員'])), s: esc('請假：' + m.sesLabel(s) + (day(a['補課期限']) ? '・補課期限 ' + fmtD(a['補課期限']) : '')), r: btn('安排補課', 'makeup', { id: a['出缺勤ID'] }, 'pri') + btn('改期限', 'makeupDue', { id: a['出缺勤ID'] }, 'ghost') + btn('學員', 'openStu', { id: a['學員'] }, 'ghost') });
     },
   });
   // v2.6：期末補課堂排不進去（學員 OA L04：這一面接下來沒有可用日）→ 已寄信給管理層
@@ -1079,7 +1079,7 @@
     const leaves = x.att.filter((a) => str(a['狀態']) === '請假').sort((a, b) => byKey(str(b['請假時間']), str(a['請假時間'])));
     const attRows = leaves.slice(0, 20).map((a) => {
       const mk = (PB.ix.attBySrc[str(a['出缺勤ID'])] || [])[0];
-      return row({ t: esc(m.sesLabel(PB.get('2_上課場次', a['上課場次']))), s: esc('請假 ' + fmtDT(a['請假時間']) + (mk ? '・補課 ' + m.sesLabel(PB.get('2_上課場次', mk['上課場次'])) : day(a['補課期限']) ? '・補課期限 ' + fmtD(a['補課期限']) : '')), r: mk ? '<span class="badge info">已安排補課</span>' + (str((PB.get('2_上課場次', mk['上課場次']) || {})['場次狀態']) === '預定' ? btn('改排', 'makeup', { id: a['出缺勤ID'] }, 'ghost') : '') : (!day(a['補課期限']) || day(a['補課期限']) >= t) ? btn('安排補課', 'makeup', { id: a['出缺勤ID'] }) : '<span class="badge">逾期</span>' });
+      return row({ t: esc(m.sesLabel(PB.get('2_上課場次', a['上課場次']))), s: esc('請假 ' + fmtDT(a['請假時間']) + (mk ? '・補課 ' + m.sesLabel(PB.get('2_上課場次', mk['上課場次'])) : day(a['補課期限']) ? '・補課期限 ' + fmtD(a['補課期限']) : '')), r: mk ? '<span class="badge info">已安排補課</span>' + (str((PB.get('2_上課場次', mk['上課場次']) || {})['場次狀態']) === '預定' ? btn('改排', 'makeup', { id: a['出缺勤ID'] }, 'ghost') : '') : ((!day(a['補課期限']) || day(a['補課期限']) >= t) ? btn('安排補課', 'makeup', { id: a['出缺勤ID'] }) : '<span class="badge">逾期</span>') + btn(day(a['補課期限']) && day(a['補課期限']) < t ? '延長期限' : '改期限', 'makeupDue', { id: a['出缺勤ID'] }, 'ghost') });
     }).join('');
     const leads = (PB.ix.leadByStu[id] || []).slice().sort((a, b) => byKey(day(b['跟進日期']), day(a['跟進日期'])));
     const fam = x.family.map((f) => '<a href="#" data-act="openStu" data-id="' + esc(f['學員ID']) + '">' + esc(m.stuName(f['學員ID'])) + '</a>（' + esc(str(f['與管理人關係']) || '家人') + '）').join('、');
@@ -1423,6 +1423,17 @@
       { fields: [{ k: 'status', label: '改成', t: 'enum', req: true, opts: opts.filter((x) => x !== cur || !a), value: '' }, { k: 'reason', label: '修正原因（會記在備註）', t: 'text', req: true, hint: '例：教練點錯、學員事前已請假' }], ok: a ? '修正' : '補登' });
     if (!v) return;
     PB.run('attendFix', a ? { id: d.id, status: v.status, reason: v.reason } : { sessionId: d.ses, studentId: sid, status: v.status, reason: v.reason });
+  };
+  // v3.8（10/31）：改補課期限（已逾期的也能延長）
+  A.makeupDue = async (d) => {
+    const a = PB.get('2_出缺勤', d.id);
+    if (!a) return;
+    const s = PB.get('2_上課場次', a['上課場次']);
+    const cur = day(a['補課期限']);
+    const v = await ui.ask('改補課期限：' + m.stuName(a['學員']), esc('請假：' + m.sesLabel(s)) + '<br>目前期限：<b>' + esc(cur ? fmtD(cur) : '未設定') + '</b>' + (cur && cur < today() ? ' <span class="badge">已逾期</span>' : '') + '<br><span class="mut">改了之後學員 LINE「我的課程」、待補課清單都照新期限；舊→新期限會記在備註。</span>',
+      { fields: [{ k: 'date', label: '新的補課期限', t: 'date', req: true, value: cur && cur >= today() ? cur : '' }, { k: 'reason', label: '原因（選填，會記在備註）', t: 'text', hint: '例：學員出國、班級停課' }], ok: '更改' });
+    if (!v) return;
+    PB.run('makeupDue', { id: d.id, date: v.date, reason: v.reason });
   };
   A.journal = async (d) => {
     const r = await PB.read('journalGet', { sessionId: d.id });
