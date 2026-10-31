@@ -54,6 +54,7 @@
 
   const ICON = {
     today: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/>',
+    cal: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M8 14h3v3H8zM13 14h3"/>',
     inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13l3.5 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',
     book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
     ball: '<circle cx="12" cy="12" r="9"/><circle cx="9" cy="9" r=".8"/><circle cx="15" cy="9" r=".8"/><circle cx="12" cy="12.5" r=".8"/><circle cx="9" cy="16" r=".8"/><circle cx="15" cy="16" r=".8"/>',
@@ -322,7 +323,14 @@
     if (t.rule === 'DUPR') return t.name + (str(g['DUPR下限']) || str(g['DUPR上限']) ? '：' + str(g['DUPR下限']) + '–' + str(g['DUPR上限']) : '');
     return t.name;
   };
-  m.gameLabel = (g) => (g ? str(g['球敘名稱']) || m.gameTypeName(g['球敘類型']) : '');
+  // v3.8：球敘名稱自動寫成「據點名稱・類型名稱」；畫面多半已經在前面加據點，這裡去掉開頭的據點避免重複
+  m.gameLabel = (g) => {
+    if (!g) return '';
+    const vn = m.venueName(g['據點']);
+    const n = str(g['球敘名稱']);
+    const own = vn && n.indexOf(vn + '・') === 0 ? n.slice(vn.length + 1) : n;
+    return own || m.gameTypeName(g['球敘類型']);
+  };
   m.sesLabel = (s) => {
     if (!s) return '';
     const c = PB.get('2_課程班級', s['班級']);
@@ -445,11 +453,15 @@
     const t = today();
     const limit = num(c['人數上限']) || C.classMax || 6;
     const min = num(c['人數下限']) || C.classMin || 5;
-    const paid = active.filter((r) => m.sigPay(r['報名ID']).firstPaid).length;
     const start = day(c['開課日期']);
     const single = m.isSingle(c);
+    // v3.8（10/31）：專項課的補課學員（期制課補課過來，不另收費）算成班人數、佔名額 — 與學員 OA v4.9 singleHeadcount_ 相同
+    const makeups = single ? ses.reduce((n, s) => n + (ix.attBySes[str(s['場次ID'])] || []).filter((a) => str(a['狀態']) === '補課出席' && str(a['補課來源'])).length, 0) : 0;
+    const paid = active.filter((r) => m.sigPay(r['報名ID']).firstPaid).length + makeups;
     const decide = start ? addDays(start, -(single ? (C.singleDecideDays || 3) : (C.confirmDays || 7))) : '';
-    const decideAt = single && decide ? decide + ' ' + (C.singleDecideTime || '12:00') : '';
+    // v3.8：2_課程班級.成班決定時間 有填就用（單堂例外）
+    const ownDecide = single ? str(c['成班決定時間']).replace('T', ' ').slice(0, 16) : '';
+    const decideAt = ownDecide.length >= 16 ? ownDecide : single && decide ? decide + ' ' + (C.singleDecideTime || '12:00') : '';
     const st = str(c['課程狀態']);
     const openAt = str(c['開放報名時間']).slice(0, 16);
     return {
@@ -461,7 +473,7 @@
       done: live.filter((s) => str(s['場次狀態']) === '已完成').length,
       total: num(c['總堂數']) || live.length,
       next: live.find((s) => str(s['場次狀態']) === '預定' && day(s['日期']) >= t) || null,
-      limit: limit, min: min, paid: paid, used: active.length + hold.length, decide: decide,
+      limit: limit, min: min, paid: paid, makeups: makeups, used: active.length + hold.length + makeups, decide: decide,
       canDecide: st === '籌備中' && !!start && (single || t >= decide || paid >= min), // v3.5：已付達人數下限就能確認成班（原本要額滿）
       pending: !!str(c['開班動作']) && !str(c['開班處理時間']),
       st: st,
@@ -472,6 +484,31 @@
   m.classBadge = (st) => '<span class="badge ' + ({ 籌備中: 'warn', 確定開課: 'brand', 進行中: 'ok', 已結束: '', 未成班: 'bad', 取消: 'bad' }[st] || '') + '">' + esc(st || '未設定') + '</span>';
 
   // ---- 球敘 ----
+  /** v3.8（10/31）：場主名額 — 同據點、同一天、時間重疊、需要場主的球敘由同一位場主負責 → 只有第一場（第一面排最前）佔 1 位；與 GAS gameHostSeat_ 相同 */
+  m.hostSeatOf = (g) => {
+    if (!m.gameType(g['球敘類型']).host) return 0;
+    const seat = C.hostSeat === undefined ? 1 : num(C.hostSeat);
+    if (!seat || C.hostSeatShared === false) return seat;
+    const hm = (v) => str(v).slice(0, 5);
+    const gid = str(g['球敘ID']);
+    const dk = day(g['日期']);
+    const s0 = hm(g['開始時間']);
+    const e0 = hm(g['結束時間']) || '23:59';
+    if (!str(g['據點']) || !dk || !s0) return seat;
+    const sib = PB.rows('2_球敘場次').filter((x) => str(x['球敘ID']) === gid || (str(x['據點']) === str(g['據點']) && day(x['日期']) === dk && ['取消', '草稿'].indexOf(str(x['狀態'])) < 0 &&
+      hm(x['開始時間']) && hm(x['開始時間']) < e0 && s0 < (hm(x['結束時間']) || '23:59') && m.gameType(x['球敘類型']).host));
+    if (sib.length < 2) return seat;
+    const courts = PB.rows('1_據點_場地');
+    const pos = (x) => { const c = split(x['使用場地'])[0]; const i = courts.findIndex((r) => str(r['場地ID']) === c); return i < 0 ? 99999 : i; };
+    sib.sort((a, b) => pos(a) - pos(b) || (hm(a['開始時間']) < hm(b['開始時間']) ? -1 : hm(a['開始時間']) > hm(b['開始時間']) ? 1 : 0) || (str(a['球敘ID']) < str(b['球敘ID']) ? -1 : 1));
+    const keys = (x) => {
+      const ids = (ix.dutyByGame[str(x['球敘ID'])] || []).map((d) => str(d['人員'])).filter(Boolean);
+      return ids.length ? ids : [split((PB.get('1_據點', x['據點']) || {})['場主'])[0] || '?'];
+    };
+    const taken = {};
+    for (let i = 0; i < sib.length && str(sib[i]['球敘ID']) !== gid; i++) keys(sib[i]).forEach((k) => { taken[k] = 1; });
+    return keys(g).some((k) => !taken[k]) ? seat : 0;
+  };
   m.game = (g) => {
     if (typeof g === 'string') g = PB.get('2_球敘場次', g);
     if (!g) return null;
@@ -482,7 +519,7 @@
     const courts = split(g['使用場地']);
     // v3.7：有場主的類型每場保留 1 個名額給場主（佔第一面）；cap／limit 都是「學員可報」
     const hostless = !m.gameType(g['球敘類型']).host;
-    const hostSeat = hostless ? 0 : C.hostSeat === undefined ? 1 : num(C.hostSeat);
+    const hostSeat = hostless ? 0 : m.hostSeatOf(g); // v3.8：同據點同時段同一位場主只佔一個名額
     const cap = Math.max(0, sum(courts, (id) => (PB.get('1_據點_場地', id) || {})['人數上限']) - hostSeat);
     const limit = num(g['人數上限']) ? Math.max(0, num(g['人數上限']) - hostSeat) : cap;
     const perCourt = courts.map((id, i) => {
@@ -1124,6 +1161,14 @@
     location.hash = '#/' + id + (q ? '?' + q : '');
   };
   PB.params = () => current.params;
+  /** v3.8：一次改好幾個參數（空白＝刪掉） */
+  PB.setParams = (o) => {
+    const p = Object.assign({}, current.params);
+    Object.keys(o).forEach((k) => { const v = o[k]; if (v === '' || v === undefined || v === null) delete p[k]; else p[k] = v; });
+    history.replaceState(null, '', '#/' + current.id + (Object.keys(p).length ? '?' + new URLSearchParams(p) : ''));
+    current.params = p;
+    renderMain();
+  };
   PB.setParam = (k, v) => {
     const p = Object.assign({}, current.params);
     if (v === '' || v === undefined || v === null) delete p[k]; else p[k] = v;
@@ -1149,7 +1194,7 @@
   function renderNav() {
     const nav = document.getElementById('nav');
     if (!nav) return;
-    const list = screens();
+    const list = screens().filter((s) => s.nav !== false); // v3.8：nav:false 的畫面不放選單，網址仍可開
     nav.innerHTML = list.map((s) => {
       let n = 0;
       try { n = s.badge ? s.badge() : 0; } catch (e) { n = 0; }
