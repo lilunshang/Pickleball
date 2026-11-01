@@ -303,6 +303,7 @@
     desc: str(r['說明']), school: num(r['學校費用']), gym: num(r['球館費用']), min: num(r['每面人數下限']), max: num(r['每面人數上限']),
     sort: num(r['排序']), active: r['是否啟用'] !== false && str(r['是否啟用']).toUpperCase() !== 'FALSE',
     host: r['需要場主'] !== false && str(r['需要場主']).toUpperCase() !== 'FALSE', // v3.7
+    gender: ['女', '男'].indexOf(str(r['限定性別'])) >= 0 ? str(r['限定性別']) : '', // v3.9
   });
   m.gameTypes = (all) => PB.rows('0_球敘類型').map(gFromRow).filter((t) => all || t.active).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name, 'zh-Hant'));
   m.gameType = (v) => {
@@ -488,7 +489,18 @@
   m.hostSeatOf = (g) => {
     if (!m.gameType(g['球敘類型']).host) return 0;
     const seat = C.hostSeat === undefined ? 1 : num(C.hostSeat);
-    if (!seat || C.hostSeatShared === false) return seat;
+    if (!seat) return 0;
+    // v3.9（11/1）：場主不能下場（女子球敘＋男場主，看 1_人員.性別；空白照舊）→ 不佔；同時段共用時名額落在他能下場的第一場
+    const keys0 = (x) => {
+      const ids = (ix.dutyByGame[str(x['球敘ID'])] || []).map((d) => str(d['人員'])).filter(Boolean);
+      return ids.length ? ids : [split((PB.get('1_據點', x['據點']) || {})['場主'])[0] || '?'];
+    };
+    const keys = (x) => {
+      const need = m.gameType(x['球敘類型']).gender;
+      return need ? keys0(x).filter((k) => { const sx = str((PB.get('1_人員', k) || {})['性別']); return ['女', '男'].indexOf(sx) < 0 || sx === need; }) : keys0(x);
+    };
+    if (!keys(g).length) return 0;
+    if (C.hostSeatShared === false) return seat;
     const hm = (v) => str(v).slice(0, 5);
     const gid = str(g['球敘ID']);
     const dk = day(g['日期']);
@@ -501,10 +513,6 @@
     const courts = PB.rows('1_據點_場地');
     const pos = (x) => { const c = split(x['使用場地'])[0]; const i = courts.findIndex((r) => str(r['場地ID']) === c); return i < 0 ? 99999 : i; };
     sib.sort((a, b) => pos(a) - pos(b) || (hm(a['開始時間']) < hm(b['開始時間']) ? -1 : hm(a['開始時間']) > hm(b['開始時間']) ? 1 : 0) || (str(a['球敘ID']) < str(b['球敘ID']) ? -1 : 1));
-    const keys = (x) => {
-      const ids = (ix.dutyByGame[str(x['球敘ID'])] || []).map((d) => str(d['人員'])).filter(Boolean);
-      return ids.length ? ids : [split((PB.get('1_據點', x['據點']) || {})['場主'])[0] || '?'];
-    };
     const taken = {};
     for (let i = 0; i < sib.length && str(sib[i]['球敘ID']) !== gid; i++) keys(sib[i]).forEach((k) => { taken[k] = 1; });
     return keys(g).some((k) => !taken[k]) ? seat : 0;

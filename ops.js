@@ -952,7 +952,7 @@
         (edit && !locked ? ' ' + btn('換人', 'hostSwap', { duty: h.d['排班ID'] }, 'ghost') + btn('移除', 'hostDel', { duty: h.d['排班ID'] }, 'ghost') : '') + '</span>';
     }).join('');
     const empty = x.hosts.length ? '' : '<span class="mut">' + (x.hostless ? '無場主球敘（不需要場主）' : x.st === '草稿' ? '開放報名後自動排（也可以先指定）' : '未排') + '</span> ';
-    const seat = x.hostSeat && x.hosts.length ? '<span class="mut">（場主免費打球，佔 1 個名額）</span>' : !x.hostless && x.hosts.length ? '<span class="mut">（場主同時段已在同據點另一場佔名額，這場不佔）</span>' : '';
+    const seat = x.hostSeat && x.hosts.length ? '<span class="mut">（場主免費打球，佔 1 個名額）</span>' : !x.hostless && x.hosts.length ? '<span class="mut">' + (m.gameType(x.g['球敘類型']).gender ? '（場主不能下場（限' + esc(m.gameType(x.g['球敘類型']).gender) + '性）或同時段已在另一場佔名額，這場不佔）' : '（場主同時段已在同據點另一場佔名額，這場不佔）') + '</span>' : ''; // v3.9
     return '<div class="host-list">' + list + empty + seat + (edit ? btn('加場主', 'hostAdd', { id: gid }, '', 'plus') : '') + '</div>';
   }
   /** 可排的場主：在職人員；據點的場主排前面；同時段已在別場當場主的標出來 */
