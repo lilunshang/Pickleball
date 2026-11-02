@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -1222,8 +1222,14 @@
     render(p) {
       const t = today();
       const src = srcCode();
-      const cls = PB.rows('2_課程班級').filter((c) => ['籌備中', '確定開課'].indexOf(str(c['課程狀態'])) >= 0).sort((a, b) => byKey(day(a['開課日期']), day(b['開課日期'])));
-      const gs = PB.rows('2_球敘場次').filter((g) => day(g['日期']) >= t && day(g['日期']) <= addDays(t, 30) && ['開放報名', '已額滿'].indexOf(str(g['狀態'])) >= 0).sort((a, b) => byKey(day(a['日期']) + str(a['開始時間']), day(b['日期']) + str(b['開始時間'])));
+      // v4.0（11/2）：課程、球敘、已過期 三區可展開／收合；開課日或球敘日期已過 → 移到「已過期」（只列近 30 天）
+      const past30 = addDays(t, -30);
+      const byDate = (k) => (a, b) => byKey(day(a[k]) + str(a['開始時間']), day(b[k]) + str(b['開始時間']));
+      const cls = PB.rows('2_課程班級').filter((c) => ['籌備中', '確定開課'].indexOf(str(c['課程狀態'])) >= 0 && !(day(c['開課日期']) && day(c['開課日期']) < t)).sort(byDate('開課日期'));
+      const gs = PB.rows('2_球敘場次').filter((g) => day(g['日期']) >= t && day(g['日期']) <= addDays(t, 30) && ['開放報名', '已額滿'].indexOf(str(g['狀態'])) >= 0).sort(byDate('日期'));
+      const oldC = PB.rows('2_課程班級').filter((c) => day(c['開課日期']) && day(c['開課日期']) < t && day(c['開課日期']) >= past30 && ['籌備中', '確定開課', '進行中', '已結束'].indexOf(str(c['課程狀態'])) >= 0).map((c) => ({ type: '課程', r: c, d: day(c['開課日期']) + str(c['開始時間']) }));
+      const oldG = PB.rows('2_球敘場次').filter((g) => day(g['日期']) && day(g['日期']) < t && day(g['日期']) >= past30 && ['開放報名', '已額滿', '已結束', '進行中'].indexOf(str(g['狀態'])) >= 0).map((g) => ({ type: '球敘', r: g, d: day(g['日期']) + str(g['開始時間']) }));
+      const old = oldC.concat(oldG).sort((a, b) => byKey(b.d, a.d)); // 新的在上
       const builder = '<div class="card" style="padding:12px 14px"><div class="fld-row">' +
         '<div class="fld"><label>平台</label><select id="srcP">' + Object.keys(SRC_PLATFORM).map((k) => '<option value="' + k + '"' + (src.indexOf(k + '_') === 0 ? ' selected' : '') + '>' + k + '｜' + SRC_PLATFORM[k] + '</option>').join('') + '</select></div>' +
         '<div class="fld"><label>形式</label><select id="srcF">' + Object.keys(SRC_FORM).map((k) => '<option value="' + k + '"' + (src.split('_')[1] === k ? ' selected' : '') + '>' + k + '｜' + SRC_FORM[k] + '</option>').join('') + '</select></div></div>' +
@@ -1238,10 +1244,23 @@
         const id = isC ? r['班級ID'] : r['球敘ID'];
         return row({ t: esc(title), s: esc(sub), r: btn('複製貼文資訊', 'copyPost', { type: type, id: id }, 'pri', 'copy') + btn('複製連結', 'copyLinkSrc', { type: type, id: id }, '', 'link') });
       };
+      // 已過期：只顯示，不給複製（避免把過期的報名連結貼出去）
+      const oldItem = (o) => {
+        const r = o.r;
+        const isC = o.type === '課程';
+        const title = (isC ? '課程｜' + m.classLabel(r) : '球敘｜' + fmtD(r['日期']) + ' ' + m.hm(r['開始時間'], r['結束時間'])) + '｜' + m.venueName(r['據點']);
+        const st = isC ? str(r['課程狀態']) : str(r['狀態']);
+        return row({ t: '<span class="mut">' + esc(title) + '</span>', s: esc((isC ? m.classWhen(r) : m.gameLabel(r)) + '・' + st), r: '<span class="badge">已過期</span>' });
+      };
+      const groups = [
+        { id: 'cls', title: '招生中的課程', count: cls.length, body: () => card(cls.map((c) => item('課程', c)).join('')) },
+        { id: 'game', title: '30 天內開放報名的球敘', count: gs.length, body: () => card(gs.map((g) => item('球敘', g)).join('')) },
+        { id: 'old', title: '已過期（近 30 天）', count: old.length, hint: '開課日或球敘日期已經過了，不要再發布這些連結', body: () => card(old.map(oldItem).join('')) },
+      ];
+      const view = ui.groups(groups, {}, { key: 'publish', menu: false, unit: '筆', defaultOpen: ['cls', 'game'] });
       return '<div class="ptop"><h1>發布資訊</h1></div>' + builder + check +
         (src ? '<div class="note" style="margin:8px 0">目前來源碼：<b>' + esc(src) + '</b>（複製的連結都會帶這個來源碼）</div>' : '<div class="note warn" style="margin:8px 0">還沒設定來源碼：複製的連結不會記錄來源</div>') +
-        sec('招生中的課程', cls.length) + card(cls.map((c) => item('課程', c)).join('') || ui.empty('目前沒有招生中的課程')) +
-        sec('30 天內開放報名的球敘', gs.length) + card(gs.map((g) => item('球敘', g)).join('') || ui.empty('目前沒有開放報名的球敘'));
+        (view || card(ui.empty('目前沒有招生中的課程或開放報名的球敘')));
     },
   };
   A.srcMake = () => {

@@ -611,7 +611,7 @@
       (toggle ? '<span class="grp-arrow' + (isOpen ? ' on' : '') + '">' + PB.icon('chev') + '</span>' : '') + '<h2>' + esc(g.title) + '</h2><span class="cnt">' + g.count + ' ' + (o.unit || '件') + '</span>' + (g.meta ? '<span class="grp-meta">' + g.meta + '</span>' : '') + '<span class="sp"></span>' + (isOpen && g.right ? '<span data-stop>' + g.right + '</span>' : '') + '</div>';
     const body = (g) => (g.hint ? '<div class="s mut grp-hint">' + esc(g.hint) + '</div>' : '') + ui.safe(g.body, g.title);
     if (one) return menu + head(one, true, false) + (one.count ? body(one) : '<div class="card">' + ui.empty('這區都處理完了', '') + '</div>');
-    const open = o.forceOpen ? shown.map((g) => g.id) : saved || [shown[0].id]; // 第一次使用：展開第一區
+    const open = o.forceOpen ? shown.map((g) => g.id) : saved || o.defaultOpen || [shown[0].id]; // 第一次使用：展開 defaultOpen（沒給就第一區）
     return menu + '<div class="grp-bar"><button class="btn sm ghost" data-act="grpAll" data-key="' + esc(o.key) + '" data-ids="' + esc(shown.map((g) => g.id).join(',')) + '" data-v="1">全部展開</button><button class="btn sm ghost" data-act="grpAll" data-key="' + esc(o.key) + '" data-ids="" data-v="0">全部收合</button></div>' +
       shown.map((g) => { const isOpen = open.indexOf(g.id) >= 0; return '<div class="grp' + (isOpen ? ' on' : '') + '">' + head(g, isOpen, true) + (isOpen ? body(g) : '') + '</div>'; }).join('');
   };
