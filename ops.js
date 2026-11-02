@@ -947,6 +947,7 @@
       ['時間', esc(fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間']))],
       ['地點', esc(m.venueName(g['據點']) + '・' + x.courts.map((c) => c.name).join('、'))],
       ['類型', esc(m.gameKind(g)) + (m.gameType(g['球敘類型']).legacy || m.gameType(g['球敘類型']).unknown ? ' <span class="badge warn" title="0_球敘類型 找不到這個值；特助執行 migrateGameTypes() 後會換成新類型">舊類型</span>' : '')], // v3.6
+      ['程度', lv ? esc(lv) + (m.gameType(g['球敘類型']).rule === '分級' ? ' <span class="mut">（分級：依程度擋，往上相容）</span>' : ' <span class="mut">（建議，不擋報名）</span>') : '<span class="mut">不指定</span>'], // v4.1
       ['費用', str(g['費用']) !== '' ? esc(money(g['費用']) + '／人') : '<span class="badge bad">未填（不能開放報名）</span>'],
       ...(x.rackets !== null ? [['球拍租借', esc('已報名的人租 ' + x.rackets + ' 支') + (x.racketStock !== null ? esc('・據點庫存 ' + x.racketStock + ' 支（同時段共用）') : '')]] : []), // v3.0
       ['成團', str(g['成團檢查時間']) ? esc('已檢查 ' + fmtDT(g['成團檢查時間'])) : ['開放報名', '已額滿'].indexOf(x.st) >= 0 ? '<span class="mut">開始前 24 小時依已付款人數檢查（每面 ' + esc(String(m.gameType(g['球敘類型']).min || 6)) + ' 人；不足先合併面數，仍不足就取消）</span>' : '<span class="mut">—</span>'], // v3.7

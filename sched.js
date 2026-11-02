@@ -1,5 +1,6 @@
 ﻿/**
  * 理論上匹克球｜管理後台：排課看板 sched.js v2.6（2026/10/27：每格可排 專項／期制課程／球敘）
+ * v4.1（2026/11/02）：球敘格可選「程度」（0_程度，空白＝不指定；學員報名頁顯示建議程度、不擋報名）；程度不同的球敘格發布時分成不同場
  * v3.8（2026/10/31）：球敘格加「場主」（預設據點場主、可換人、同時段在其他據點才提醒），發布時直接排場主；球敘名稱自動「據點名稱・類型名稱」
  * 版面：上方選月份、據點頁籤 → 據點卡（場租、專項價、分潤、本月格數）→ 每個時段一張「日期 × 球面」表 → 待處理清單；桌機右側本月統計、教練人力、各據點進度；下方工具列（專項／期制課程／球敘）
  *   所有球面預設為空（已有課程、已開放或有人報名的球敘鎖定）；主理人決定每一格放什麼：
@@ -82,7 +83,7 @@
   }
   function draftsAll() {
     const out = {};
-    savedDrafts().forEach((r) => { out[key(str(r['時段']), day(r['日期']), str(r['球面']))] = { id: str(r['排課ID']), 日期: day(r['日期']), 時段: str(r['時段']), 球面: str(r['球面']), 用途: str(r['用途']), 專項: str(r['專項']), 課程模板: str(r['課程模板']), 球敘類型: str(r['球敘類型']), 費用: r['費用'], 人數上限: r['人數上限'], 人數下限: r['人數下限'], 教練: str(r['教練']), 場主: str(r['場主']) }; });
+    savedDrafts().forEach((r) => { out[key(str(r['時段']), day(r['日期']), str(r['球面']))] = { id: str(r['排課ID']), 日期: day(r['日期']), 時段: str(r['時段']), 球面: str(r['球面']), 用途: str(r['用途']), 專項: str(r['專項']), 課程模板: str(r['課程模板']), 球敘類型: str(r['球敘類型']), 費用: r['費用'], 人數上限: r['人數上限'], 人數下限: r['人數下限'], 教練: str(r['教練']), 場主: str(r['場主']), 程度: str(r['用途']) === '球敘' ? str(r['程度']) : '' }; });
     Object.keys(S.pending).forEach((k) => {
       const p = S.pending[k];
       if (p.del) delete out[k];
@@ -173,6 +174,10 @@
   const typeNeedsHost = (typeId) => !!m.gameType(typeId).host;
   /** 這一格實際的場主：格子指定 → 據點場主；無場主類型＝'' */
   const cellHost = (x) => (typeNeedsHost(x.球敘類型) ? str(x.場主) || venueHost(slotVenue(x.時段)) : '');
+  // ---------------- v4.1：球敘程度 ----------------
+  /** 0_程度 依排序；球敘格可選（空白＝不指定） */
+  const levelList = () => PB.rows('0_程度').filter((r) => str(r['程度名稱'])).sort((a, b) => num(a['排序']) - num(b['排序']));
+  const gameLevelName = (lv) => (lv ? m.levelName(lv) || '（已刪除的程度）' : '');
   /** 可選的場主：在職、角色有「場主」（沒有角色表時列全部在職人員）；目前的人一定列出 */
   function hostList(extra) {
     const roleIds = PB.rows('0_角色').filter((r) => str(r['角色名稱']) === '場主').map((r) => str(r['角色ID']));
@@ -370,7 +375,7 @@
         if (sr.short) { tag = '可用日不足'; }
       } else {
         const fee = gameFee(x);
-        meta = (fee || str(x.費用) !== '' ? money(fee) + '／人' : '未填費用');
+        meta = (fee || str(x.費用) !== '' ? money(fee) + '／人' : '未填費用') + (x.程度 ? '・' + esc(gameLevelName(x.程度)) : '');
         // v3.8：場主（預設據點場主；改過標「已改」；同時段重疊只提醒）
         const h = cellHost(x);
         meta += '<br>' + (typeNeedsHost(x.球敘類型) ? '場主 ' + (h ? esc(m.staffName(h)) + (str(x.場主) && str(x.場主) !== venueHost(slotVenue(x.時段)) ? '（已改）' : '') : '<b>未設定</b>') : '無場主');
@@ -620,6 +625,13 @@
       '<div class="fld"><label>球敘類型</label><select name="type">' + (() => { const list = gameTypeList(); const cur = str(x.球敘類型); const has = list.some((g) => g[0] === cur); return (has || !cur ? '' : '<option value="' + esc(cur) + '" selected>' + esc(gameName(cur)) + '（停用／舊類型）</option>') + list.map((g) => '<option value="' + esc(g[0]) + '"' + (g[0] === cur ? ' selected' : '') + '>' + esc(g[1]) + '</option>').join(''); })() + '</select></div>' +
       (() => { const tf = typeFee(slotVenue(x.時段), x.球敘類型); const hint = tf ? '空白＝依類型（' + venueKind(slotVenue(x.時段)) + ' ' + money(tf) + '）' : '空白＝沿用同時段上一場' + (str(tpl['費用']) ? '（' + money(tpl['費用']) + '）' : '；沒有上一場，請填'); return '<div class="fld"><label>費用（每人）</label><input type="number" name="fee" min="0" placeholder="' + esc(tf ? '類型 ' + tf : str(tpl['費用']) ? '同時段上一場 ' + num(tpl['費用']) : '') + '" value="' + esc(str(x.費用)) + '"><span class="hint">' + esc(hint) + '；換類型後依新類型</span></div>'; })() +
       (() => {
+        // v4.1：程度（建議程度，不擋報名；分級類型才會擋）
+        const cur = str(x.程度);
+        const list = levelList();
+        const has = !cur || list.some((r) => str(r['程度ID']) === cur);
+        return '<div class="fld"><label>程度</label><select name="lv"><option value="">（不指定）</option>' + (has ? '' : '<option value="' + esc(cur) + '" selected>' + esc(gameLevelName(cur)) + '</option>') + list.map((r) => '<option value="' + esc(r['程度ID']) + '"' + (str(r['程度ID']) === cur ? ' selected' : '') + '>' + esc(r['程度名稱']) + '</option>').join('') + '</select><span class="hint">學員報名頁顯示「建議程度」，不擋報名。空白＝沿用同類型上一場的程度（沒有就不顯示）</span></div>';
+      })() +
+      (() => {
         const vh = venueHost(slotVenue(x.時段));
         const M = model();
         const cur = str(x.場主);
@@ -627,8 +639,8 @@
         if (!vh) opts.unshift('<option value=""' + (!cur ? ' selected' : '') + '>（據點沒有設定場主）</option>');
         return '<div class="fld"><label>場主</label><select name="host">' + opts.join('') + '</select><span class="hint">預設帶入據點場主，可以換人；同時段已在其他據點主持會標 ⚠（只提醒，不擋；同據點同時段由同一人兼顧是正常的，只佔一個名額）。無場主類型（自由球敘）會忽略這一欄。發布時直接排好場主。</span></div>';
       })() +
-      '<p class="mut" style="font-size:.8rem;margin:6px 0 0">同一天同時段、類型、費用與場主相同的球敘格，發布時合成一場（人數依類型的每面上下限 × 面數；類型沒設定就用球面容量），到開放報名時間自動開放；計分沿用同時段上一場，名稱自動為「據點名稱・類型名稱」，程度只沿用同類型的上一場。</p>';
-    const read = (el) => ({ 球敘類型: el.querySelector('[name=type]').value, 費用: el.querySelector('[name=fee]').value, 場主: el.querySelector('[name=host]') ? el.querySelector('[name=host]').value : '' });
+      '<p class="mut" style="font-size:.8rem;margin:6px 0 0">同一天同時段、類型、費用、場主與程度相同的球敘格，發布時合成一場（人數依類型的每面上下限 × 面數；類型沒設定就用球面容量），到開放報名時間自動開放；計分沿用同時段上一場，名稱自動為「據點名稱・類型名稱」；程度沒選時才沿用同類型的上一場。</p>';
+    const read = (el) => ({ 球敘類型: el.querySelector('[name=type]').value, 費用: el.querySelector('[name=fee]').value, 場主: el.querySelector('[name=host]') ? el.querySelector('[name=host]').value : '', 程度: el.querySelector('[name=lv]') ? el.querySelector('[name=lv]').value : '' });
     const r = await ui.modal({
       title: '球敘｜' + gameName(x.球敘類型), body: body, sticky: true,
       actions: [
@@ -671,7 +683,7 @@
         const coachOk = v.教練 && !coachState(v.教練, slot, o.d, k2, M2);
         if (v.教練 && !coachOk) noCoach += 1;
         setDraft(k2, { 用途: '專項', 專項: v.專項, 課程模板: '', 球敘類型: '', 費用: '', 人數下限: v.人數下限, 人數上限: v.人數上限, 教練: coachOk ? v.教練 : '' });
-      } else setDraft(k2, { 用途: '球敘', 專項: '', 課程模板: '', 球敘類型: v.球敘類型, 費用: v.費用, 場主: v.場主 || '', 人數上限: '', 人數下限: '', 教練: '' });
+      } else setDraft(k2, { 用途: '球敘', 專項: '', 課程模板: '', 球敘類型: v.球敘類型, 費用: v.費用, 場主: v.場主 || '', 程度: v.程度 || '', 人數上限: '', 人數下限: '', 教練: '' });
       ok += 1;
     });
     ui.toast('已套用 ' + ok + ' 週' + (skip ? '，' + skip + ' 週鎖定或已排其他略過' : '') + (noCoach ? '，' + noCoach + ' 週教練不能上、請另派' : ''));
@@ -694,7 +706,7 @@
     keys.forEach((k) => {
       const p = sent[k];
       if (p.del) { if (p.id) removes.push(p.id); return; }
-      items.push({ k: k, id: p.id || '', 日期: p.日期, 時段: p.時段, 球面: p.球面, 用途: kindOf(p), 專項: p.專項 || '', 課程模板: p.課程模板 || '', 球敘類型: p.球敘類型 || '', 費用: str(p.費用), 人數上限: p.人數上限, 人數下限: p.人數下限, 教練: p.教練 || '', 場主: kindOf(p) === '球敘' ? p.場主 || '' : '' });
+      items.push({ k: k, id: p.id || '', 日期: p.日期, 時段: p.時段, 球面: p.球面, 用途: kindOf(p), 專項: p.專項 || '', 課程模板: p.課程模板 || '', 球敘類型: p.球敘類型 || '', 費用: str(p.費用), 人數上限: p.人數上限, 人數下限: p.人數下限, 教練: p.教練 || '', 場主: kindOf(p) === '球敘' ? p.場主 || '' : '', 程度: kindOf(p) === '球敘' ? p.程度 || '' : '' });
     });
     S.saving = true;
     PB.render();
