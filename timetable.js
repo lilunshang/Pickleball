@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 理論上匹克球｜營運工作台：課表 timetable.js v3.8（2026/10/31）
  * 課程和球敘合在同一頁，像排課看板一樣用「時段 × 球面」看：
  *   依日期：上方日期列（每天幾堂／幾場）→ 點一天 → 每個據點一張卡，時段一列、球面一欄
@@ -129,7 +129,7 @@
       const x = m.game(it.g);
       cls += ' g';
       k = '球敘';
-      nm = esc(m.gameTypeName(it.g['球敘類型']));
+      nm = esc(m.gameTypeName(it.g['球敘類型']) + (m.gameLevel(it.g) ? '・' + m.gameLevel(it.g) : '')); // v4.1：程度
       const hosts = x.hosts.map((h) => h.name).join('、');
       meta = '<span class="badge">' + x.active.length + '／' + x.limit + '</span>' + (x.wait.length ? '<span class="badge warn">候補 ' + x.wait.length + '</span>' : '') +
         '<span class="badge">' + (x.hostless ? '無場主' : '場主 ' + esc(hosts || '未排')) + '</span>' + (str(it.g['費用']) !== '' ? '<span class="badge">$' + esc(num(it.g['費用'])) + '</span>' : '');

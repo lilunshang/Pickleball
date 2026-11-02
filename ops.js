@@ -1215,8 +1215,9 @@
     const g = row;
     const x = m.game(g);
     const gt = m.gameType(g['球敘類型']); // v3.6
-    const kind = m.gameKind(g) + (gt.rule === '不限' ? '（不分級）' : '');
-    return ['【球敘】' + fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間']) + (str(g['球敘名稱']) ? '｜' + g['球敘名稱'] : ''), '地點：' + venueLine(g['據點']), '類型：' + kind, gt.desc ? '說明：' + gt.desc : '', '費用：每人 ' + money(g['費用']), '名額：' + (x.st === '已額滿' || x.left <= 0 ? '目前額滿，可登記候補' : '剩 ' + x.left + ' 位'), '報名：' + m.signupUrl('球敘', g['球敘ID'], src)].filter(Boolean).join('\n');
+    const glv = m.gameLevel(g); // v4.1
+    const kind = m.gameKind(g) + (gt.rule === '不限' && !glv ? '（不分級）' : '');
+    return ['【球敘】' + fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間']) + (str(g['球敘名稱']) ? '｜' + g['球敘名稱'] : ''), '地點：' + venueLine(g['據點']), '類型：' + kind, glv && gt.rule !== '分級' ? '程度：建議 ' + glv : '', gt.desc ? '說明：' + gt.desc : '', '費用：每人 ' + money(g['費用']), '名額：' + (x.st === '已額滿' || x.left <= 0 ? '目前額滿，可登記候補' : '剩 ' + x.left + ' 位'), '報名：' + m.signupUrl('球敘', g['球敘ID'], src)].filter(Boolean).join('\n');
   }
   const Publish = {
     id: 'publish', label: '發布資訊', icon: 'mega', show: isSocial,

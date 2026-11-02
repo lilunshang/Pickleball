@@ -330,8 +330,11 @@
     const vn = m.venueName(g['據點']);
     const n = str(g['球敘名稱']);
     const own = vn && n.indexOf(vn + '・') === 0 ? n.slice(vn.length + 1) : n;
-    return own || m.gameTypeName(g['球敘類型']);
+    const lv = m.gameLevel(g); // v4.1：所有列表都帶程度
+    return (own || m.gameTypeName(g['球敘類型'])) + (lv ? '・' + lv : '');
   };
+  /** v4.1：球敘程度名稱（2_球敘場次.程度，多個用「、」；沒填＝''） */
+  m.gameLevel = (g) => (g ? split(g['程度']).map((id) => m.levelName(id) || '').filter(Boolean).join('、') : '');
   m.sesLabel = (s) => {
     if (!s) return '';
     const c = PB.get('2_課程班級', s['班級']);
