@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -648,13 +648,26 @@
     const fromC = PB.get('2_課程班級', r['班級']);
     const single = m.isSingle(fromC);
     // 專項課「改報」：只列籌備中、今天以後的專項課（依日期）；期制班「移班」：只列籌備中的期制班
-    const opts = PB.rows('2_課程班級').filter((c) => str(c['課程狀態']) === '籌備中' && str(c['班級ID']) !== str(r['班級']) && m.isSingle(c) === single && (!single || day(c['開課日期']) >= today()))
-      .sort((a, b) => byKey(day(a['開課日期']) + str(a['開始時間']), day(b['開課日期']) + str(b['開始時間'])))
-      .map((c) => ({ id: c['班級ID'], l: (single ? m.singleLabel(c) + '｜' + m.venueName(c['據點']) + '｜' + money(c['費用']) : m.label('2_課程班級', c)) + '（' + m.cls(c).used + '/' + m.cls(c).limit + '）' }));
-    if (!opts.length) return ui.toast(single ? '目前沒有其他招生中的專項課' : '目前沒有其他籌備中的班級', 'bad');
+    // v4.0（11/2）：原期制班取消／未成班（或報名是保留中）→ 也可以轉到籌備中的專項課，已付多少就算多少（差額不處理）
+    const toSingleOk = !single && (str(r['報名狀態']) === '保留中' || ['取消', '未成班'].indexOf(str((fromC || {})['課程狀態'])) >= 0);
+    const mine = new Set(PB.rows('2_報名').filter((x) => str(x['學員']) === str(r['學員']) && ['已報名', '候補', '保留中'].indexOf(str(x['報名狀態'])) >= 0).map((x) => str(x['班級'])));
+    const opts = PB.rows('2_課程班級').filter((c) => {
+      if (str(c['課程狀態']) !== '籌備中' || str(c['班級ID']) === str(r['班級'])) return false;
+      const cs = m.isSingle(c);
+      if (cs && day(c['開課日期']) < today()) return false;
+      if (cs === single) return true;
+      return toSingleOk && cs && !mine.has(str(c['班級ID']));
+    })
+      .sort((a, b) => (m.isSingle(a) === m.isSingle(b) ? byKey(day(a['開課日期']) + str(a['開始時間']), day(b['開課日期']) + str(b['開始時間'])) : m.isSingle(a) ? 1 : -1))
+      .map((c) => ({ id: c['班級ID'], l: (m.isSingle(c) ? (single ? '' : '【專項】') + m.singleLabel(c) + '｜' + m.venueName(c['據點']) + '｜' + money(c['費用']) : m.label('2_課程班級', c)) + '（' + m.cls(c).used + '/' + m.cls(c).limit + '）' }));
+    if (!opts.length) return ui.toast(single ? '目前沒有其他招生中的專項課' : toSingleOk ? '目前沒有籌備中的期制班或專項課' : '目前沒有其他籌備中的班級（原班沒取消／未成班，不能轉專項課；請假請用「安排補課」）', 'bad');
     const fields = [{ k: 'to', label: '移到', t: 'enum', req: true, opts: opts.map((o) => o.l) }];
     if (isMgmt()) fields.push({ k: 'force', label: '目標班額滿也移入（管理層）', t: 'bool' });
-    const v = await ui.ask((single ? '改報：' : '移班：') + m.stuName(r['學員']), single ? '已付的費用跟著報名一起移到新的一堂。學校 1,000／球館 1,200：價格不同時差額請另外收或轉抵用金。目標額滿時列入候補。' : '應收跟著報名一起移；候補／保留中會改為已報名（已付首堂自動折抵）。目標班額滿時列入候補。', { fields: fields, ok: single ? '改報' : '移班' });
+    const paidNow = m.sigPay(r['報名ID']).net;
+    const hint = single ? '已付的費用跟著報名一起移到新的一堂。學校 1,000／球館 1,200：價格不同時差額請另外收或轉抵用金。目標額滿時列入候補。'
+      : '移到期制班：應收跟著報名一起移；候補／保留中會改為已報名（已付首堂自動折抵）。目標班額滿時列入候補。' +
+        (toSingleOk ? '<br><br>移到【專項】：原班已取消／未成班，學員整個轉去上這堂專項課。<b>已付多少就算這堂的費用，差額不補收、也不退</b>' + '（目前已付 ' + money(paidNow) + '）' + '；一毛都沒付的會照專項課費用重新請款。之後這堂未成班時，學員照專項課規則選改報／抵用金／退款。' : '');
+    const v = await ui.ask((single ? '改報：' : '移班：') + m.stuName(r['學員']), hint, { fields: fields, ok: single ? '改報' : '移班' });
     if (!v) return;
     const to = opts.find((o) => o.l === v.to);
     if (to) PB.run('signupMove', { ids: [d.id], classId: to.id, force: v.force === true });
