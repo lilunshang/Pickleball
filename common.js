@@ -502,23 +502,38 @@
       const need = m.gameType(x['球敘類型']).gender;
       return need ? keys0(x).filter((k) => { const sx = str((PB.get('1_人員', k) || {})['性別']); return ['女', '男'].indexOf(sx) < 0 || sx === need; }) : keys0(x);
     };
-    if (!keys(g).length) return 0;
-    if (C.hostSeatShared === false) return seat;
+    // v4.3（11/3）：場主讓出名額 → 這位場主在同時段共用組都不佔
+    const shared = C.hostSeatShared !== false;
+    const sib = shared ? m.hostSib(g) : [g];
+    const rel = m.hostReleased(sib);
+    const free = (x) => keys(x).filter((k) => !rel[k]);
+    if (!free(g).length) return 0;
+    if (!shared || sib.length < 2) return seat;
+    const gid = str(g['球敘ID']);
+    const taken = {};
+    for (let i = 0; i < sib.length && str(sib[i]['球敘ID']) !== gid; i++) keys(sib[i]).forEach((k) => { taken[k] = 1; });
+    return free(g).some((k) => !taken[k]) ? seat : 0;
+  };
+  /** v4.3：同據點、同一天、時間重疊、需要場主、不是草稿／取消的球敘（含自己），依第一面排序 */
+  m.hostSib = (g) => {
     const hm = (v) => str(v).slice(0, 5);
     const gid = str(g['球敘ID']);
     const dk = day(g['日期']);
     const s0 = hm(g['開始時間']);
     const e0 = hm(g['結束時間']) || '23:59';
-    if (!str(g['據點']) || !dk || !s0) return seat;
+    if (!str(g['據點']) || !dk || !s0) return [g];
     const sib = PB.rows('2_球敘場次').filter((x) => str(x['球敘ID']) === gid || (str(x['據點']) === str(g['據點']) && day(x['日期']) === dk && ['取消', '草稿'].indexOf(str(x['狀態'])) < 0 &&
       hm(x['開始時間']) && hm(x['開始時間']) < e0 && s0 < (hm(x['結束時間']) || '23:59') && m.gameType(x['球敘類型']).host));
-    if (sib.length < 2) return seat;
+    if (!sib.length) return [g];
     const courts = PB.rows('1_據點_場地');
     const pos = (x) => { const c = split(x['使用場地'])[0]; const i = courts.findIndex((r) => str(r['場地ID']) === c); return i < 0 ? 99999 : i; };
-    sib.sort((a, b) => pos(a) - pos(b) || (hm(a['開始時間']) < hm(b['開始時間']) ? -1 : hm(a['開始時間']) > hm(b['開始時間']) ? 1 : 0) || (str(a['球敘ID']) < str(b['球敘ID']) ? -1 : 1));
-    const taken = {};
-    for (let i = 0; i < sib.length && str(sib[i]['球敘ID']) !== gid; i++) keys(sib[i]).forEach((k) => { taken[k] = 1; });
-    return keys(g).some((k) => !taken[k]) ? seat : 0;
+    return sib.sort((a, b) => pos(a) - pos(b) || (hm(a['開始時間']) < hm(b['開始時間']) ? -1 : hm(a['開始時間']) > hm(b['開始時間']) ? 1 : 0) || (str(a['球敘ID']) < str(b['球敘ID']) ? -1 : 1));
+  };
+  /** v4.3：這組球敘裡讓出名額的場主 { 人員ID: 2_場主排班 那一列 } */
+  m.hostReleased = (games) => {
+    const out = {};
+    games.forEach((x) => (ix.dutyByGame[str(x['球敘ID'])] || []).forEach((d) => { if (str(d['人員']) && str(d['讓出名額時間'])) out[str(d['人員'])] = d; }));
+    return out;
   };
   m.game = (g) => {
     if (typeof g === 'string') g = PB.get('2_球敘場次', g);
@@ -538,7 +553,8 @@
       const list = active.concat(walkin).filter((r) => str(r['場地']) === id);
       return { id: id, name: str(c['場地名稱']) || id, cap: Math.max(0, num(c['人數上限']) - (i === 0 ? hostSeat : 0)), list: list };
     });
-    const hosts = (ix.dutyByGame[str(g['球敘ID'])] || []).map((d) => ({ d: d, name: m.staffName(d['人員']), in: !!str(d['簽到時間']) }));
+    const relMap = hostless ? {} : m.hostReleased(C.hostSeatShared === false ? [g] : m.hostSib(g)); // v4.3
+    const hosts = (ix.dutyByGame[str(g['球敘ID'])] || []).map((d) => ({ d: d, name: m.staffName(d['人員']), in: !!str(d['簽到時間']), rel: relMap[str(d['人員'])] || null }));
     // v3.0：球拍租借（2_報名 有 租拍數 欄才顯示）
     const rkOn = sigs.some((r) => '租拍數' in r);
     const venue = PB.get('1_據點', g['據點']) || {};

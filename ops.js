@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -252,15 +252,45 @@
       return row({ t: esc(m.stuName(r['學員'])) + ' <span class="num">未付 ' + money(p.left) + '</span>', s: esc(m.sigTarget(r) + '・期限 ' + fmtDT(r['付款期限'])), r: ui.tel(m.phone(s)) + btn('提醒', 'payRemind', { ids: p.recs.map((x) => x['應收ID']).join(',') }) + btn('收款', 'payAdd', { id: (p.recs.find((x) => m.rec(x['應收ID']).left > 0) || {})['應收ID'] || '' }, 'pri') });
     },
   });
+  /**
+   * v4.3（11/3）：收通知的人沒加好友 → 列出來給客服私訊／打電話
+   * 收通知的人＝學員 OA recipientOf_：本人有 LINE → 本人；沒有 → 有 LINE 的家長（管理人）
+   * 遞補後還沒付款的排最前（不知道自己遞補上，期限一到就被釋出）
+   */
+  const notifyTarget = (sid) => {
+    const s = PB.get('1_學員', sid);
+    if (!s) return null;
+    if (str(s['LINE_userId'])) return { who: s, via: false };
+    const gid = str(s['管理人']);
+    const g = gid && gid !== str(s['學員ID']) ? PB.get('1_學員', gid) : null;
+    return g && str(g['LINE_userId']) ? { who: g, via: true } : { who: s, via: false };
+  };
+  const promotedUnpaid = (r) => str(r['報名狀態']) === '已報名' && str(r['遞補時間']) && m.sigPay(r['報名ID']).left > 0;
   q({
-    id: 'friend', title: '報名了但沒加官方帳號好友', hint: '收不到付款與提醒通知：請用電話或私訊聯繫',
-    items: () => PB.rows('2_報名').filter((r) => ['已報名', '候補'].indexOf(str(r['報名狀態'])) >= 0 && targetOpen(r) && (PB.get('1_學員', r['學員']) || {})['好友狀態'] === false && !str((PB.get('1_學員', r['學員']) || {})['管理人'])),
-    row: (r) => row({ act: 'openStu', id: r['學員'], t: esc(m.stuName(r['學員'])), s: esc(m.sigTarget(r)), r: ui.tel(m.phone(PB.get('1_學員', r['學員']))) }),
+    id: 'friend', title: '報名了但收通知的人沒加官方帳號好友', hint: '付款、遞補、成團通知都送不到：請用電話或私訊聯繫。「遞補」的優先處理，付款期限一到名額就會釋出',
+    items: () => PB.rows('2_報名').filter((r) => {
+      if (['已報名', '候補'].indexOf(str(r['報名狀態'])) < 0 || !targetOpen(r)) return false;
+      const t = notifyTarget(r['學員']);
+      return !!t && t.who['好友狀態'] === false;
+    }).sort((a, b) => {
+      const pa = promotedUnpaid(a), pb = promotedUnpaid(b);
+      if (pa !== pb) return pa ? -1 : 1;
+      return pa ? byKey(str(a['付款期限']) || '9', str(b['付款期限']) || '9') : 0;
+    }),
+    row: (r) => {
+      const t = notifyTarget(r['學員']);
+      const tag = promotedUnpaid(r) ? ' <span class="badge bad">遞補・待付款' + (str(r['付款期限']) ? '・期限 ' + esc(fmtDT(r['付款期限'])) : '') + '</span>' : str(r['報名狀態']) === '候補' ? ' <span class="badge">候補</span>' : '';
+      const sub = m.sigTarget(r) + (t.via ? '・家長 ' + m.stuName(t.who['學員ID']) + ' 沒加好友' : '');
+      return row({ act: 'openStu', id: r['學員'], t: esc(m.stuName(r['學員'])) + tag, s: esc(sub), r: ui.tel(m.phone(t.via ? t.who : PB.get('1_學員', r['學員']))) });
+    },
   });
+  /** v4.3（11/3）：重要通知因「未加好友」沒送出（略過）也列；一般提醒（明日提醒、開放報名…）不列 */
+  const KEY_NOTICE = ['候補遞補', '付款提醒', '尾款通知', '開課通知', '開課調整通知', '順延通知', '保留名額通知', '未成班通知', '球敘取消', '球敘未成團', '球敘異動', '場次異動', '補課異動', '逾期釋出'];
+  const skippedKey = (n) => str(n['發送結果']) === '略過' && /未加好友/.test(str(n['錯誤訊息'])) && KEY_NOTICE.indexOf(str(n['通知類型'])) >= 0;
   q({
-    id: 'fail', title: '通知發送失敗（近 7 天）', hint: '改用電話或私訊；重要通知要確認對方收到',
-    items: () => PB.rows('9_通知紀錄').filter((n) => str(n['發送結果']) === '失敗' && day(n['發送時間']) >= addDays(today(), -7)).sort((a, b) => byKey(str(b['發送時間']), str(a['發送時間']))),
-    row: (n) => row({ act: str(n['對象學員']) ? 'openStu' : '', id: n['對象學員'], t: esc((str(n['對象學員']) ? m.stuName(n['對象學員']) : m.staffName(n['對象人員'])) + '・' + str(n['通知類型'])), s: esc(fmtDT(n['發送時間']) + '・' + str(n['官方帳號']) + '・' + str(n['錯誤訊息']).slice(0, 80)) }),
+    id: 'fail', title: '通知沒送到（近 7 天）', hint: '發送失敗，或對方沒加好友所以沒送（只列重要通知）：改用電話或私訊；重要通知要確認對方收到',
+    items: () => PB.rows('9_通知紀錄').filter((n) => (str(n['發送結果']) === '失敗' || skippedKey(n)) && day(n['發送時間']) >= addDays(today(), -7)).sort((a, b) => byKey(str(b['發送時間']), str(a['發送時間']))),
+    row: (n) => row({ act: str(n['對象學員']) ? 'openStu' : '', id: n['對象學員'], t: esc((str(n['對象學員']) ? m.stuName(n['對象學員']) : m.staffName(n['對象人員'])) + '・' + str(n['通知類型'])) + (str(n['發送結果']) === '略過' ? ' <span class="badge warn">沒加好友・未送出</span>' : ''), s: esc(fmtDT(n['發送時間']) + '・' + str(n['官方帳號']) + '・' + str(n['錯誤訊息']).slice(0, 80)), r: str(n['對象學員']) ? ui.tel(m.phone(PB.get('1_學員', n['對象學員']))) : '' }),
   });
   q({
     id: 'lead', title: '招生待跟進', hint: '只列今天該跟進（下次跟進日已到或沒填）的；全部跟進中的學員請看「學員 → 跟進中」。兩次沒回就停；未成交要寫原因',
@@ -962,11 +992,14 @@
     const gid = str(g['球敘ID']);
     const list = x.hosts.map((h) => {
       const locked = h.in || str(h.d['費用結算']) || num(h.d['現場收款金額']) > 0;
-      return '<span class="host-i">' + esc(h.name) + (h.in ? ' <span class="badge ok">已到場</span>' : '') +
+      // v4.3（11/3）：場主讓出名額 — 顯示讓出時間；管理層可還原（日期未過、開放報名／已額滿）
+      const rel = h.rel ? ' <span class="badge info">已讓出名額 ' + esc(str(h.rel['讓出名額時間']).slice(5, 16).replace('-', '/')) + '</span>' +
+        (isMgmt() && ['開放報名', '已額滿'].indexOf(x.st) >= 0 && day(g['日期']) >= today() ? btn('還原名額', 'hostUnrelease', { duty: h.rel['排班ID'] }, 'ghost') : '') : '';
+      return '<span class="host-i">' + esc(h.name) + (h.in ? ' <span class="badge ok">已到場</span>' : '') + rel +
         (edit && !locked ? ' ' + btn('換人', 'hostSwap', { duty: h.d['排班ID'] }, 'ghost') + btn('移除', 'hostDel', { duty: h.d['排班ID'] }, 'ghost') : '') + '</span>';
     }).join('');
     const empty = x.hosts.length ? '' : '<span class="mut">' + (x.hostless ? '無場主球敘（不需要場主）' : x.st === '草稿' ? '開放報名後自動排（也可以先指定）' : '未排') + '</span> ';
-    const seat = x.hostSeat && x.hosts.length ? '<span class="mut">（場主免費打球，佔 1 個名額）</span>' : !x.hostless && x.hosts.length ? '<span class="mut">' + (m.gameType(x.g['球敘類型']).gender ? '（場主不能下場（限' + esc(m.gameType(x.g['球敘類型']).gender) + '性）或同時段已在另一場佔名額，這場不佔）' : '（場主同時段已在同據點另一場佔名額，這場不佔）') + '</span>' : ''; // v3.9
+    const seat = x.hostSeat && x.hosts.length ? '<span class="mut">（場主免費打球，佔 1 個名額）</span>' : x.hosts.some((h) => h.rel) ? '<span class="mut">（場主已讓出名額，這場不佔）</span>' : !x.hostless && x.hosts.length ? '<span class="mut">' + (m.gameType(x.g['球敘類型']).gender ? '（場主不能下場（限' + esc(m.gameType(x.g['球敘類型']).gender) + '性）或同時段已在另一場佔名額，這場不佔）' : '（場主同時段已在同據點另一場佔名額，這場不佔）') + '</span>' : ''; // v3.9
     return '<div class="host-list">' + list + empty + seat + (edit ? btn('加場主', 'hostAdd', { id: gid }, '', 'plus') : '') + '</div>';
   }
   /** 可排的場主：在職人員；據點的場主排前面；同時段已在別場當場主的標出來 */
@@ -1016,6 +1049,12 @@
   };
   A.gameNew = () => ui.form('2_球敘場次', { onSaved: (id) => id && openGame(id) });
   A.gameEdit = (d) => ui.form('2_球敘場次', { id: d.id });
+  // v4.3（11/3）：還原場主讓出的名額（管理層）
+  A.hostUnrelease = (d) => {
+    const du = PB.get('2_場主排班', d.duty);
+    if (!du) return null;
+    return PB.run('gameHostUnrelease', { duty: d.duty }, { confirm: { title: '還原場主名額：' + m.staffName(du['人員']), text: '還原後場主又佔 1 個名額，這場學員名額少 1 位（已報名人數要放得下才能還原）。<br>場主 OA 會重新出現「讓出我的名額」按鈕。', ok: '還原' } });
+  };
   A.gameOpen = (d) => PB.run('gameOpen', { ids: [d.id] }, { confirm: { title: '開放報名', text: '開放後學員就看得到並可報名；系統會排場主、建行事曆。請先核對日期、時間、據點、面數、費用、程度。', ok: '開放報名' } });
   A.gameOpenChecked = () => {
     const ids = checked('draft');
