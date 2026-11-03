@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>球敘發布資訊｜理論上</title>
+<!-- 理論上匹克球｜球敘發布資訊 publish.html v1.0（2026/11/3）
+     獨立網頁、不用登入：場主、社群小編挑球敘 → 複製貼文文字／報名連結（帶來源碼）
+     資料：內部系統 API { a:'pub' }（只有公開資訊，見 gas/Public.gs）；GAS_URL 讀同資料夾的 config.js -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+:root{--bg:#F6F8F7;--surface:#FFF;--ink:#1B2924;--mut:#5B6A64;--faint:#8A9893;--line:#DCE5E0;--brand:#2E5E4E;--brand-2:#3F7A66;--brand-soft:#E3EEE8;
+  --ok:#2E6B4F;--ok-soft:#E1F0E7;--warn:#94661A;--warn-soft:#F6EEDC;--bad:#A33A3A;--bad-soft:#F7E6E6;--info:#2F5D8A;--info-soft:#E5EEF7;
+  --r:12px;--f:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.6 var(--f);-webkit-text-size-adjust:100%;padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+button,input,select{font:inherit;color:inherit}
+.head{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:10px}
+.head h1{margin:0;font-size:1.05rem;color:var(--brand);line-height:1.3}
+.head h1 small{display:block;font-size:.75rem;color:var(--mut);font-weight:500}
+.head .sp{flex:1}
+.wrap{max-width:760px;margin:0 auto;padding:12px 16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;margin:0 0 12px}
+.card h2{margin:0 0 8px;font-size:.95rem}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-weight:500;font-size:.9rem;white-space:nowrap}
+.btn:hover{border-color:var(--brand-2)}
+.btn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.pri:hover{background:var(--brand-2)}
+.btn.sm{min-height:34px;padding:4px 10px;font-size:.85rem}
+.btn:disabled{opacity:.45;cursor:default}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.fld{flex:1 1 140px;min-width:0}
+.fld label{display:block;font-size:.78rem;color:var(--mut);margin-bottom:2px}
+.fld select,.fld input{width:100%;min-height:38px;padding:6px 10px;border:1px solid var(--line);border-radius:9px;background:#fff}
+.code{margin-top:10px;padding:8px 10px;border-radius:9px;background:var(--brand-soft);color:var(--brand);font-size:.88rem}
+.code b{font-family:ui-monospace,Consolas,monospace;font-size:.95rem}
+.mut{color:var(--mut)}
+.small{font-size:.8rem}
+.chips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:#fff;border-radius:999px;padding:4px 12px;font-size:.86rem;cursor:pointer;min-height:34px}
+.chip.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.flabel{font-size:.75rem;color:var(--faint);margin:4px 0 2px}
+.tog{display:flex;align-items:center;gap:6px;font-size:.86rem;color:var(--mut);margin-top:4px;cursor:pointer}
+.day{margin:16px 0 6px;font-weight:700;font-size:.95rem;display:flex;align-items:center;gap:8px}
+.day span{font-weight:500;color:var(--faint);font-size:.8rem}
+.game{display:flex;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;margin-bottom:8px}
+.game.sel{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand) inset;background:#FBFDFC}
+.game .ck{flex:none;width:22px;height:22px;margin-top:3px;accent-color:var(--brand);cursor:pointer}
+.game .body{flex:1;min-width:0}
+.game .t{font-weight:700;line-height:1.4}
+.game .s{font-size:.86rem;color:var(--mut);margin:2px 0 8px;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.badge{display:inline-block;padding:0 8px;border-radius:999px;font-size:.76rem;font-weight:500;line-height:1.6;background:var(--brand-soft);color:var(--brand)}
+.badge.ok{background:var(--ok-soft);color:var(--ok)}
+.badge.warn{background:var(--warn-soft);color:var(--warn)}
+.badge.bad{background:var(--bad-soft);color:var(--bad)}
+.badge.info{background:var(--info-soft);color:var(--info)}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
+details.chk{margin:0 0 12px}
+details.chk summary{cursor:pointer;color:var(--mut);font-size:.9rem;padding:4px 0}
+details.chk ul{margin:6px 0 0;padding-left:18px;font-size:.86rem}
+.empty{text-align:center;color:var(--mut);padding:40px 10px}
+.err{background:var(--bad-soft);color:var(--bad);border-radius:var(--r);padding:12px 14px}
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom));box-shadow:0 -4px 14px rgba(20,40,30,.08);transform:translateY(110%);transition:transform .2s}
+.bar.on{transform:none}
+.bar .in{max-width:760px;margin:0 auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bar .n{font-weight:700;margin-right:auto;white-space:nowrap}
+#at{font-size:.72rem;text-align:right;line-height:1.3}
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:#1B2924;color:#fff;padding:8px 16px;border-radius:999px;font-size:.88rem;opacity:0;pointer-events:none;transition:opacity .2s;z-index:40;max-width:90vw;text-align:center}
+.toast.on{opacity:.95}
+.skel{height:76px;border-radius:var(--r);background:linear-gradient(90deg,#eef2f0 25%,#f6f8f7 50%,#eef2f0 75%);background-size:200% 100%;animation:sk 1.2s infinite;margin-bottom:8px}
+@keyframes sk{to{background-position:-200% 0}}
+@media (max-width:480px){.game .acts .btn{flex:1 1 auto}}
+</style>
+<script src="config.js?v=4.2"></script>
+</head>
+<body>
+<header class="head">
+  <h1>球敘發布資訊<small>理論上匹克球・場主／社群發文用</small></h1>
+  <span class="sp"></span>
+  <span id="at" class="mut small"></span>
+  <button class="btn sm" id="reload" title="重新讀取最新名額">重新整理</button>
+</header>
+<main class="wrap">
+  <section class="card">
+    <h2>這篇要發在哪裡</h2>
+    <div class="row">
+      <div class="fld"><label for="pf">平台</label><select id="pf"></select></div>
+      <div class="fld"><label for="fm">形式</label><select id="fm"></select></div>
+      <div class="fld"><label for="by">發文者代號（選填）</label><input id="by" placeholder="例：lance" maxlength="16" autocomplete="off"></div>
+    </div>
+    <div class="code" id="code"></div>
+    <p class="mut small" style="margin:6px 0 0">複製的報名連結都會帶這個來源碼，公司可以看出哪篇貼文帶來多少報名。同一篇貼文裡的每一場用同一個來源碼。</p>
+  </section>
+  <details class="chk">
+    <summary>發布前檢核（貼出去之前看一下）</summary>
+    <ul>
+      <li>日期、星期、時間（開始～結束）對得上</li>
+      <li>地點寫完整名稱；土城的公開貼文不寫學校名稱，寫「永寧捷運站步行約 7 分鐘」</li>
+      <li>類型與程度寫清楚（新手友善、女子、DUPR、自由球敘；程度是建議，不擋報名）</li>
+      <li>費用是每人每場；球拍租借每支 NT$50（自由球敘不提供租拍）</li>
+      <li>名額會變動：發文前按「重新整理」，額滿的場次寫「可登記候補」</li>
+      <li>不寫銀行帳號、個人電話、學員全名或沒同意的照片；付款一律在報名頁完成</li>
+    </ul>
+  </details>
+  <section class="card" style="padding-bottom:6px">
+    <div class="flabel">地區</div><div class="chips" id="fRegion"></div>
+    <div class="flabel">據點</div><div class="chips" id="fVenue"></div>
+    <div class="flabel">類型</div><div class="chips" id="fType"></div>
+    <label class="tog"><input type="checkbox" id="fLeft"> 只看還有名額的場次</label>
+  </section>
+  <div id="list"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+</main>
+<div class="bar" id="bar"><div class="in">
+  <span class="n" id="barN"></span>
+  <button class="btn sm" id="selAll">全選</button>
+  <button class="btn sm" id="selClear">清除</button>
+  <button class="btn sm" id="selShare" hidden>分享</button>
+  <button class="btn sm pri" id="selCopy">複製合併貼文</button>
+</div></div>
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  'use strict';
+  var CFG = window.APP_CONFIG || {};
+  var PLATFORM = { host: '場主轉發', line: 'LINE 社群', fb: 'Facebook', ig: 'Instagram', th: 'Threads', qr: '海報 QR', ad: '廣告' };
+  var FORM = { post: '貼文', story: '限動', reel: 'Reels', bio: '個人檔案', poster: '海報' };
+  var WD = ['日', '一', '二', '三', '四', '五', '六'];
+  var LS = {
+    get: function (k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) { /* 無痕模式等：不記住 */ } },
+  };
+  var D = null; // API 資料
+  var S = { region: '', venue: '', type: '', left: false, sel: {} };
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var money = function (n) { return 'NT$' + Math.round(Number(n) || 0).toLocaleString('en-US'); };
+  var wd = function (d) { var p = d.split('-'); return WD[new Date(+p[0], +p[1] - 1, +p[2]).getDay()]; };
+  var fmtD = function (d) { return d ? +d.slice(5, 7) + '/' + +d.slice(8, 10) + '（' + wd(d) + '）' : ''; };
+  var hm = function (s, e) { return s + (e ? '–' + e.replace('23:59', '24:00') : ''); };
+  var todayMD = function () { var t = new Date(); return ('0' + (t.getMonth() + 1)).slice(-2) + ('0' + t.getDate()).slice(-2); };
+  var venueOf = function (id) { return (D && D.venues.filter(function (v) { return v.id === id; })[0]) || { id: id, name: id, addr: '', region: '' }; };
+  var gameOf = function (id) { return D.games.filter(function (g) { return g.id === id; })[0]; };
+
+  // ---------- 網址參數：?p=host&f=post&by=lance&venue=據點ID ----------
+  var Q = {};
+  location.search.replace(/^\?/, '').split('&').forEach(function (kv) { if (!kv) return; var i = kv.indexOf('='); Q[decodeURIComponent(kv.slice(0, i < 0 ? kv.length : i))] = i < 0 ? '' : decodeURIComponent(kv.slice(i + 1).replace(/\+/g, ' ')); });
+
+  // ---------- 來源碼 ----------
+  function fillSelect(el, obj, val) {
+    el.innerHTML = Object.keys(obj).map(function (k) { return '<option value="' + k + '"' + (k === val ? ' selected' : '') + '>' + obj[k] + '</option>'; }).join('');
+  }
+  var cleanBy = function (s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16); };
+  function srcCode() { var by = cleanBy($('by').value); return $('pf').value + '_' + $('fm').value + '_' + todayMD() + (by ? '_' + by : ''); }
+  function showCode() {
+    $('code').innerHTML = '來源碼：<b>' + esc(srcCode()) + '</b>';
+    LS.set('pbpub:pf', $('pf').value); LS.set('pbpub:fm', $('fm').value); LS.set('pbpub:by', cleanBy($('by').value));
+  }
+  fillSelect($('pf'), PLATFORM, PLATFORM[Q.p] ? Q.p : LS.get('pbpub:pf') || 'host');
+  fillSelect($('fm'), FORM, FORM[Q.f] ? Q.f : LS.get('pbpub:fm') || 'post');
+  $('by').value = Q.by !== undefined ? cleanBy(Q.by) : LS.get('pbpub:by');
+  ['pf', 'fm'].forEach(function (id) { $(id).addEventListener('change', showCode); });
+  $('by').addEventListener('input', showCode);
+  $('by').addEventListener('blur', function () { $('by').value = cleanBy($('by').value); showCode(); });
+  showCode();
+
+  // ---------- 文字 ----------
+  var url = function (g) { return (D.liff || '') + '?type=game&id=' + encodeURIComponent(g.id) + '&src=' + encodeURIComponent(srcCode()); };
+  var seatText = function (g) { return g.full ? '目前額滿，可登記候補' : '剩 ' + g.left + ' 位'; };
+  var venueLine = function (v) { return v.name + (v.addr ? '（' + v.addr + '）' : ''); };
+  var levelLine = function (g) { return g.level && g.rule !== '分級' ? g.level : ''; };
+  // 單場：與營運工作台「發布資訊 → 複製貼文資訊」相同格式
+  function postOne(g) {
+    var v = venueOf(g.venue);
+    var kind = g.kind + (g.rule === '不限' && !g.level ? '（不分級）' : '');
+    return ['【球敘】' + fmtD(g.date) + ' ' + hm(g.start, g.end) + (g.name ? '｜' + g.name : ''), '地點：' + venueLine(v), '類型：' + kind,
+      levelLine(g) ? '程度：建議 ' + levelLine(g) : '', g.desc ? '說明：' + g.desc : '', '費用：每人 ' + money(g.fee), '名額：' + seatText(g), '報名：' + url(g)].filter(Boolean).join('\n');
+  }
+  // 多場：依據點分組，每場兩行；類型說明放最後（每種一次）
+  function postMany(list) {
+    if (list.length === 1) return postOne(list[0]);
+    var byV = [], seen = {}, types = [], tSeen = {};
+    list.forEach(function (g) {
+      if (!seen[g.venue]) { seen[g.venue] = []; byV.push(g.venue); }
+      seen[g.venue].push(g);
+      if (g.desc && !tSeen[g.type]) { tSeen[g.type] = 1; types.push(g); }
+    });
+    var out = ['【理論上匹克球｜球敘報名】'];
+    byV.forEach(function (vid) {
+      out.push('', '■ ' + venueLine(venueOf(vid)));
+      seen[vid].forEach(function (g) {
+        out.push('・' + fmtD(g.date) + ' ' + hm(g.start, g.end) + ' ' + g.kind + (levelLine(g) ? '・建議 ' + levelLine(g) : '') + '｜每人 ' + money(g.fee) + '｜' + (g.full ? '額滿可候補' : '剩 ' + g.left + ' 位'));
+        out.push('　報名：' + url(g));
+      });
+    });
+    if (types.length) { out.push('', '類型說明'); types.forEach(function (g) { out.push('・' + g.type + '：' + g.desc); }); }
+    out.push('', '程度為建議、不擋報名；報名後請依報名頁說明完成付款。');
+    return out.join('\n');
+  }
+
+  // ---------- 複製／分享 ----------
+  var toastT;
+  function toast(msg) { var t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove('on'); }, 2200); }
+  function copy(text, what) {
+    var done = function () { toast('已複製' + what + '（來源碼 ' + srcCode() + '）'); };
+    var fallback = function () {
+      var ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      if (ok) done(); else window.prompt('請長按全選後複製', text);
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+  }
+  var canShare = !!navigator.share;
+  function share(text) { navigator.share({ text: text }).catch(function () { /* 使用者取消 */ }); }
+
+  // ---------- 篩選與清單 ----------
+  function visible() {
+    return D.games.filter(function (g) {
+      var v = venueOf(g.venue);
+      return (!S.region || v.region === S.region) && (!S.venue || g.venue === S.venue) && (!S.type || g.type === S.type) && (!S.left || !g.full);
+    });
+  }
+  function chips(el, list, cur, key) {
+    el.innerHTML = [{ v: '', t: '全部' }].concat(list).map(function (o) { return '<button class="chip' + (o.v === cur ? ' on' : '') + '" data-k="' + key + '" data-v="' + esc(o.v) + '">' + esc(o.t) + '</button>'; }).join('');
+  }
+  function renderFilters() {
+    var regions = []; D.venues.forEach(function (v) { if (v.region && regions.indexOf(v.region) < 0) regions.push(v.region); });
+    regions.sort();
+    $('fRegion').parentNode.style.display = '';
+    chips($('fRegion'), regions.map(function (r) { return { v: r, t: r }; }), S.region, 'region');
+    var vs = D.venues.filter(function (v) { return !S.region || v.region === S.region; }).sort(function (a, b) { return a.name.localeCompare(b.name, 'zh-Hant'); });
+    chips($('fVenue'), vs.map(function (v) { return { v: v.id, t: v.name }; }), S.venue, 'venue');
+    var ts = []; D.games.forEach(function (g) { if (ts.indexOf(g.type) < 0) ts.push(g.type); });
+    chips($('fType'), ts.map(function (t) { return { v: t, t: t }; }), S.type, 'type');
+    $('fRegion').previousElementSibling.style.display = $('fRegion').style.display = regions.length > 1 ? '' : 'none';
+  }
+  function renderList() {
+    var list = visible();
+    if (!D.games.length) { $('list').innerHTML = '<div class="empty">接下來 ' + D.days + ' 天沒有開放報名的球敘</div>'; return renderBar(); }
+    if (!list.length) { $('list').innerHTML = '<div class="empty">沒有符合條件的球敘，換個篩選看看</div>'; return renderBar(); }
+    var html = '', last = '';
+    list.forEach(function (g) {
+      if (g.date !== last) { last = g.date; html += '<div class="day">' + fmtD(g.date) + (g.date === D.today ? '<span>今天</span>' : '') + '</div>'; }
+      var v = venueOf(g.venue);
+      var on = !!S.sel[g.id];
+      var seat = g.full ? '<span class="badge bad">額滿・可候補</span>' : '<span class="badge ' + (g.left <= 3 ? 'warn' : 'ok') + '">剩 ' + g.left + ' 位</span>';
+      html += '<div class="game' + (on ? ' sel' : '') + '" data-id="' + esc(g.id) + '">' +
+        '<input type="checkbox" class="ck" aria-label="選取這場" data-sel="' + esc(g.id) + '"' + (on ? ' checked' : '') + '>' +
+        '<div class="body"><div class="t">' + esc(hm(g.start, g.end)) + '　' + esc(v.name) + '</div>' +
+        '<div class="s"><span>' + esc(g.kind) + '</span>' + (levelLine(g) ? '<span class="badge info">建議 ' + esc(levelLine(g)) + '</span>' : '') + '<span>' + money(g.fee) + '／人</span>' + seat + '</div>' +
+        '<div class="acts"><button class="btn sm pri" data-act="post" data-id="' + esc(g.id) + '">複製貼文</button><button class="btn sm" data-act="link" data-id="' + esc(g.id) + '">複製連結</button>' +
+        (canShare ? '<button class="btn sm" data-act="share" data-id="' + esc(g.id) + '">分享</button>' : '') + '</div></div></div>';
+    });
+    $('list').innerHTML = html;
+    renderBar();
+  }
+  function selected() { return D ? D.games.filter(function (g) { return S.sel[g.id]; }) : []; }
+  function renderBar() {
+    var n = selected().length;
+    $('bar').classList.toggle('on', n > 0);
+    $('barN').textContent = '已選 ' + n + ' 場';
+    $('selShare').hidden = !canShare;
+  }
+  function render() { renderFilters(); renderList(); }
+
+  document.addEventListener('click', function (e) {
+    var c = e.target.closest('.chip');
+    if (c) {
+      var k = c.getAttribute('data-k'), v = c.getAttribute('data-v');
+      S[k] = v;
+      if (k === 'region') S.venue = '';
+      LS.set('pbpub:venue', S.venue); LS.set('pbpub:region', S.region);
+      return render();
+    }
+    var b = e.target.closest('[data-act]');
+    if (b) {
+      var g = gameOf(b.getAttribute('data-id'));
+      if (!g) return;
+      var a = b.getAttribute('data-act');
+      if (a === 'post') copy(postOne(g), '貼文');
+      else if (a === 'link') copy(url(g), '報名連結');
+      else if (a === 'share') share(postOne(g));
+      return;
+    }
+    var box = e.target.closest('.game');
+    if (box && !e.target.closest('button')) {
+      var id = box.getAttribute('data-id');
+      if (e.target.classList.contains('ck')) S.sel[id] = e.target.checked; else S.sel[id] = !S.sel[id];
+      if (!S.sel[id]) delete S.sel[id];
+      renderList();
+    }
+  });
+  $('fLeft').addEventListener('change', function () { S.left = $('fLeft').checked; renderList(); });
+  $('selAll').addEventListener('click', function () { visible().forEach(function (g) { S.sel[g.id] = true; }); renderList(); });
+  $('selClear').addEventListener('click', function () { S.sel = {}; renderList(); });
+  $('selCopy').addEventListener('click', function () { var l = selected(); if (l.length) copy(postMany(l), '合併貼文（' + l.length + ' 場）'); });
+  $('selShare').addEventListener('click', function () { var l = selected(); if (l.length) share(postMany(l)); });
+
+  // ---------- 讀資料 ----------
+  function load() {
+    $('reload').disabled = true;
+    if (!CFG.GAS_URL || /填入/.test(CFG.GAS_URL)) { $('list').innerHTML = '<div class="err">網頁還沒設定系統網址（config.js 的 GAS_URL）。</div>'; return; }
+    fetch(CFG.GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ a: 'pub' }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.message || '讀取失敗');
+        D = res.data;
+        // 已選的場次如果不在清單裡了就拿掉
+        Object.keys(S.sel).forEach(function (id) { if (!gameOf(id)) delete S.sel[id]; });
+        var hasV = function (id) { return D.venues.some(function (v) { return v.id === id; }); };
+        if (S.venue && !hasV(S.venue)) S.venue = '';
+        $('at').textContent = '名額更新 ' + D.at.slice(5).replace('-', '/');
+        render();
+      })
+      .catch(function (err) { $('list').innerHTML = '<div class="err">讀不到球敘資料：' + esc(err.message) + '<br>請稍後按「重新整理」。</div>'; })
+      .then(function () { $('reload').disabled = false; });
+  }
+  S.venue = Q.venue !== undefined ? Q.venue : LS.get('pbpub:venue');
+  S.region = Q.venue !== undefined ? '' : LS.get('pbpub:region');
+  $('reload').addEventListener('click', load);
+  load();
+})();
+</script>
+</body>
+</html>
