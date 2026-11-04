@@ -115,7 +115,7 @@
         cls += ' ' + lvClass(it.c);
         k = (/體驗/.test(str(it.c['課程名稱'])) ? '新手體驗' : '專項' + (lvName ? ' ' + lvName : ''));
         nm = esc(it.c['課程名稱']);
-        meta = '<span class="badge">' + (it.status === '招生中' ? '已付 ' + x.paid + '／' + x.min : '學員 ' + x.active.length) + '</span>' +
+        meta = '<span class="badge">' + (it.status === '招生中' ? '已付 ' + x.paid + '／' + x.min : m.stuCount(x)) + '</span>' +
           '<span class="badge">' + esc(m.staffName(it.c['主教練']) || '未排教練') + '</span>';
         if (it.status === '招生中' && x.decideAt) meta += '<span class="tt-sub">' + esc(x.decideAt.slice(5).replace('-', '/')) + ' 決定</span>';
       } else {
@@ -284,7 +284,7 @@
           it.status === '已結束' || it.status === OFF ? (day(c['結束日期']) ? '最後一堂 ' + fmtD(c['結束日期']) : '') :
             '第 ' + x.done + '／' + x.total + ' 堂上完' + (x.next ? '・下一堂 ' + fmtD(x.next['日期']) : '')].filter(Boolean).join('・');
       return '<div class="row click" data-act="openClass" data-id="' + esc(c['班級ID']) + '"><div class="main-c"><div class="t">' + esc(m.classLabel(c)) + ' ' + stBadge(it.status) + '</div><div class="s">' + esc(sub) + '</div></div>' +
-        '<div class="r" data-stop><span class="badge">學員 ' + x.active.length + '</span></div></div>';
+        '<div class="r" data-stop><span class="badge">' + m.stuCount(x) + '</span></div></div>';
     }).join('');
     return topHtml(p, counts) + '<div class="card list">' + (rows || ui.empty('沒有符合的期制班', '單堂專項課在「依日期」「依據點」看')) + '</div>';
   }

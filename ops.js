@@ -371,7 +371,7 @@
       const rows = list.map((c) => {
         const x = m.cls(c);
         if (x.single) return singleRow(x);
-        return row({ act: 'openClass', id: c['班級ID'], t: esc(m.classLabel(c)) + ' ' + m.classBadge(x.st) + (x.pending ? ' <span class="badge info">排程處理中</span>' : ''), s: esc(m.venueName(c['據點']) + '・' + m.classWhen(c) + '・教練 ' + (m.staffName(c['主教練']) || '未定') + '・' + (x.st === '籌備中' ? '預定開課 ' : '開課 ') + fmtD(c['開課日期'])), r: x.st === '籌備中' ? progress(x) : '<span class="badge">' + x.done + '／' + x.total + ' 堂</span><span class="badge">學員 ' + x.active.length + '</span>' });
+        return row({ act: 'openClass', id: c['班級ID'], t: esc(m.classLabel(c)) + ' ' + m.classBadge(x.st) + (x.pending ? ' <span class="badge info">排程處理中</span>' : ''), s: esc(m.venueName(c['據點']) + '・' + m.classWhen(c) + '・教練 ' + (m.staffName(c['主教練']) || '未定') + '・' + (x.st === '籌備中' ? '預定開課 ' : '開課 ') + fmtD(c['開課日期'])), r: x.st === '籌備中' ? progress(x) : '<span class="badge">' + x.done + '／' + x.total + ' 堂</span><span class="badge">' + m.stuCount(x) + '</span>' });
       }).join('');
       return top + card(rows || ui.empty('沒有符合的班級'));
     },
@@ -409,7 +409,7 @@
   }
   function singleRow(x) {
     const c = x.c;
-    return row({ act: 'openClass', id: c['班級ID'], when: m.hm(c['開始時間']) + '<small>' + m.hm(c['結束時間']).slice(0, 5) + '</small>', t: esc(c['課程名稱']) + ' ' + (str(c['程度']) ? '<span class="badge">' + esc(m.levelName(c['程度'])) + '</span> ' : '') + m.classBadge(x.st) + (x.notOpen ? ' <span class="badge">' + esc(fmtDT(x.openAt)) + ' 開放</span>' : '') + (x.pending ? ' <span class="badge info">排程處理中</span>' : '') + (x.late ? ' <span class="badge bad">已過決定時間</span>' : ''), s: esc(m.venueName(c['據點']) + '・' + m.courtName(c['使用場地']) + '・教練 ' + (m.staffName(c['主教練']) || '未定')), r: x.st === '籌備中' ? progress(x) : '<span class="badge">學員 ' + x.active.length + '/' + x.limit + '</span>' });
+    return row({ act: 'openClass', id: c['班級ID'], when: m.hm(c['開始時間']) + '<small>' + m.hm(c['結束時間']).slice(0, 5) + '</small>', t: esc(c['課程名稱']) + ' ' + (str(c['程度']) ? '<span class="badge">' + esc(m.levelName(c['程度'])) + '</span> ' : '') + m.classBadge(x.st) + (x.notOpen ? ' <span class="badge">' + esc(fmtDT(x.openAt)) + ' 開放</span>' : '') + (x.pending ? ' <span class="badge info">排程處理中</span>' : '') + (x.late ? ' <span class="badge bad">已過決定時間</span>' : ''), s: esc(m.venueName(c['據點']) + '・' + m.courtName(c['使用場地']) + '・教練 ' + (m.staffName(c['主教練']) || '未定')), r: x.st === '籌備中' ? progress(x) : '<span class="badge">' + m.stuCount(x, x.limit) + '</span>' });
   }
   PB.inputs.lvFilter = (v) => PB.setParam('lv', v);
   A.param = (d) => PB.setParam(d.k, d.v);

@@ -291,6 +291,8 @@
   m.levelName = nameOf('0_程度', '程度名稱');
   m.typeName = nameOf('0_課程類型', '課程類型');
   m.coachName = (id) => m.staffName(id);
+  /** 學員人數（含專項課補課生）：學員 3/6（含補課 3） */
+  m.stuCount = (x, limit) => { const mk = num(x.makeups); return '學員 ' + (x.active.length + mk) + (limit ? '/' + limit : '') + (mk ? '（含補課 ' + mk + '）' : ''); };
   m.hm = (s, e) => str(s).slice(0, 5) + (e ? '–' + str(e).slice(0, 5).replace('23:59', '24:00') : '');
   m.slotLabel = (s) => (s ? '週' + str(s['星期']) + ' ' + m.hm(s['開始時間'], s['結束時間']) + '｜' + split(s['用途']).join('・') : '');
   m.classLabel = (c) => (c ? str(c['課程名稱']) + (str(c['期別']) ? ' ' + str(c['期別']) : '') : '');
