@@ -139,7 +139,7 @@
     row: (p) => {
       const rec = PB.get('3_應收帳款', p['應收款項']) || {};
       const payer = str(rec['付款人']) || str(rec['學員']);
-      return row({ check: 'pay', id: p['收款ID'], t: esc(m.stuName(payer)) + ' <span class="num">' + money(p['金額']) + '</span>', s: esc([fmtD(p['收款日期']), str(p['付款方式']), str(p['帳號末五碼']) ? '末五碼 ' + p['帳號末五碼'] : '', '經手 ' + m.staffName(p['經手人']), str(rec['項目說明'])].filter(Boolean).join('・')), r: btn('確認入帳', 'payConfirm', { id: p['收款ID'] }, 'pri') + btn('有誤', 'payWrong', { id: p['收款ID'] }, 'bad') });
+      return row({ check: 'pay', id: p['收款ID'], t: esc(m.stuName(payer)) + ' <span class="num">' + money(p['金額']) + '</span>', s: esc([fmtD(p['收款日期']), str(p['付款方式']), str(p['帳號末五碼']) ? '末五碼 ' + p['帳號末五碼'] : '', /^學員回報/.test(str(p['備註'])) ? str(p['備註']) : '經手 ' + m.staffName(p['經手人']), str(rec['項目說明'])].filter(Boolean).join('・')), r: btn('確認入帳', 'payConfirm', { id: p['收款ID'] }, 'pri') + btn('有誤', 'payWrong', { id: p['收款ID'] }, 'bad') });
     },
     bulk: { label: '確認勾選的入帳', act: 'payConfirmChecked' },
   });
