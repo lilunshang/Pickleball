@@ -548,12 +548,19 @@
     // v3.7：有場主的類型每場保留 1 個名額給場主（佔第一面）；cap／limit 都是「學員可報」
     const hostless = !m.gameType(g['球敘類型']).host;
     const hostSeat = hostless ? 0 : m.hostSeatOf(g); // v3.8：同據點同時段同一位場主只佔一個名額
-    const cap = Math.max(0, sum(courts, (id) => (PB.get('1_據點_場地', id) || {})['人數上限']) - hostSeat);
+    // v4.6：每面人數和學員報名頁一致（球面與類型每面上限取小；開放後調高人數上限 → 平均分到各面）
+    const gt = m.gameType(g['球敘類型']);
+    const courtBase = (id) => {
+      const c0 = num((PB.get('1_據點_場地', id) || {})['人數上限']);
+      const b = gt.max && c0 ? Math.min(c0, gt.max) : gt.max || c0;
+      return b && courts.length && num(g['人數上限']) ? Math.max(b, Math.ceil(num(g['人數上限']) / courts.length)) : b;
+    };
+    const cap = Math.max(0, sum(courts, courtBase) - hostSeat);
     const limit = num(g['人數上限']) ? Math.max(0, num(g['人數上限']) - hostSeat) : cap;
     const perCourt = courts.map((id, i) => {
       const c = PB.get('1_據點_場地', id) || {};
       const list = active.concat(walkin).filter((r) => str(r['場地']) === id);
-      return { id: id, name: str(c['場地名稱']) || id, cap: Math.max(0, num(c['人數上限']) - (i === 0 ? hostSeat : 0)), list: list };
+      return { id: id, name: str(c['場地名稱']) || id, cap: Math.max(0, courtBase(id) - (i === 0 ? hostSeat : 0)), list: list };
     });
     const relMap = hostless ? {} : m.hostReleased(C.hostSeatShared === false ? [g] : m.hostSib(g)); // v4.3
     const hosts = (ix.dutyByGame[str(g['球敘ID'])] || []).map((d) => ({ d: d, name: m.staffName(d['人員']), in: !!str(d['簽到時間']), rel: relMap[str(d['人員'])] || null }));
