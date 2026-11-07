@@ -428,7 +428,7 @@
   });
 
   function openClass(id) {
-    ui.sheet(() => { const c = PB.get('2_課程班級', id); return c ? m.classLabel(c) : null; }, () => classBody(id));
+    ui.sheet(() => { const c = PB.get('2_課程班級', id); return c ? m.classLabel(c) : null; }, () => classBody(id), 'class');
   }
   A.openClass = (d) => openClass(d.id);
 
@@ -750,7 +750,7 @@
   // 上課場次（點名、請假、改期）
   // ================================================================
   function openSes(id) {
-    ui.sheet(() => { const s = PB.get('2_上課場次', id); return s ? m.sesLabel(s) : null; }, () => sesBody(id));
+    ui.sheet(() => { const s = PB.get('2_上課場次', id); return s ? m.sesLabel(s) : null; }, () => sesBody(id), 'ses');
   }
   A.openSes = (d) => openSes(d.id);
   function sesBody(id) {
@@ -955,7 +955,7 @@
     },
   };
   function openGame(id) {
-    ui.sheet(() => { const g = PB.get('2_球敘場次', id); return g ? fmtD(g['日期']) + ' ' + m.venueName(g['據點']) : null; }, () => gameBody(id));
+    ui.sheet(() => { const g = PB.get('2_球敘場次', id); return g ? fmtD(g['日期']) + ' ' + m.venueName(g['據點']) : null; }, () => gameBody(id), 'game');
   }
   A.openGame = (d) => openGame(d.id);
   function gameBody(id) {
@@ -1102,7 +1102,7 @@
     },
   };
   function openStu(id) {
-    ui.sheet(() => { const s = PB.get('1_學員', id); return s ? str(s['姓名']) || str(s['LINE顯示名稱']) || '學員' : null; }, () => stuBody(id));
+    ui.sheet(() => { const s = PB.get('1_學員', id); return s ? str(s['姓名']) || str(s['LINE顯示名稱']) || '學員' : null; }, () => stuBody(id), 'stu');
   }
   A.openStu = (d) => { if (d.id) openStu(d.id); };
   function stuBody(id) {

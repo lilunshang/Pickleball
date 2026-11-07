@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜內部網頁共用程式 common.js v2.3（2026/10/26）
+ * 理論上匹克球｜內部網頁共用程式 common.js v4.7（2026/11/06：系統設定 → 按鈕依啟用／工作區／介面顯示、選單畫面可關閉）；v2.3（2026/10/26）
  *   PB.api   呼叫 GAS（登入、載入、操作）
  *   PB.db    資料（開頁一次載入；操作後就地更新）
  *   PB.m     業務計算（付款狀態、班級人數、球敘名額、學員堂數…，與學員 OA 同規則）
@@ -158,6 +158,7 @@
     PB.ws = b.me.ws || [];
     PB.forms = b.forms || {};
     PB.enums = b.enums || {};
+    PB.sys = b.sys || { btn: {}, view: {} }; // v4.7：系統設定（按鈕／介面）
     Object.assign(C, { liff: b.cfg.liff }, b.cfg);
     db.keys = b.keys || {};
     db.t = {};
@@ -659,6 +660,65 @@
   PB.acts.grpAll = (d) => { groupSave(d.key, d.v === '1' ? split(d.ids.replace(/,/g, ' , ')) : []); PB.render(); };
   ui.empty = (title, sub) => '<div class="empty"><b>' + esc(title) + '</b>' + esc(sub || '') + '</div>';
   ui.btn = (label, act, data, cls, icon) => '<button class="btn ' + (cls || '') + '" data-act="' + act + '"' + Object.keys(data || {}).map((k) => ' data-' + k + '="' + esc(data[k]) + '"').join('') + '>' + (icon ? PB.icon(icon) : '') + esc(label) + '</button>';
+  // ================================================================
+  // v4.7：系統設定（管理後台 → 系統設定）
+  //   按鈕規則 { on, ws:[工作區], at:[介面] }：沒有規則＝照原本顯示
+  //   介面＝主畫面（網頁.畫面ID）或詳情面板（網頁.s.種類）
+  // ================================================================
+  PB.sysRuleOk = (r) => !r || (r.on !== false && (!r.ws || !r.ws.length || r.ws.some((w) => PB.ws.indexOf(w) >= 0)));
+  PB.viewOk = (id) => PB.sysRuleOk(((PB.sys || {}).view || {})[PB.appId + '.' + id]);
+  PB.btnKey = (el) => el.dataset.act + (el.dataset.a ? ':' + el.dataset.a : '');
+  function btnRule(el) {
+    const S = (PB.sys || {}).btn || {};
+    const sub = el.dataset.a ? S[el.dataset.act + ':' + el.dataset.a] : null;
+    return sub || S[el.dataset.act] || null;
+  }
+  /** 按鈕所在的介面：詳情面板 → 網頁.s.種類；主畫面 → 網頁.畫面ID；對話框等其他位置 → null（不看介面限制） */
+  PB.placeOf = (el) => {
+    const sh = el.closest('.sheet');
+    if (sh) { const b = sh.querySelector('.sheet-b'); return PB.appId + '.s.' + ((b && b.dataset.place) || '?'); }
+    if (el.closest('#page')) return PB.appId + '.' + current.id;
+    return null;
+  };
+  PB.btnOk = (el) => {
+    const r = btnRule(el);
+    if (!r) return true;
+    if (!PB.sysRuleOk(r)) return false;
+    if (r.at && r.at.length) {
+      const p = PB.placeOf(el);
+      if (p !== null && r.at.indexOf(p) < 0) return false;
+    }
+    return true;
+  };
+  // 記下按鈕出現過的介面（這台裝置；系統設定頁顯示「看過出現在」）
+  let seenTimer = null;
+  let seenMap = null;
+  function noteSeen(el) {
+    const p = PB.placeOf(el);
+    if (!p || /\.s\.\?$/.test(p)) return;
+    if (!seenMap) { try { seenMap = JSON.parse(LS.get('pb:seen') || '{}'); } catch (e) { seenMap = {}; } }
+    const k = PB.btnKey(el);
+    const list = seenMap[k] || (seenMap[k] = []);
+    if (list.indexOf(p) >= 0) return;
+    list.push(p);
+    clearTimeout(seenTimer);
+    seenTimer = setTimeout(() => LS.set('pb:seen', JSON.stringify(seenMap)), 800);
+  }
+  PB.seen = () => { try { return seenMap || JSON.parse(LS.get('pb:seen') || '{}'); } catch (e) { return {}; } };
+  function gateButtons(root) {
+    if (!PB.sys) return;
+    const list = root.matches && root.matches('[data-act]') ? [root] : [];
+    root.querySelectorAll('[data-act]').forEach((el) => list.push(el));
+    list.forEach((el) => {
+      if (!PB.btnOk(el)) {
+        if (el.dataset.gate === 'disable') { el.disabled = true; el.title = '已在系統設定關閉'; }
+        else el.remove();
+        return;
+      }
+      if (el.tagName === 'BUTTON') noteSeen(el);
+    });
+  }
+  PB.gate = gateButtons;
   ui.tel = (p) => (p ? '<a href="tel:' + esc(p) + '" class="nowrap">' + esc(p) + '</a>' : '<span class="mut">沒有電話</span>');
 
   /** 對話框；body 可以是 HTML 字串。actions：[{label, kind, click:(el)=>Promise|false}] */
@@ -720,7 +780,7 @@
 
   // ---- 詳情面板（右側滑出；瀏覽器「上一頁」可關閉） ----
   let sheetFn = null;
-  ui.sheet = (titleFn, bodyFn) => {
+  ui.sheet = (titleFn, bodyFn, place) => { // v4.7：place＝詳情面板種類（系統設定的「介面」：class／ses／game／stu…）
     let bg = document.querySelector('.sheet-bg');
     if (!bg) {
       bg = document.createElement('div');
@@ -733,7 +793,7 @@
       document.body.appendChild(sh);
     }
     const wasOpen = !!sheetFn;
-    sheetFn = { title: titleFn, body: bodyFn };
+    sheetFn = { title: titleFn, body: bodyFn, place: place || '' };
     renderSheet();
     bg.classList.add('on');
     document.querySelector('.sheet').classList.add('on');
@@ -747,7 +807,9 @@
     try { title = sheetFn.title(); } catch (e) { title = '詳情'; }
     if (title === null) return closeSheetNow(); // 資料已不存在
     sh.querySelector('h3').textContent = title;
-    sh.querySelector('.sheet-b').innerHTML = ui.safe(sheetFn.body, '詳情');
+    const sb = sh.querySelector('.sheet-b');
+    sb.dataset.place = sheetFn.place || '';
+    sb.innerHTML = ui.safe(sheetFn.body, '詳情');
   }
   function closeSheetNow() {
     sheetFn = null;
@@ -1173,6 +1235,7 @@
       if (stop && stop !== el && el.contains(stop)) return;
       const fn = PB.acts[el.dataset.act];
       if (!fn) return;
+      if (!PB.btnOk(el)) { e.preventDefault(); ui.toast('這個功能已在「系統設定」關閉', 'bad'); return; } // v4.7
       e.preventDefault();
       e.stopPropagation();
       Promise.resolve(fn(el.dataset, el, e)).catch((err) => { console.error(err); ui.toast(err.message || String(err), 'bad'); });
@@ -1185,6 +1248,8 @@
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && PB.boot && Date.now() - lastSync > 5 * 60000) PB.refresh(true);
     });
+    // v4.7：畫面上新出現的按鈕依系統設定隱藏（涵蓋主畫面、詳情面板、之後局部更新的內容）
+    new MutationObserver((list) => list.forEach((mu) => mu.addedNodes.forEach((n) => { if (n.nodeType === 1) gateButtons(n); }))).observe(document.body, { childList: true, subtree: true });
     start();
   };
   function readHash() {
@@ -1213,7 +1278,7 @@
     renderMain();
   };
   function screens() {
-    return APPDEF.screens.filter((s) => !s.show || s.show());
+    return APPDEF.screens.filter((s) => (!s.show || s.show()) && (s.sysLock || PB.viewOk(s.id)));
   }
   function renderShell() {
     const root = document.getElementById('app');
@@ -1242,6 +1307,7 @@
     if (!PB.boot) return;
     const list = screens();
     let s = list.find((x) => x.id === current.id);
+    if (!s && !list.length) { renderNav(); document.getElementById('page').innerHTML = ui.empty('沒有可用的畫面', '管理層在「系統設定 → 介面」關閉了你能用的畫面'); return; } // v4.7
     if (!s) { s = list[0]; current = { id: s.id, params: {} }; }
     renderNav();
     const page = document.getElementById('page');

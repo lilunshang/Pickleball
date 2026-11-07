@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜管理後台 admin.js v3.4（2026/10/28：批次新增時段、複製到其他星期、租約一天多個時段）；v3.1（2026/10/27：據點與場地改版：據點左清單＋右分頁、跨據點總表、可用日月曆）；v3.0（球拍租借收入另列、不進分潤）；v2.4（2026/10/26：專項列表加「費用」）
+ * 理論上匹克球｜管理後台 admin.js v4.8（2026/11/06：系統設定加「表單」欄位設定）；v4.7（2026/11/06：系統設定 — 按鈕、介面、參數）；v3.4（2026/10/28：批次新增時段、複製到其他星期、租約一天多個時段）；v3.1（2026/10/27：據點與場地改版：據點左清單＋右分頁、跨據點總表、可用日月曆）；v3.0（球拍租借收入另列、不進分潤）；v2.4（2026/10/26：專項列表加「費用」）
  * 特助、主理人：總覽 Dashboard、管理待處理、財務（人員月結、分潤、支出、應收）、主檔設定
  * Dashboard 全部在瀏覽器計算（換月份不發請求）；口徑：
  *   球敘收入＝當月球敘的報名實收（含待對帳、扣退款），v3.0 起扣掉球拍租借（另列「租拍收入」，全歸公司、不分潤）　課程收入＝當月扣堂數 × 每堂單價（與 F02 相同）
@@ -208,7 +208,7 @@
       const sRows = ss.map((s) => '<tr><td>' + esc(fmtD(s['日期']) + ' ' + m.hm(s['開始時間'])) + '</td><td>' + esc(m.classLabel(PB.get('2_課程班級', s['班級'])) + ' 第' + str(s['第幾堂']) + '堂') + '</td><td>' + esc(str(s['場次狀態'])) + '</td><td>' + esc(m.staffName(s['授課教練'])) + '</td><td class="num">' + money(s['教練費']) + '</td><td class="num">' + money(s['場地成本']) + '</td></tr>').join('');
       return sec('球敘', gs.length + ' 場') + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th>類型</th><th class="num">人數</th><th class="num">實收</th><th class="num">租拍</th><th class="num">場地</th><th class="num">場主費</th><th class="num">損益</th></tr></thead><tbody>' + (gRows || '<tr><td colspan="8" class="mut">—</td></tr>') + '</tbody></table></div>' +
         sec('上課場次', ss.length + ' 堂') + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th>班級</th><th>狀態</th><th>教練</th><th class="num">教練費</th><th class="num">場地</th></tr></thead><tbody>' + (sRows || '<tr><td colspan="6" class="mut">—</td></tr>') + '</tbody></table></div>';
-    });
+    }, 'venue');
   };
 
   // ================================================================
@@ -362,7 +362,7 @@
       return '<div class="acts">' + (str(s['狀態']) === '試算中' ? ui.btn('調整金額', 'settleEdit', { id: d.id }, 'pri') : '') + '</div>' +
         '<dl class="kv"><dt>狀態</dt><dd>' + esc(s['狀態']) + (day(s['付款日期']) ? '（' + fmtD(s['付款日期']) + ' 付款）' : '') + '</dd><dt>計算金額</dt><dd>' + money(s['計算金額']) + '</dd><dt>調整</dt><dd>' + money(s['調整金額']) + ' ' + esc(s['調整原因']) + '</dd><dt>應付</dt><dd><b>' + money(num(s['計算金額']) + num(s['調整金額'])) + '</b></dd></dl>' +
         sec('明細', items.length + ' 筆') + '<div class="tbl-wrap"><table class="tbl"><tbody>' + (rows || '<tr><td class="mut">沒有明細</td></tr>') + '</tbody></table></div>';
-    });
+    }, 'settle');
   };
   A.settleEdit = (d) => ui.form('3_人員費用結算', { id: d.id, title: '調整金額' });
 
@@ -1615,11 +1615,286 @@
     if (v) PB.run('secretSave', { id: d.id, values: v });
   };
 
+
+  // ================================================================
+  // v4.7（11/6）系統設定：按鈕、介面、參數集中開關（只有管理層；只影響內部網頁，LINE 官方帳號不讀）
+  // ================================================================
+  const SYS_TABS = ['按鈕', '介面', '表單', '參數', '修改紀錄']; // v4.8：表單
+  const APPN = { ops: '營運工作台', admin: '管理後台' };
+  const sysCat = () => ((PB.sys || {}).catalog) || null;
+  const placeName = (id) => { const c = sysCat(); const p = c && c.places.find((x) => x.id === id); return p ? p.name : id; };
+  const wsText = (ws) => (ws && ws.length ? ws.join('、') : '不限');
+  const atText = (at) => (at && at.length ? at.map(placeName).join('、') : '不限');
+  const sysBadge = (r) => (!r ? '<span class="badge">預設</span>' : r.on === false ? '<span class="badge bad">停用</span>' : (r.ws && r.ws.length) || (r.at && r.at.length) ? '<span class="badge warn">有限制</span>' : '<span class="badge ok">啟用</span>');
+  async function sysSave(items) {
+    const r = await PB.run('sysSave', { items: items });
+    sysApply(r);
+    return r;
+  }
+  /** 儲存結果 → 更新規則與自己的表單（v4.8） */
+  function sysApply(r) {
+    if (!r || !r.data) return;
+    if (r.data.sys) PB.sys = r.data.sys;
+    if (r.data.forms) PB.forms = r.data.forms;
+    PB.render();
+  }
+
+  const Sys = {
+    id: 'sys', label: '系統設定', icon: 'gear', sysLock: true,
+    show: () => PB.ws.indexOf('管理層') >= 0,
+    render(p) {
+      const tab = SYS_TABS.indexOf(p.tab) >= 0 ? p.tab : SYS_TABS[0];
+      const head = '<div class="ptop"><h1>系統設定</h1></div>' +
+        '<p class="mut" style="margin:-4px 0 10px;font-size:.88rem">只影響內部網頁（營運工作台、管理後台）。改完後其他人重新整理頁面就生效（離開網頁超過 5 分鐘再切回來也會自動更新）。每次修改都會留紀錄。</p>' +
+        '<div class="tabs">' + SYS_TABS.map((t) => '<button class="' + (t === tab ? 'on' : '') + '" data-act="sysTab" data-v="' + t + '">' + t + '</button>').join('') + '</div>';
+      if (!sysCat()) return head + ui.empty('讀不到設定目錄', '請重新整理；如果還是這樣，請確認 GAS 已更新到 v4.7');
+      return head + ui.safe(() => ({ 按鈕: sysBtnTab, 介面: sysViewTab, 表單: sysFormTab, 參數: sysParTab, 修改紀錄: sysLogTab })[tab](p), tab);
+    },
+  };
+  A.sysTab = (d) => PB.go('sys', { tab: d.v });
+  A.sysApp = (d) => PB.setParam('app', d.v);
+  let sysTimer;
+  PB.inputs.sysSearch = (v) => { clearTimeout(sysTimer); sysTimer = setTimeout(() => { PB.setParam('q', v); const el = document.querySelector('[data-input="sysSearch"]'); if (el) { el.focus(); el.setSelectionRange(v.length, v.length); } }, 250); };
+
+  function sysBtnTab(p) {
+    const c = sysCat();
+    const app = p.app === 'admin' ? 'admin' : 'ops';
+    const q = str(p.q);
+    const rules = PB.sys.btn || {};
+    const seen = PB.seen();
+    const list = c.buttons.filter((b) => b.app === app && (!q || (b.g + b.n).indexOf(q) >= 0));
+    const changed = c.buttons.filter((b) => rules[b.k]).length;
+    const groups = groupBy(list, 'g');
+    const body = Object.keys(groups).map((g) => '<div class="sec"><h2>' + esc(g) + '</h2><span class="mut">' + groups[g].length + ' 顆</span></div>' +
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="width:28px"></th><th>按鈕</th><th>狀態</th><th>工作區</th><th>出現的介面</th><th></th></tr></thead><tbody>' +
+      groups[g].map((b) => {
+        const r = rules[b.k];
+        const saw = (seen[b.k] || []).filter((x) => x.indexOf(app + '.') === 0);
+        return '<tr class="click" data-act="sysBtnEdit" data-k="' + esc(b.k) + '"><td data-stop><input type="checkbox" data-q="sysb" value="' + esc(b.k) + '"></td>' +
+          '<td><b>' + esc(b.n) + '</b>' + (saw.length ? '<div class="mut" style="font-size:.78rem">這台裝置看過：' + esc(saw.map(placeName).join('、')) + '</div>' : '') + '</td>' +
+          '<td>' + sysBadge(r) + '</td><td>' + esc(wsText(r && r.ws)) + '</td><td style="white-space:normal">' + esc(atText(r && r.at)) + '</td>' +
+          '<td data-stop class="nowrap">' + btn(r && r.on === false ? '啟用' : '停用', 'sysBtnToggle', { k: b.k }, r && r.on === false ? 'pri' : 'ghost') + '</td></tr>';
+      }).join('') + '</tbody></table></div>').join('');
+    return '<div class="chips" style="margin-bottom:10px">' + ['ops', 'admin'].map((a) => '<button class="chip' + (a === app ? ' on' : '') + '" data-act="sysApp" data-v="' + a + '">' + APPN[a] + '<span class="c">' + c.buttons.filter((b) => b.app === a).length + '</span></button>').join('') + '</div>' +
+      '<div class="acts"><label class="search">' + PB.icon('search') + '<input data-input="sysSearch" value="' + esc(q) + '" placeholder="搜尋按鈕名稱或分組"></label>' +
+      btn('勾選的批次設定', 'sysBtnBatch', {}, 'pri') + '<span class="mut" style="font-size:.85rem">已調整 ' + changed + ' 顆</span></div>' +
+      '<div class="note" style="margin:8px 0">停用：所有人都看不到，伺服器也不接受這個操作。工作區：只有勾選的工作區看得到（不勾＝不限）。介面：只在勾選的畫面或詳情顯示（不勾＝原本出現的地方都顯示）。</div>' +
+      (body || ui.empty('沒有符合的按鈕'));
+  }
+
+  async function sysBtnDialog(keys) {
+    const c = sysCat();
+    const defs = keys.map((k) => c.buttons.find((b) => b.k === k)).filter(Boolean);
+    if (!defs.length) return;
+    const apps = uniq(defs.map((b) => b.app));
+    if (apps.length > 1) return ui.toast('營運工作台和管理後台的按鈕請分開設定', 'bad');
+    const places = c.places.filter((x) => x.app === apps[0]);
+    const r0 = defs.length === 1 ? (PB.sys.btn || {})[defs[0].k] : null;
+    const title = defs.length === 1 ? defs[0].n : '批次設定 ' + defs.length + ' 顆按鈕';
+    const seen = PB.seen();
+    const saw = defs.length === 1 ? (seen[defs[0].k] || []).filter((x) => x.indexOf(apps[0] + '.') === 0) : [];
+    const v = await ui.ask(title, defs.length > 1 ? esc(defs.map((b) => b.n).join('、')) : '', {
+      fields: [
+        { k: 'on', label: '啟用', t: 'bool', value: !r0 || r0.on !== false },
+        { k: 'ws', label: '哪些工作區看得到', t: 'enum', multi: true, opts: c.ws, value: (r0 && r0.ws) || [], hint: '不勾＝不限（原本有權限的人都看得到）' },
+        { k: 'at', label: '出現在哪些介面', t: 'enum', multi: true, opts: places.map((x) => x.name), value: ((r0 && r0.at) || []).map(placeName), hint: '不勾＝原本出現的地方都顯示' + (saw.length ? '。這台裝置看過出現在：' + saw.map(placeName).join('、') : '') },
+        { k: 'reset', label: '回到預設（全部開啟、不限）', t: 'bool', value: false },
+      ],
+      ok: '儲存',
+    });
+    if (!v) return;
+    const at = (v.at || []).map((n) => (places.find((x) => x.name === n) || {}).id).filter(Boolean);
+    await sysSave(defs.map((b) => ({ id: 'btn:' + b.k, on: v.on, ws: v.ws || [], at: at, reset: v.reset === true })));
+  }
+  A.sysBtnEdit = (d) => sysBtnDialog([d.k]);
+  A.sysBtnBatch = () => { const ks = checked('sysb'); if (!ks.length) return ui.toast('請先勾選'); return sysBtnDialog(ks); };
+  A.sysBtnToggle = (d) => {
+    const r = (PB.sys.btn || {})[d.k];
+    const b = sysCat().buttons.find((x) => x.k === d.k);
+    const off = !r || r.on !== false;
+    return PB.run('sysSave', { items: [{ id: 'btn:' + d.k, on: !off, ws: (r && r.ws) || [], at: (r && r.at) || [] }] }, off ? { confirm: { title: '停用：' + b.n, text: '所有人都看不到這顆按鈕，伺服器也不接受這個操作。之後可以再按「啟用」。', danger: true, ok: '停用' } } : {})
+      .then((res) => sysApply(res));
+  };
+
+  function sysViewTab() {
+    const c = sysCat();
+    const rules = PB.sys.view || {};
+    const rows = (app) => c.places.filter((x) => x.app === app && x.kind === 'p').map((x) => {
+      const id = x.id.slice(app.length + 1);
+      const r = rules[x.id];
+      return '<tr class="click" data-act="sysViewEdit" data-k="' + esc(x.id) + '"><td><b>' + esc(x.name) + '</b></td><td>' + sysBadge(r) + '</td><td>' + esc(wsText(r && r.ws)) + '</td><td class="mut">' + esc('#/' + id) + '</td></tr>';
+    }).join('');
+    return ['ops', 'admin'].map((a) => '<div class="sec"><h2>' + APPN[a] + '</h2></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>畫面</th><th>狀態</th><th>工作區</th><th>網址</th></tr></thead><tbody>' + rows(a) + '</tbody></table></div>').join('') +
+      '<p class="mut" style="font-size:.85rem">關掉的畫面不會出現在選單，直接輸入網址也會跳回第一個畫面。這只是隱藏畫面：資料權限仍照角色（例如營運工作台本來就看不到成本）。「系統設定」本身不能關。</p>';
+  }
+  A.sysViewEdit = async (d) => {
+    const c = sysCat();
+    const x = c.places.find((y) => y.id === d.k);
+    const r0 = (PB.sys.view || {})[d.k];
+    const v = await ui.ask(APPN[x.app] + '・' + x.name, '', {
+      fields: [
+        { k: 'on', label: '顯示這個畫面', t: 'bool', value: !r0 || r0.on !== false },
+        { k: 'ws', label: '哪些工作區看得到', t: 'enum', multi: true, opts: c.ws, value: (r0 && r0.ws) || [], hint: '不勾＝不限（原本看得到的人都看得到）' },
+      ],
+      ok: '儲存',
+    });
+    if (v) await sysSave([{ id: 'view:' + d.k, on: v.on, ws: v.ws || [] }]);
+  };
+
+  function sysParTab() {
+    const c = sysCat();
+    const show = (p, v) => (p.t === 'money' ? money(v) : esc(v));
+    const rows = c.params.map((p) => {
+      const isDef = String(p.cur) === String(p.def);
+      return '<tr class="click" data-act="sysParEdit" data-k="' + esc(p.k) + '"><td><b>' + esc(p.n) + '</b>' + (p.hint ? '<div class="mut" style="font-size:.78rem">' + esc(p.hint) + '</div>' : '') + '</td><td class="num"><b>' + show(p, p.cur) + '</b></td><td class="num mut">' + show(p, p.def) + '</td><td>' + (isDef ? '<span class="badge">預設</span>' : '<span class="badge warn">已調整</span>') + '</td></tr>';
+    }).join('');
+    const shared = c.shared.map((x) => '<tr><td>' + esc(x[0]) + '</td><td class="num">' + esc(x[1]) + '</td></tr>').join('');
+    return '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>參數</th><th class="num">目前</th><th class="num">預設</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="sec"><h2>和 LINE 官方帳號共用的規則（只能看）</h2></div>' +
+      '<div class="tbl-wrap"><table class="tbl"><tbody>' + shared + '</tbody></table></div>' +
+      '<p class="mut" style="font-size:.85rem">這些規則學員、教練、場主的 LINE 也在用，只改內部網頁會兩邊不一致，所以不開放在這裡改；要調整請告訴系統負責人一起改程式。</p>';
+  }
+  A.sysParEdit = async (d) => {
+    const p = sysCat().params.find((x) => x.k === d.k);
+    const t = p.t === 'time' ? 'time' : 'num';
+    const v = await ui.ask(p.n, (p.hint ? esc(p.hint) + '<br>' : '') + '預設：' + esc(p.def) + (p.min !== undefined ? '（可填 ' + p.min + '～' + p.max + '）' : ''), {
+      fields: [{ k: 'v', label: '新的值', t: t, value: p.cur, hint: '清空＝回到預設' }],
+      ok: '儲存',
+    });
+    if (v) await sysSave([{ id: 'par:' + p.k, v: v.v }]);
+  };
+
+  // ---- v4.8：表單欄位設定 ----
+  const RO_NAME = { '': '可以改', edit: '只能新增時填', all: '唯讀' };
+  const RO_KEY = { 可以改: '', 只能新增時填: 'edit', 唯讀: 'all' };
+  /** 程式原本的欄位＋系統設定 → 目前的樣子（與伺服器 formFieldsFor_ 同規則） */
+  function fldState(form) {
+    const rules = ((PB.sys || {}).fld || {})[form.t] || {};
+    const order = ((PB.sys || {}).ford || {})[form.t] || [];
+    const pos = (k, i) => { const n = order.indexOf(k); return n >= 0 ? n : 1000 + i; };
+    return form.fields.map((f, i) => {
+      const r = rules[f.k] || null;
+      const show = f.req ? true : !(r && r.show === false);
+      let ro = f.ro;
+      if (r && r.ro === 'all' && !f.req) ro = 'all';
+      else if (r && (r.ro === 'edit' || r.ro === 'all') && f.ro !== 'all') ro = 'edit';
+      const req = f.req || !!(r && r.req && show && ro !== 'all');
+      const ws = r && r.ws && r.ws.length ? (f.ws.length ? f.ws.filter((w) => r.ws.indexOf(w) >= 0) : r.ws) : f.ws;
+      return {
+        f: f, r: r, i: i, ord: pos(f.k, i),
+        show: show, ro: ro, req: req, extraReq: !!(r && r.req), ws: ws, wsRule: (r && r.ws) || [],
+        label: (r && r.label) || '', hint: r && r.hint !== null && r.hint !== undefined ? r.hint : f.hint,
+      };
+    }).sort((a, b) => a.ord - b.ord);
+  }
+  /** 一個欄位的完整設定（儲存時整筆送出，避免蓋掉其他設定） */
+  function fldItem(form, s, o) {
+    o = o || {};
+    const it = {
+      id: 'fld:' + form.t + '|' + s.f.k,
+      show: 'show' in o ? o.show : s.r ? s.r.show !== false : true,
+      ro: 'ro' in o ? o.ro : s.r ? s.r.ro || '' : '',
+      ws: 'ws' in o ? o.ws : s.wsRule,
+      label: 'label' in o ? o.label : s.label,
+    };
+    const hint = 'hint' in o ? o.hint : s.r ? s.r.hint : null;
+    if (hint !== null && hint !== undefined) it.hint = hint;
+    const req = 'req' in o ? o.req : s.extraReq;
+    if (req && !s.f.req) it.req = true;
+    if (s.f.req) { it.show = true; if (it.ro === 'all') it.ro = 'edit'; }
+    return it;
+  }
+  const fldForm = (t) => (sysCat().forms || []).find((x) => x.t === t);
+  const fldChanged = (form) => Object.keys((((PB.sys || {}).fld || {})[form.t]) || {}).length;
+  const fldOrdered = (form) => !!(((PB.sys || {}).ford || {})[form.t]);
+
+  function sysFormTab(p) {
+    const c = sysCat();
+    if (!c.forms) return ui.empty('讀不到表單目錄', '請確認 GAS 已更新到 v4.8');
+    const form = p.f && fldForm(p.f);
+    if (!form) {
+      const opsForms = c.forms.filter((x) => x.apps.indexOf('ops') >= 0 && x.ws.indexOf('行政客服') >= 0);
+      const others = c.forms.filter((x) => opsForms.indexOf(x) < 0);
+      const list = (arr) => '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>表單</th><th class="num">欄位</th><th>可以新增</th><th>狀態</th></tr></thead><tbody>' +
+        arr.map((x) => '<tr class="click" data-act="fldOpen" data-t="' + esc(x.t) + '"><td><b>' + esc(x.title) + '</b> <span class="mut" style="font-size:.8rem">' + esc(x.t) + '</span></td><td class="num">' + x.fields.length + '</td><td>' + (x.create ? '是' : '<span class="mut">只能編輯</span>') + '</td><td>' + (fldChanged(x) || fldOrdered(x) ? '<span class="badge warn">已調整' + (fldChanged(x) ? ' ' + fldChanged(x) + ' 欄' : '') + (fldOrdered(x) ? '・順序' : '') + '</span>' : '<span class="badge">預設</span>') + '</td></tr>').join('') +
+        '</tbody></table></div>';
+      return '<div class="note" style="margin-bottom:8px">設定「新增／編輯」表單裡每個欄位：顯示、名稱、說明、可不可以改、必填、哪些工作區可以改、順序。程式規定必填的欄位不能隱藏或取消必填。</div>' +
+        '<div class="sec"><h2>營運工作台（行政客服會用到）</h2></div>' + list(opsForms) +
+        '<div class="sec"><h2>主檔與財務（管理後台）</h2></div>' + list(others);
+    }
+    const st = fldState(form);
+    const rows = st.map((s, n) => {
+      const name = s.label ? esc(s.label) + ' <span class="mut" style="font-size:.78rem">（' + esc(s.f.k) + '）</span>' : esc(s.f.k);
+      const tags = [s.f.req ? '<span class="badge info">程式必填</span>' : '', s.f.lock ? '<span class="badge" title="依狀態鎖定（程式規定）">狀態鎖定</span>' : '', s.f.when ? '<span class="badge" title="符合條件才顯示（程式規定）">條件顯示</span>' : ''].join(' ');
+      return '<tr class="click" data-act="fldEdit" data-t="' + esc(form.t) + '" data-k="' + esc(s.f.k) + '"' + (s.show ? '' : ' style="opacity:.55"') + '>' +
+        '<td class="num mut">' + (n + 1) + '</td><td><b>' + name + '</b> ' + tags + '</td>' +
+        '<td>' + (s.show ? '顯示' : '<span class="badge bad">隱藏</span>') + '</td>' +
+        '<td>' + (s.ro ? '<span class="badge warn">' + RO_NAME[s.ro] + '</span>' : '可以改') + '</td>' +
+        '<td>' + (s.req ? (s.f.req ? '必填' : '<span class="badge warn">必填</span>') : '<span class="mut">—</span>') + '</td>' +
+        '<td>' + esc(s.ws.length ? s.ws.join('、') : '不限') + '</td>' +
+        '<td class="mut" style="white-space:normal;font-size:.82rem;max-width:280px">' + esc(s.hint || '') + '</td>' +
+        '<td data-stop class="nowrap">' + btn('↑', 'fldMove', { t: form.t, k: s.f.k, d: '-1' }, 'ghost' + (n === 0 ? '" disabled="disabled' : '')) + btn('↓', 'fldMove', { t: form.t, k: s.f.k, d: '1' }, 'ghost' + (n === st.length - 1 ? '" disabled="disabled' : '')) + '</td></tr>';
+    }).join('');
+    return '<div class="acts"><button class="chip" data-act="fldBack">← 全部表單</button><h2 style="margin:0 8px;font-size:1.05rem">' + esc(form.title) + '</h2><span class="mut" style="font-size:.85rem">' + esc(form.t) + '</span><span class="sp" style="flex:1"></span>' +
+      (fldChanged(form) || fldOrdered(form) ? btn('整張表單回到預設', 'fldResetAll', { t: form.t }, 'ghost') : '') + '</div>' +
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="num">#</th><th>欄位</th><th>表單</th><th>修改</th><th>必填</th><th>可以改的工作區</th><th>說明</th><th>順序</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="mut" style="font-size:.85rem">隱藏：表單不顯示，系統自動帶入的值照樣存。只能新增時填：建立後不能再改。唯讀：表單上只能看。工作區：只有勾選的工作區可以改這欄（只能比程式原本的更嚴格）。加了必填後，存檔時沒填會被擋（包含舊資料編輯時）。</p>';
+  }
+  A.fldOpen = (d) => PB.setParam('f', d.t);
+  A.fldBack = () => PB.setParam('f', '');
+  A.fldEdit = async (d) => {
+    const form = fldForm(d.t);
+    const s = fldState(form).find((x) => x.f.k === d.k);
+    const c = sysCat();
+    const roOpts = s.f.req ? ['可以改', '只能新增時填'] : ['可以改', '只能新增時填', '唯讀'];
+    const fields = [
+      s.f.req ? { k: 'x', label: '必填', t: 'ro', value: '程式規定必填（不能隱藏、不能設成唯讀、不能取消必填）' } : { k: 'show', label: '顯示在表單', t: 'bool', value: s.show },
+      { k: 'label', label: '顯示名稱', t: 'text', value: s.label, placeholder: s.f.k, hint: '空白＝用原本的欄名「' + s.f.k + '」' },
+      { k: 'hint', label: '說明（欄位下方的小字）', t: 'text', value: s.hint || '', hint: s.f.hint ? '原本：' + s.f.hint : '原本沒有說明' },
+      { k: 'ro', label: '可不可以改', t: 'enum', opts: roOpts, value: RO_NAME[(s.r && s.r.ro) || ''] === undefined ? '可以改' : RO_NAME[(s.r && s.r.ro) || ''], req: true, hint: s.f.ro ? '程式原本：' + RO_NAME[s.f.ro] + '（不能放寬）' : '' },
+    ];
+    if (!s.f.req) fields.push({ k: 'req', label: '必填', t: 'bool', value: s.extraReq });
+    fields.push({ k: 'ws', label: '哪些工作區可以改這欄', t: 'enum', multi: true, opts: c.ws, value: s.wsRule, hint: '不勾＝照原本' + (s.f.ws.length ? '（原本只有 ' + s.f.ws.join('、') + '）' : '（不限）') });
+    fields.push({ k: 'reset', label: '這一欄回到預設', t: 'bool', value: false });
+    const v = await ui.ask(form.title + '・' + s.f.k, '', { fields: fields, ok: '儲存' });
+    if (!v) return;
+    if (v.reset) return sysSave([{ id: 'fld:' + form.t + '|' + s.f.k, reset: true }]);
+    const show = s.f.req ? true : v.show !== false;
+    const ro = RO_KEY[v.ro] || '';
+    if (v.req && (!show || ro === 'all')) return ui.toast('隱藏或唯讀的欄位不能設成必填', 'bad');
+    await sysSave([fldItem(form, s, { show: show, ro: ro, req: v.req === true, label: str(v.label), hint: str(v.hint) === str(s.f.hint) && !(s.r && s.r.hint !== null && s.r.hint !== undefined) ? null : str(v.hint), ws: v.ws || [] })]);
+  };
+  A.fldMove = (d) => {
+    const form = fldForm(d.t);
+    const st = fldState(form);
+    const i = st.findIndex((x) => x.f.k === d.k);
+    const j = i + Number(d.d);
+    if (j < 0 || j >= st.length) return null;
+    const t = st[i]; st[i] = st[j]; st[j] = t;
+    return sysSave([{ id: 'ford:' + form.t, order: st.map((s) => s.f.k) }]); // 整張表單的順序存一筆
+  };
+  A.fldResetAll = (d) => {
+    const form = fldForm(d.t);
+    const keys = Object.keys((((PB.sys || {}).fld || {})[form.t]) || {});
+    const items = keys.map((k) => ({ id: 'fld:' + form.t + '|' + k, reset: true }));
+    if (fldOrdered(form)) items.push({ id: 'ford:' + form.t, reset: true });
+    return PB.run('sysSave', { items: items }, { confirm: { title: form.title + '：回到預設', text: '這張表單的欄位設定（' + keys.length + ' 欄）' + (fldOrdered(form) ? '和欄位順序' : '') + '全部清掉，回到程式原本的樣子。', danger: true, ok: '回到預設' } })
+      .then((res) => sysApply(res));
+  };
+
+  function sysLogTab() {
+    const list = PB.rows('0_設定紀錄').slice().sort((a, b) => byKey(str(b['時間']), str(a['時間'])));
+    if (!list.length) return ui.empty('還沒有修改紀錄', '在「按鈕」「介面」「參數」改過設定後會出現在這裡');
+    return '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>時間</th><th>人員</th><th>項目</th><th>原設定</th><th>新設定</th></tr></thead><tbody>' +
+      list.map((r) => '<tr><td class="nowrap">' + esc(fmtDT(r['時間'])) + '</td><td class="nowrap">' + esc(r['人員']) + '</td><td style="white-space:normal">' + esc(r['名稱']) + '</td><td class="mut" style="white-space:normal">' + esc(r['原設定']) + '</td><td style="white-space:normal"><b>' + esc(r['新設定']) + '</b></td></tr>').join('') +
+      '</tbody></table></div><p class="mut" style="font-size:.85rem">顯示最近 300 筆；完整紀錄在 0_設定 試算表的「0_設定紀錄」。</p>';
+  }
+
   PB.app({
     app: 'admin',
     title: '管理後台',
-    version: '3.6',
-    screens: [Dash, Queue].concat(PB.schedScreen ? [PB.schedScreen] : []).concat([Finance, Data]),
+    version: '4.8',
+    screens: [Dash, Queue].concat(PB.schedScreen ? [PB.schedScreen] : []).concat([Finance, Data, Sys]), // v4.7：系統設定
     links: () => (PB.cfg.opsUrl ? [{ label: '營運工作台', url: PB.cfg.opsUrl, icon: 'swap', mobile: true }] : []),
   });
 })();

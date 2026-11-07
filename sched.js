@@ -407,7 +407,7 @@
       if (c.kind !== 'draft') { nm = '＋ ' + esc(placingName()); meta = c.legacy && c.legacy.length ? '取代舊球敘草稿' : '點一下放上去'; }
     } else if (S.placing && c.kind === 'empty') cls.push('cant');
     if (S.flash === k) cls.push('flash');
-    return '<button class="' + cls.join(' ') + '" data-act="sbCell" data-k="' + esc(k) + '" title="' + esc(m.courtName(cid)) + '">' +
+    return '<button class="' + cls.join(' ') + '" data-act="sbCell" data-gate="disable" data-k="' + esc(k) + '" title="' + esc(m.courtName(cid)) + '">' +
       (tag ? '<span class="tag">' + tag + '</span>' : '') + (c.kind === 'lock' ? '<span class="lk">🔒</span>' : '') +
       '<span class="nm">' + nm + '</span><span class="meta">' + meta + '</span></button>';
   }
