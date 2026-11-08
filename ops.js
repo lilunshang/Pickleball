@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -378,7 +378,7 @@
   };
   function classTop(g, v) {
     const venues = uniq(PB.rows('2_課程班級').map((c) => str(c['據點'])).filter(Boolean));
-    return '<div class="ptop"><h1>課程</h1><span class="sp"></span>' + (PB.forms['2_課程班級'] ? ui.btn('新增班級', 'classNew', {}, 'pri', 'plus') : '') + '</div>' +
+    return '<div class="ptop"><h1>課程</h1><span class="sp"></span>' + (PB.forms['2_課程班級'] ? ui.btn('私人課程', 'pvNew', {}, '', 'plus') + ui.btn('新增班級', 'classNew', {}, 'pri', 'plus') : '') + '</div>' +
       '<div class="ptop"><div class="chips">' + Object.keys(CLASS_GROUPS).map((k) => '<button class="chip' + (k === g ? ' on' : '') + '" data-act="param" data-k="g" data-v="' + k + '">' + k + '</button>').join('') + '</div><span class="sp"></span>' +
       '<select data-input="venueFilter" class="btn" style="padding:4px 8px"><option value="">全部據點</option>' + venues.map((id) => '<option value="' + esc(id) + '"' + (id === v ? ' selected' : '') + '>' + esc(m.venueName(id)) + '</option>').join('') + '</select>';
   }
@@ -436,6 +436,7 @@
     const c = PB.get('2_課程班級', id);
     const x = m.cls(c);
     if (x.single) return singleBody(id, x);
+    if (m.isPrivate(c)) return privateBody(id, x); // v4.9
     const t = today();
     const isPre = x.st === '籌備中';
     const decideHint = isPre ? (x.canDecide ? '' : '已付首堂達人數下限 ' + x.min + ' 人就能確認成班（目前 ' + x.paid + ' 人）；決定日 ' + fmtD(x.decide) + ' 起不限人數') : '';
@@ -604,6 +605,393 @@
     if (src && !/^[a-z0-9_]+$/.test(src)) return ui.toast('來源碼只能用小寫英文、數字、底線', 'bad');
     PB.LS.set('pb:src', src);
     PB.copy(m.signupUrl(d.type, d.id, src), '報名連結');
+  };
+
+  // ================================================================
+  // v4.9（11/8）私人課程：包班、個人課
+  //   先在 LINE 談好，客服一次登記：班級＋場次＋學員＋帳單＋已收款（後端 Private.gs privateCreate）
+  //   私人課程不公開、不催繳、不自動取消；詳情頁：加一堂、加人、退出、帳單收款／改金額
+  // ================================================================
+  const PV = { calc: null };
+  const hmOf = (t) => m.hm(t).slice(0, 5);
+  const minOf = (t) => { const x = str(t).match(/(\d{1,2}):(\d{2})/); return x ? +x[1] * 60 + +x[2] : null; };
+  const endMin = (t) => (minOf(t) === 23 * 60 + 59 ? 1440 : minOf(t));
+  const mdw = (d) => +d.slice(5, 7) + '/' + +d.slice(8, 10) + '（' + wd(d) + '）';
+  /** 與後端 privateCalc_ 相同 */
+  PV.calc = (s, lessons) => {
+    const n = Math.max(1, s.students.length);
+    const fee = num(s.fee);
+    const per = s.feeUnit === 'group' ? fee / n : fee;
+    const ex = s.extras.filter((e) => num(e.amount) > 0);
+    const exL = ex.filter((e) => e.per !== 'once').reduce((a, e) => a + num(e.amount), 0);
+    const exO = ex.filter((e) => e.per === 'once').reduce((a, e) => a + num(e.amount), 0);
+    const lesson = per * n + exL;
+    const total = Math.round(lesson * lessons + exO);
+    return { n: n, per: per, exL: exL, exO: exO, lesson: lesson, total: total, perPerson: Math.round(total / n) };
+  };
+  /** 據點裡可上課的時段（用途含課程、使用中） */
+  const pvSlots = (venue) => PB.rows('1_據點_時段').filter((s) => str(s['據點']) === venue && str(s['狀態']) !== '停用' && split(s['用途']).indexOf('課程') >= 0)
+    .sort((a, b) => byKey('日一二三四五六'.indexOf(str(a['星期']).replace(/^(星期|週)/, '').charAt(0)) + hmOf(a['開始時間']), '日一二三四五六'.indexOf(str(b['星期']).replace(/^(星期|週)/, '').charAt(0)) + hmOf(b['開始時間'])));
+  const slotLabel = (s) => '週' + str(s['星期']).replace(/^(星期|週)/, '').charAt(0) + ' ' + hmOf(s['開始時間']) + '–' + hmOf(s['結束時間']) + '・' + split(s['使用場地']).map((c) => m.courtName(c)).join('、');
+  /** 這一面、這段時間在某天被誰佔用（課程場次、球敘）；skipClass＝自己這班 */
+  function pvBusy(day0, start, end, court, skipClass) {
+    const ov = (s1, e1) => minOf(start) < endMin(e1) && minOf(s1) < endMin(end);
+    const ses = PB.rows('2_上課場次').find((s) => day(s['日期']) === day0 && str(s['使用場地']) === court && ['取消', '改期'].indexOf(str(s['場次狀態'])) < 0 && str(s['班級']) !== str(skipClass) && ov(s['開始時間'], s['結束時間']));
+    if (ses) return '已有課程';
+    const g = PB.rows('2_球敘場次').find((x) => day(x['日期']) === day0 && str(x['狀態']) !== '取消' && split(x['使用場地']).indexOf(court) >= 0 && ov(x['開始時間'], x['結束時間']));
+    return g ? '已有球敘' : '';
+  }
+  /** 可選的上課日：這個時段的可用日（前 30 天～後 180 天），標出被佔用的 */
+  function pvDays(slotId, court, start, end, skipClass) {
+    const t = today();
+    return PB.rows('1_據點_可用日').filter((a) => str(a['時段']) === slotId && str(a['狀態']) === '可用')
+      .map((a) => day(a['日期'])).filter((d) => d >= addDays(t, -30) && d <= addDays(t, 180)).sort()
+      .filter((d, i, arr) => arr.indexOf(d) === i)
+      .map((d) => ({ d: d, busy: court && start && end ? pvBusy(d, start, end, court, skipClass) : '' }));
+  }
+  const stuLabel = (r) => str(r['姓名']) + (str(r['電話']) ? '・' + str(r['電話']) : '') + (str(r['LINE顯示名稱']) && str(r['LINE顯示名稱']) !== str(r['姓名']) ? '（' + str(r['LINE顯示名稱']) + '）' : '');
+
+  A.pvNew = () => {
+    const s = {
+      kind: '包班', name: '', venue: '', slot: '', court: '', start: '', end: '', coach: '', dates: [],
+      students: [], contact: '', payMode: 'contact', billMode: 'all', fee: '', feeUnit: 'person', extras: [], payments: [], note: '', notify: true,
+    };
+    const venues = PB.rows('1_據點').filter((v) => ['合作中', '籌備中', ''].indexOf(str(v['狀態'])) >= 0 && pvSlots(str(v['據點ID'])).length)
+      .sort((a, b) => str(a['據點名稱']).localeCompare(str(b['據點名稱']), 'zh-Hant'));
+    const seg = (key, opts) => '<span class="seg">' + opts.map((o) => '<button type="button" class="chip' + (s[key] === o[0] ? ' on' : '') + '" data-pv="set" data-k="' + key + '" data-v="' + esc(o[0]) + '">' + esc(o[1]) + '</button>').join('') + '</span>';
+    const fld = (label, inner, hint) => '<div class="fld"><label>' + label + '</label>' + inner + (hint ? '<div class="hint">' + hint + '</div>' : '') + '</div>';
+    const sel = (key, opts, blank) => '<select data-pv="val" data-k="' + key + '">' + (blank ? '<option value="">' + esc(blank) + '</option>' : '') + opts.map((o) => '<option value="' + esc(o.v) + '"' + (str(s[key]) === str(o.v) ? ' selected' : '') + '>' + esc(o.l) + '</option>').join('') + '</select>';
+    const stuList = () => PB.rows('1_學員').filter((r) => !str(r['合併至']));
+    function render(el) {
+      const slot = PB.get('1_據點_時段', s.slot);
+      const lessons = s.dates.length;
+      const c = PV.calc(s, Math.max(lessons, 1));
+      // 1 課程
+      let h = '<div class="pv-sec"><h4>1　課程</h4>' +
+        fld('類型', seg('kind', [['包班', '包班'], ['個人課', '個人課']]), s.kind === '包班' ? '固定成員、固定時段，通常由聯絡人一次付清' : '1–4 人；人數決定教練費級距') +
+        fld('據點', sel('venue', venues.map((v) => ({ v: v['據點ID'], l: v['據點名稱'] })), '選據點'), venues.length ? '' : '沒有可上課的時段：先到 管理後台 → 據點與場地 新增租約') +
+        (s.venue ? fld('時段', sel('slot', pvSlots(s.venue).map((x) => ({ v: x['時段ID'], l: slotLabel(x) })), '選時段'), '租到的時段；上課時間可以只用其中一段') : '') +
+        (slot ? '<div class="pv-row">' + fld('球面', sel('court', split(slot['使用場地']).map((x) => ({ v: x, l: m.courtName(x) })))) +
+          fld('上課時間', '<span class="pv-time"><input type="time" data-pv="val" data-k="start" value="' + esc(s.start) + '"> – <input type="time" data-pv="val" data-k="end" value="' + esc(s.end) + '"></span>', '例：19:00–21:00（21:00 之後自由對打只算場地）') + '</div>' +
+          fld('教練', sel('coach', coaches(), '選教練')) : '');
+      if (slot && s.court) {
+        const ds = pvDays(s.slot, s.court, s.start, s.end);
+        h += fld('上課日期 <span class="mut">已選 ' + lessons + ' 堂</span>', ds.length ? '<div class="chips pv-days">' + ds.map((x) => {
+          const on = s.dates.indexOf(x.d) >= 0;
+          return '<button type="button" class="chip' + (on ? ' on' : '') + (x.busy && !on ? ' mutc" disabled title="' + esc(x.busy) : '') + '" data-pv="day" data-v="' + x.d + '">' + mdw(x.d) + (x.busy ? '<span class="c">' + esc(x.busy) + '</span>' : '') + '</button>';
+        }).join('') + '</div>' : '<div class="note warn">這個時段還沒有可用日</div>', '只列已租到（可用）的日期；沒有的日子請先到 管理後台 → 據點與場地 加日期');
+      }
+      h += '</div>';
+      // 2 學員
+      h += '<div class="pv-sec"><h4>2　學員 <span class="mut">' + s.students.length + ' 人</span></h4>' +
+        (s.students.length ? '<div class="pv-stus">' + s.students.map((id) => {
+          const r = PB.get('1_學員', id) || {};
+          return '<div class="pv-stu"><label class="pv-contact"><input type="radio" name="pvContact" data-pv="contact" value="' + esc(id) + '"' + (s.contact === id ? ' checked' : '') + '> 聯絡人</label><span class="nm">' + esc(str(r['姓名'])) + '</span><span class="mut">' + esc(str(r['電話'])) + '</span><button type="button" class="icon-btn" data-pv="unstu" data-v="' + esc(id) + '" aria-label="移除">✕</button></div>';
+        }).join('') + '</div>' : '') +
+        '<div class="pv-add"><input list="pvStuList" data-pv-search placeholder="輸入姓名或電話搜尋，按 Enter 加入" autocomplete="off"><datalist id="pvStuList">' +
+        stuList().filter((r) => s.students.indexOf(str(r['學員ID'])) < 0).map((r) => '<option value="' + esc(stuLabel(r)) + '">').join('') + '</datalist>' +
+        '<button type="button" class="btn sm" data-pv="addstu">加入</button><button type="button" class="btn sm ghost" data-pv="newstu">＋新增學員</button></div>' +
+        (s.students.length ? '<div class="hint">聯絡人＝和我們聯絡、收 LINE 通知的人' + (s.payMode === 'contact' ? '，也是付款人' : '') + '</div>' : '') + '</div>';
+      // 3 收費
+      const unitLbl = s.feeUnit === 'group' ? '每堂整組' : '每人每堂';
+      h += '<div class="pv-sec"><h4>3　收費</h4>' +
+        fld('誰付款', seg('payMode', [['contact', '聯絡人付全部'], ['each', '每人各付']])) +
+        fld('什麼時候收', seg('billMode', [['all', '一次收全部堂數'], ['lesson', '每堂上課收']]), s.billMode === 'lesson' ? '每一堂一筆帳單；之後「加一堂」也會再開一筆' : '') +
+        fld('上課費', '<span class="pv-time"><input type="number" min="0" step="50" data-pv="val" data-k="fee" value="' + esc(s.fee) + '" placeholder="金額" style="width:120px"> ' + seg('feeUnit', [['person', '每人每堂'], ['group', '每堂整組']]) + '</span>',
+          s.kind === '個人課' ? '個人課價格：1 對 1 每小時 1,500；1 對 3 每組每小時 1,700（2 小時就填 2 倍，選「每堂整組」）' : '例：每人每堂 1,200') +
+        '<div class="fld"><label>其他費用 <span class="mut">全班一起算，例如額外的場租</span></label>' +
+        s.extras.map((e, i) => '<div class="pv-ex"><input data-pv="ex" data-i="' + i + '" data-f="name" value="' + esc(e.name) + '" placeholder="名稱，例：21–22 場租"><input type="number" min="0" data-pv="ex" data-i="' + i + '" data-f="amount" value="' + esc(e.amount) + '" placeholder="金額" style="width:100px">' +
+          '<select data-pv="ex" data-i="' + i + '" data-f="per"><option value="lesson"' + (e.per !== 'once' ? ' selected' : '') + '>每堂</option><option value="once"' + (e.per === 'once' ? ' selected' : '') + '>一次</option></select><button type="button" class="icon-btn" data-pv="unex" data-i="' + i + '" aria-label="移除">✕</button></div>').join('') +
+        '<button type="button" class="btn sm ghost" data-pv="addex">＋其他費用</button></div>' +
+        '<div class="pv-total" data-pv-total>' + totalHtml(c, lessons) + '</div>';
+      // 已收款
+      const payers = s.payMode === 'contact' ? [] : s.students;
+      h += '<div class="fld"><label>已收款 <span class="mut">' + (isMgmt() ? '你登記的會直接「已確認」' : '登記後待管理層對帳') + '</span></label>' +
+        s.payments.map((p, i) => '<div class="pv-pay">' +
+          (payers.length ? '<select data-pv="pay" data-i="' + i + '" data-f="who">' + payers.map((id) => '<option value="' + esc(id) + '"' + (p.who === id ? ' selected' : '') + '>' + esc(m.stuName(id)) + '</option>').join('') + '</select>' : '') +
+          '<input type="date" data-pv="pay" data-i="' + i + '" data-f="date" value="' + esc(p.date) + '"><input type="number" min="0" data-pv="pay" data-i="' + i + '" data-f="amount" value="' + esc(p.amount) + '" placeholder="金額" style="width:100px">' +
+          '<select data-pv="pay" data-i="' + i + '" data-f="method">' + ['轉帳', '現金', 'LINEPay'].map((x) => '<option' + (p.method === x ? ' selected' : '') + '>' + x + '</option>').join('') + '</select>' +
+          (p.method === '轉帳' ? '<input data-pv="pay" data-i="' + i + '" data-f="last5" value="' + esc(p.last5) + '" placeholder="末五碼" maxlength="5" style="width:80px">' : '') +
+          '<button type="button" class="icon-btn" data-pv="unpay" data-i="' + i + '" aria-label="移除">✕</button></div>').join('') +
+        '<button type="button" class="btn sm ghost" data-pv="addpay">＋登記一筆收款</button><div class="hint">一次匯款分兩筆轉（例如 30,000＋3,600）就登記兩筆；還沒收就留空，之後在課程詳情的帳單按「收款」</div></div></div>';
+      // 其他
+      h += '<div class="pv-sec"><h4>其他</h4>' +
+        fld('課程名稱 <span class="mut">選填</span>', '<input data-pv="val" data-k="name" value="' + esc(s.name) + '" placeholder="' + esc(autoName()) + '">') +
+        fld('備註 <span class="mut">選填</span>', '<input data-pv="val" data-k="note" value="' + esc(s.note) + '">') +
+        '<label class="pv-chk"><input type="checkbox" data-pv="notify"' + (s.notify ? ' checked' : '') + '> 建立後用 LINE 通知聯絡人（課表與帳單）和教練</label></div>';
+      el.innerHTML = h;
+    }
+    function autoName() {
+      const v = PB.get('1_據點', s.venue);
+      return (v ? str(v['據點名稱']) : '據點') + '｜' + s.kind + '（' + (s.contact ? m.stuName(s.contact) : '聯絡人') + '）';
+    }
+    function totalHtml(c, lessons) {
+      if (!lessons || !s.students.length || s.fee === '') return '<span class="mut">選好日期、學員、上課費後顯示合計</span>';
+      const lines = ['上課費 ' + (s.feeUnit === 'group' ? money(num(s.fee)) + ' × ' + lessons + ' 堂' : money(c.per) + ' × ' + c.n + ' 人 × ' + lessons + ' 堂') + ' ＝ ' + money(c.per * c.n * lessons)];
+      s.extras.filter((e) => num(e.amount) > 0).forEach((e) => lines.push(esc(e.name || '其他') + ' ' + money(e.amount) + (e.per === 'once' ? '' : ' × ' + lessons + ' 堂') + ' ＝ ' + money(num(e.amount) * (e.per === 'once' ? 1 : lessons))));
+      const bills = s.payMode === 'contact' ? (s.billMode === 'all' ? '帳單 1 筆給 ' + (s.contact ? m.stuName(s.contact) : '聯絡人') : '每堂 1 筆給 ' + (s.contact ? m.stuName(s.contact) : '聯絡人') + '，每堂 ' + money(c.lesson))
+        : (s.billMode === 'all' ? '每人 1 筆 ' + money(c.total / c.n) : '每人每堂 1 筆 ' + money(c.lesson / c.n));
+      const paid = s.payments.reduce((a, p) => a + num(p.amount), 0);
+      return lines.join('<br>') + '<div class="pv-sum"><b>合計 ' + money(c.total) + '</b>（每人 ' + money(c.perPerson) + '）</div><div class="mut">' + bills + (paid ? '・已收 ' + money(paid) + (paid === c.total ? ' <span class="badge ok">收齊</span>' : paid < c.total ? '，未收 ' + money(c.total - paid) : ' <span class="badge warn">多收 ' + money(paid - c.total) + '</span>') : '') + '</div>';
+    }
+    function addStu(el, id) {
+      if (!id || s.students.indexOf(id) >= 0) return;
+      s.students.push(id);
+      if (!s.contact) s.contact = id;
+      render(el);
+      const inp = el.querySelector('[data-pv-search]');
+      if (inp) inp.focus();
+    }
+    const findStu = (txt) => { const r = stuList().find((x) => stuLabel(x) === txt) || stuList().find((x) => str(x['姓名']) === txt) || stuList().find((x) => txt && str(x['電話']) === txt.replace(/\D/g, '')); return r ? str(r['學員ID']) : ''; };
+    ui.modal({
+      title: '新增私人課程（包班／個人課）', sticky: true, body: '<div class="pv"></div>',
+      actions: [{ label: '取消' }, {
+        label: '建立', kind: 'pri',
+        click: async () => {
+          const miss = [];
+          if (!s.venue || !s.slot || !s.court) miss.push('據點與時段');
+          if (!s.start || !s.end || minOf(s.end) <= minOf(s.start)) miss.push('上課時間');
+          if (!s.coach) miss.push('教練');
+          if (!s.dates.length) miss.push('上課日期');
+          if (!s.students.length) miss.push('學員');
+          if (s.fee === '') miss.push('上課費');
+          if (miss.length) { ui.toast('請填寫：' + miss.join('、'), 'bad'); return false; }
+          if (s.kind === '個人課' && s.students.length > 4) { ui.toast('個人課最多 4 人，超過請選包班', 'bad'); return false; }
+          const bad = s.payments.find((p) => num(p.amount) > 0 && !p.date);
+          if (bad) { ui.toast('收款要填日期', 'bad'); return false; }
+          const r = await PB.run('privateCreate', {
+            kind: s.kind, name: s.name, venue: s.venue, court: s.court, coach: s.coach, start: s.start, end: s.end, dates: s.dates,
+            students: s.students, contact: s.contact, payMode: s.payMode, billMode: s.billMode, fee: num(s.fee), feeUnit: s.feeUnit,
+            extras: s.extras.filter((e) => num(e.amount) > 0).map((e) => ({ name: e.name, amount: num(e.amount), per: e.per })),
+            payments: s.payments.filter((p) => num(p.amount) > 0).map((p) => ({ who: p.who, date: p.date, amount: num(p.amount), method: p.method, last5: p.last5 })),
+            note: s.note, notify: s.notify,
+          });
+          if (!r) return false;
+          if (r.data && r.data.id) setTimeout(() => openClass(r.data.id), 50);
+          return true;
+        },
+      }],
+      onOpen: (body) => {
+        const el = body.querySelector('.pv');
+        render(el);
+        el.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-pv]');
+          if (!b || b.tagName === 'INPUT' || b.tagName === 'SELECT') return;
+          const k = b.dataset.pv;
+          if (k === 'set') {
+            s[b.dataset.k] = b.dataset.v;
+            if (b.dataset.k === 'kind') { s.feeUnit = s.kind === '包班' ? 'person' : 'group'; }
+          } else if (k === 'day') {
+            const i = s.dates.indexOf(b.dataset.v);
+            if (i >= 0) s.dates.splice(i, 1); else s.dates.push(b.dataset.v);
+            s.dates.sort();
+          } else if (k === 'unstu') {
+            s.students = s.students.filter((x) => x !== b.dataset.v);
+            if (s.contact === b.dataset.v) s.contact = s.students[0] || '';
+            s.payments.forEach((p) => { if (p.who === b.dataset.v) p.who = s.contact; });
+          } else if (k === 'addstu') {
+            const inp = el.querySelector('[data-pv-search]');
+            const id = findStu(str(inp.value));
+            if (!id) { ui.toast(inp.value ? '找不到「' + inp.value + '」，請從清單選，或按「＋新增學員」' : '請輸入姓名或電話', 'bad'); return; }
+            return addStu(el, id);
+          } else if (k === 'newstu') {
+            ui.form('1_學員', { values: { 身分: '課程學員' }, onSaved: (id) => id && addStu(el, id) });
+            return;
+          } else if (k === 'addex') s.extras.push({ name: '', amount: '', per: 'lesson' });
+          else if (k === 'unex') s.extras.splice(+b.dataset.i, 1);
+          else if (k === 'addpay') s.payments.push({ who: s.contact || s.students[0] || '', date: today(), amount: s.payments.length ? '' : String(PV.calc(s, Math.max(1, s.dates.length)).total - s.payments.reduce((a, p) => a + num(p.amount), 0) || ''), method: '轉帳', last5: '' });
+          else if (k === 'unpay') s.payments.splice(+b.dataset.i, 1);
+          else return;
+          render(el);
+        });
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && e.target.matches('[data-pv-search]')) { e.preventDefault(); const id = findStu(str(e.target.value)); if (id) addStu(el, id); else ui.toast('請從清單選學員', 'bad'); }
+        });
+        el.addEventListener('input', (e) => {
+          const t = e.target;
+          if (t.matches('[data-pv-search]')) { const id = findStu(str(t.value)); if (id && document.querySelector('#pvStuList option[value="' + CSS.escape(t.value) + '"]')) addStu(el, id); return; }
+          const k = t.dataset.pv;
+          if (k === 'val') s[t.dataset.k] = t.value;
+          else if (k === 'ex') s.extras[+t.dataset.i][t.dataset.f] = t.value;
+          else if (k === 'pay') s.payments[+t.dataset.i][t.dataset.f] = t.value;
+          else if (k === 'contact') s.contact = t.value;
+          else if (k === 'notify') s.notify = t.checked;
+          else return;
+          const box = el.querySelector('[data-pv-total]');
+          if (box) box.innerHTML = totalHtml(PV.calc(s, Math.max(1, s.dates.length)), s.dates.length);
+        });
+        el.addEventListener('change', (e) => {
+          const t = e.target;
+          const k = t.dataset.pv;
+          if (k === 'val' && ['venue', 'slot', 'court', 'start', 'end', 'coach'].indexOf(t.dataset.k) >= 0) {
+            s[t.dataset.k] = t.value;
+            if (t.dataset.k === 'venue') { s.slot = ''; s.court = ''; s.dates = []; }
+            if (t.dataset.k === 'slot') {
+              const sl = PB.get('1_據點_時段', s.slot);
+              s.court = sl ? split(sl['使用場地'])[0] || '' : '';
+              s.start = sl ? hmOf(sl['開始時間']) : '';
+              s.end = sl ? (hmOf(sl['結束時間']) === '23:59' ? '23:59' : hmOf(sl['結束時間'])) : '';
+              s.dates = [];
+            }
+            if (['court', 'start', 'end'].indexOf(t.dataset.k) >= 0) {
+              const sl = PB.get('1_據點_時段', s.slot);
+              if (sl && (minOf(s.start) < minOf(sl['開始時間']) || endMin(s.end) > endMin(sl['結束時間']))) ui.toast('上課時間要在時段 ' + hmOf(sl['開始時間']) + '–' + hmOf(sl['結束時間']) + ' 之內', 'bad');
+              s.dates = s.dates.filter((d) => !pvBusy(d, s.start, s.end, s.court));
+            }
+            render(el);
+          } else if (k === 'contact' || (k === 'pay' && t.dataset.f === 'method') || k === 'ex' && t.dataset.f === 'per') render(el);
+        });
+      },
+    });
+  };
+
+  // ---------------- 私人課程詳情 ----------------
+  /** 這班的帳單（3_應收帳款.報名 是這班的報名，含已取消的報名） */
+  const pvBills = (x) => {
+    const ids = x.sigs.map((r) => str(r['報名ID']));
+    return PB.rows('3_應收帳款').filter((b) => ids.indexOf(str(b['報名'])) >= 0).sort((a, b) => byKey(day(a['到期日']) + str(a['建立日期']), day(b['到期日']) + str(b['建立日期'])));
+  };
+  const pvContact = (c, x) => {
+    const tag = str(c['開班動作']).match(/^私人課程通知:(\S+)/);
+    if (tag) return tag[1];
+    const note = str(c['備註']).match(/聯絡人 ([^｜／]+)/);
+    const byName = note ? x.sigs.map((r) => str(r['學員'])).find((id) => m.stuName(id) === note[1].trim()) : '';
+    return byName || (pvBills(x)[0] || {})['付款人'] || '';
+  };
+  function privateBody(id, x) {
+    const c = x.c;
+    const t = today();
+    const can = !!PB.forms['2_課程班級'];
+    const acts = [];
+    if (can && ['確定開課', '進行中'].indexOf(x.st) >= 0) {
+      acts.push(ui.btn('加一堂', 'pvAddLesson', { id: id }, 'pri', 'plus'));
+      acts.push(ui.btn('加人', 'pvAddStu', { id: id }, '', 'plus'));
+    }
+    if (can) acts.push(ui.btn('編輯', 'classEdit', { id: id }, 'ghost'));
+    if (canDeleteClass(x)) acts.push(ui.btn('刪除班級', 'classDelete', { id: id }, 'bad'));
+    const contact = pvContact(c, x);
+    const bills = pvBills(x);
+    const bx = bills.map((b) => ({ b: b, y: m.rec(b['應收ID']) }));
+    const due = sum(bx.filter((v) => !v.y.voided), (v) => v.y.due);
+    const net = sum(bx.filter((v) => !v.y.voided), (v) => v.y.net);
+    const left = sum(bx.filter((v) => !v.y.voided), (v) => Math.max(0, v.y.left));
+    const info = kv([
+      ['類型', esc(m.typeName(c['課程類型'])) + ' <span class="badge">不公開</span>'],
+      ['狀態', m.classBadge(x.st) + (x.pending && /^私人課程通知/.test(str(c['開班動作'])) ? ' <span class="badge info">LINE 通知排程中</span>' : '')],
+      ['聯絡人', contact ? esc(m.stuName(contact)) + ' ' + ui.tel(m.phone(PB.get('1_學員', contact))) : ''],
+      ['據點', esc(m.venueName(c['據點']) + '・' + m.courtName(c['使用場地']))],
+      ['時間', esc(m.classWhen(c))],
+      ['教練', esc(m.staffName(c['主教練']) || '未定')],
+      ['進度', esc(x.done + '／' + x.total + ' 堂' + (x.next ? '・下一堂 ' + fmtD(x.next['日期']) : ''))],
+      ['收費', bills.length ? money(due) + '・已收 ' + money(net) + (left > 0 ? ' <span class="badge warn">未收 ' + money(left) + '</span>' : ' <span class="badge ok">收齊</span>') : '<span class="mut">沒有帳單</span>'],
+      ['備註', esc(c['備註'])],
+    ]);
+    const billRows = bx.map((v) => {
+      const b = v.b;
+      const y = v.y;
+      const st = y.voided ? '<span class="badge">作廢</span>' : y.left > 0 ? '<span class="badge warn">未收 ' + money(y.left) + '</span>' : '<span class="badge ok">已收齊</span>';
+      const bt = [];
+      if (!y.voided && y.left > 0) bt.push(btn('收款', 'payAdd', { id: b['應收ID'] }, 'pri'));
+      if (!y.voided) bt.push(btn('改金額', 'pvBill', { id: b['應收ID'] }, 'ghost'));
+      if (!y.voided && y.net > 0 && y.net > y.due) bt.push(btn('退款', 'refund', { id: b['應收ID'] }, 'ghost'));
+      const pays = (PB.ix.payByRec[str(b['應收ID'])] || []).map((p) => fmtD(p['收款日期']).replace(/（.）/, '') + ' ' + money(p['金額']) + ' ' + str(p['付款方式']) + (str(p['帳號末五碼']) ? '・' + str(p['帳號末五碼']) : '') + (str(p['對帳狀態']) === '待確認' ? '（待確認）' : '')).join('；');
+      return row({ t: esc(m.stuName(b['付款人'] || b['學員'])) + ' <span class="num">' + money(y.due) + '</span> ' + st, s: esc(str(b['項目說明'])) + (pays ? '<br><span class="mut">' + esc(pays) + '</span>' : ''), r: bt.join('') });
+    }).join('');
+    const stuRows = x.active.map((r) => {
+      const sid = str(r['學員']);
+      const s = PB.get('1_學員', sid);
+      const bal = PB.rows('3_堂數流水').filter((l) => str(l['報名']) === str(r['報名ID'])).reduce((a, l) => a + num(l['堂數']), 0);
+      const payer = str(r['代報名人']);
+      return row({ t: esc(m.stuName(sid)) + (sid === contact ? ' <span class="badge brand">聯絡人</span>' : ''), s: esc((m.phone(s) || '') + '・剩 ' + bal + ' 堂' + (payer && payer !== sid ? '・由 ' + m.stuName(payer) + ' 付款' : '')), r: ui.tel(m.phone(s)) + (can ? btn('退出', 'pvRemoveStu', { id: r['報名ID'] }, 'ghost') : '') });
+    }).join('');
+    const ses = x.ses.map((s) => {
+      const st = str(s['場次狀態']);
+      return row({ act: 'openSes', id: s['場次ID'], when: esc(fmtD(s['日期']).replace(/（.）/, '')) + '<small>週' + wd(s['日期']) + '</small>', t: '第 ' + esc(s['第幾堂']) + ' 堂 ' + (st === '預定' ? (day(s['日期']) < t ? '<span class="badge bad">未點名</span>' : '') : '<span class="badge ' + (st === '已完成' ? 'ok' : st === '改期' ? '' : 'bad') + '">' + esc(st === '取消' ? '停課' : st) + '</span>'), s: esc(m.hm(s['開始時間'], s['結束時間']) + '・' + m.courtName(s['使用場地']) + '・教練 ' + (m.staffName(s['授課教練']) || '未排')) });
+    }).join('');
+    const cancelled = x.sigs.filter((r) => str(r['報名狀態']) === '已取消');
+    return '<div class="acts">' + acts.join('') + '</div>' + info +
+      sec('帳單', bills.length + ' 筆') + card(billRows || ui.empty('沒有帳單')) +
+      sec('學員', x.active.length + ' 人') + card(stuRows || ui.empty('沒有學員')) +
+      sec('上課場次', x.ses.length + ' 堂') + card(ses || ui.empty('沒有場次')) +
+      (cancelled.length ? '<details style="margin-top:12px"><summary class="mut">已退出 ' + cancelled.length + ' 人</summary>' + card(cancelled.map((r) => row({ t: esc(m.stuName(r['學員'])), s: esc('退出 ' + fmtDT(r['取消時間'])) })).join('')) + '</details>' : '');
+  }
+
+  A.pvAddLesson = async (d) => {
+    const c = PB.get('2_課程班級', d.id);
+    const x = m.cls(c);
+    const start = hmOf(c['開始時間']);
+    const end = hmOf(c['結束時間']);
+    const slots = pvSlots(str(c['據點'])).filter((s) => split(s['使用場地']).indexOf(str(c['使用場地'])) >= 0);
+    const have = x.ses.filter((s) => ['取消', '改期'].indexOf(str(s['場次狀態'])) < 0).map((s) => day(s['日期']));
+    const opts = [];
+    slots.forEach((sl) => pvDays(str(sl['時段ID']), str(c['使用場地']), start, end, d.id).forEach((v) => {
+      if (v.d >= today() && have.indexOf(v.d) < 0 && !v.busy && minOf(sl['開始時間']) <= minOf(start) && endMin(sl['結束時間']) >= endMin(end) && !opts.some((o) => o.d === v.d)) opts.push({ d: v.d, l: mdw(v.d) + ' ' + start + '–' + end });
+    }));
+    opts.sort((a, b) => byKey(a.d, b.d));
+    if (!opts.length) return ui.toast('這一面在 ' + start + '–' + end + ' 沒有可加的可用日：請先到 管理後台 → 據點與場地 加日期', 'bad');
+    const bills = pvBills(x).filter((b) => b['作廢'] !== true);
+    const payers = uniq(bills.map((b) => str(b['付款人'])).filter(Boolean));
+    const perLesson = x.total ? Math.round(num(c['費用']) / x.total * x.active.length) : 0;
+    const v = await ui.ask('加一堂：' + str(c['課程名稱']), '同一面、同時間；要換時間請加完後在場次按「改期」。', {
+      fields: [
+        { k: 'date', label: '日期', t: 'enum', req: true, opts: opts.map((o) => o.l), value: opts[0].l, hint: '只列這一面這個時間還空著、已租到的日子' },
+        { k: 'coach', label: '教練', t: 'enum', opts: coaches().map((o) => o.l), value: m.staffName(c['主教練']) },
+        { k: 'amount', label: '這堂另外收費（全班合計）', t: 'money', value: perLesson, hint: '0＝不另收（例如原本就預付了多堂）；' + (payers.length > 1 ? payers.length + ' 位付款人平均分' : '帳單給 ' + (payers[0] ? m.stuName(payers[0]) : '聯絡人')) },
+        { k: 'paid', label: '已收這堂的錢', t: 'bool', when: { amount: '*' } },
+        { k: 'pmethod', label: '收款方式', t: 'enum', opts: ['現金', '轉帳', 'LINEPay'], value: '現金', when: { paid: [true] } },
+        { k: 'plast5', label: '末五碼', t: 'text', when: { pmethod: ['轉帳'] } },
+      ], ok: '加一堂',
+    });
+    if (!v) return;
+    const o = opts.find((y) => y.l === v.date);
+    const coach = coaches().find((y) => y.l === v.coach);
+    PB.run('privateAddLesson', { id: d.id, date: o ? o.d : '', coach: coach ? coach.v : '', amount: num(v.amount), payment: v.paid === true && num(v.amount) > 0 && payers.length <= 1 ? { amount: num(v.amount), date: today(), method: v.pmethod, last5: v.plast5 } : null });
+  };
+  A.pvAddStu = async (d) => {
+    const c = PB.get('2_課程班級', d.id);
+    const x = m.cls(c);
+    const left = x.ses.filter((s) => ['取消', '改期'].indexOf(str(s['場次狀態'])) < 0 && day(s['日期']) >= today()).length;
+    const contact = pvContact(c, x);
+    const per = x.total ? Math.round(num(c['費用']) / x.total) : 0;
+    const payOpts = ['學員自己付'].concat(contact ? ['由聯絡人 ' + m.stuName(contact) + ' 付'] : []);
+    const v = await ui.ask('加人：' + str(c['課程名稱']), '剩下 ' + left + ' 堂（從今天起）。找不到學員先到「學員」新增。', {
+      fields: [
+        { k: 'stu', label: '學員', t: 'ref', ref: '1_學員', req: true, other: true },
+        { k: 'lessons', label: '上幾堂', t: 'num', value: left },
+        { k: 'payer', label: '誰付', t: 'enum', opts: payOpts, value: payOpts[payOpts.length - 1] },
+        { k: 'amount', label: '費用', t: 'money', value: per * left, hint: '依目前每人每堂 ' + money(per) + ' 估算；0＝不另收' },
+      ], ok: '加入',
+    });
+    if (!v) return;
+    if (!v.stu || str(v.stu).charAt(0) === '?') return ui.toast('請從清單選學員', 'bad');
+    PB.run('privateAddStudent', { id: d.id, student: v.stu, lessons: v.lessons === '' ? '' : num(v.lessons), payer: /聯絡人/.test(v.payer) ? contact : '', amount: num(v.amount) });
+  };
+  A.pvRemoveStu = async (d) => {
+    const r = PB.get('2_報名', d.id);
+    const c = PB.get('2_課程班級', r['班級']);
+    const x = m.cls(c);
+    const own = PB.rows('3_應收帳款').filter((b) => str(b['報名']) === d.id && b['作廢'] !== true);
+    const bills = own.length ? own : pvBills(x).filter((b) => b['作廢'] !== true);
+    const label = (b) => str(b['項目說明']) + '（' + money(m.rec(b['應收ID']).due) + '）';
+    const bal = PB.rows('3_堂數流水').filter((l) => str(l['報名']) === d.id).reduce((a, l) => a + num(l['堂數']), 0);
+    const per = x.total ? Math.round(num(c['費用']) / x.total) : 0;
+    const v = await ui.ask('退出：' + m.stuName(r['學員']), '剩下的 ' + bal + ' 堂會沖回。要退錢的話：先在這裡把帳單減少，再到帳單按「退款」登記退了多少。', {
+      fields: [
+        { k: 'reduce', label: '帳單減少', t: 'money', value: 0, hint: '參考：每人每堂 ' + money(per) + ' × 剩 ' + bal + ' 堂 ＝ ' + money(per * bal) + '；0＝不調整' },
+        { k: 'bill', label: '從哪一筆帳單減', t: 'enum', opts: bills.map(label), value: bills[0] ? label(bills[0]) : '', when: { reduce: '*' } },
+      ], danger: true, ok: '退出',
+    });
+    if (!v) return;
+    const b = bills.find((y) => label(y) === v.bill);
+    PB.run('privateRemoveStudent', { signup: d.id, reduce: num(v.reduce), bill: b ? b['應收ID'] : '' });
+  };
+  A.pvBill = async (d) => {
+    const b = PB.get('3_應收帳款', d.id);
+    const y = m.rec(d.id);
+    const v = await ui.ask('改帳單金額', esc(str(b['項目說明'])) + '<br>目前 ' + money(y.due) + '、已收 ' + money(y.net), {
+      fields: [{ k: 'amount', label: '新金額', t: 'money', req: true, value: y.due, hint: '不能低於已收' }, { k: 'note', label: '原因', t: 'text', req: true }], ok: '儲存',
+    });
+    if (v) PB.run('privateBillAdjust', { rid: d.id, amount: num(v.amount), note: v.note });
   };
 
   // ---------------- 報名操作 ----------------

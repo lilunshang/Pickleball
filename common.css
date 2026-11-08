@@ -758,3 +758,26 @@ a.row{color:inherit;text-decoration:none}
 }
 /* v3.8 排課看板：場主同時段重疊（只提醒） */
 .sb-cell.hostwarn .tag{background:var(--warn-soft);color:var(--warn)}
+
+/* v4.9（11/8）私人課程：新增視窗、詳情 */
+.pv-sec{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.pv-sec:first-child{border-top:0;margin-top:0;padding-top:0}
+.pv-sec h4{margin:0 0 4px;font-size:.98rem;color:var(--ink)}
+.pv-row{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.pv-time{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
+.pv .fld .pv-time input,.pv .pv-ex input,.pv .pv-ex select,.pv .pv-pay input,.pv .pv-pay select,.pv .pv-add input{width:auto;border:1px solid var(--line);background:var(--surface2);border-radius:var(--r-sm);padding:7px 9px;min-height:36px}
+.pv .fld .pv-time input[type=time]{width:136px}
+.pv-days{max-height:190px;overflow:auto;padding:2px}
+.pv-days .chip{padding:5px 12px}
+.pv-days .chip:disabled{cursor:not-allowed}
+.pv-stus{display:flex;flex-direction:column;gap:4px;margin:8px 0}
+.pv-stu{display:flex;gap:10px;align-items:center;padding:4px 4px 4px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface)}
+.pv-stu .nm{font-weight:600;flex:1}
+.pv-contact{font-size:.8rem;color:var(--mut);display:inline-flex;gap:4px;align-items:center;white-space:nowrap;cursor:pointer}
+.pv-add,.pv-ex,.pv-pay{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0}
+.pv .pv-add input{flex:1;min-width:200px}
+.pv .pv-ex input:first-child{flex:1;min-width:150px}
+.pv-total{background:var(--brand-soft);border-radius:var(--r-sm);padding:10px 12px;font-size:.9rem;margin:8px 0 4px;line-height:1.7}
+.pv-sum{margin-top:4px;font-size:1.08rem;color:var(--ink)}
+.pv-chk{display:flex;gap:8px;align-items:center;font-size:.9rem;margin:8px 0}
+@media (max-width:640px){.pv-row{grid-template-columns:1fr}.pv .pv-add input{min-width:0}}
