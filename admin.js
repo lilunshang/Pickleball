@@ -585,7 +585,8 @@
   function creditTab(mon, p) {
     if (!PB.has('3_抵用金流水')) return '<div class="note warn">還沒有「3_抵用金流水」工作表。請在 3_財務 新增，第一列欄位：流水ID、付款人、金額、類型、來源報名、對應應收、建立時間、經手人、備註。</div>';
     const all = PB.rows('3_抵用金流水');
-    const by = PB.groupBy(all, '付款人');
+    const by = {}; // v4.9+：依歸屬人（家人的算管理人）
+    all.forEach((r) => { const k = m.creditOwner(r['付款人']); (by[k] = by[k] || []).push(r); });
     const kw = str(p.q).toLowerCase();
     let list = Object.keys(by).map((k) => ({ id: k, bal: sum(by[k], (r) => r['金額']), inn: sum(by[k].filter((r) => num(r['金額']) > 0), (r) => r['金額']), n: by[k].length, last: by[k].map((r) => str(r['建立時間'])).sort().pop() }));
     if (p.all !== '1') list = list.filter((x) => x.bal !== 0);

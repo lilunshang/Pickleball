@@ -594,9 +594,12 @@
     const sigs = (ix.sigByStu[id] || []).slice().sort((a, b) => byKey(str(b['報名時間']), str(a['報名時間'])));
     const family = ix.stuByGuardian[id] || [];
     const guardian = str(s['管理人']) ? PB.get('1_學員', s['管理人']) : null;
-    const credits = (ix.creditByPayer[id] || []).slice().sort((a, b) => byKey(str(b['建立時間']), str(a['建立時間'])));
-    return { s: s, id: id, lessons: lessons, owed: owed, payRecs: payRecs, sigs: sigs, family: family, guardian: guardian, att: ix.attByStu[id] || [], credits: credits, credit: sum(credits, (x) => x['金額']) };
+    // v4.9+（11/8）：抵用金算管理人 — 管理人看到本人＋家人名下；家人本身顯示 0（creditOwner＝管理人）
+    const creditOwner = guardian ? str(guardian['學員ID']) : id;
+    const credits = guardian ? [] : [id].concat(family.map((f) => str(f['學員ID']))).reduce((a, k) => a.concat(ix.creditByPayer[k] || []), []).sort((a, b) => byKey(str(b['建立時間']), str(a['建立時間'])));
+    return { s: s, id: id, lessons: lessons, owed: owed, payRecs: payRecs, sigs: sigs, family: family, guardian: guardian, att: ix.attByStu[id] || [], credits: credits, credit: sum(credits, (x) => x['金額']), creditOwner: creditOwner };
   };
+  m.creditOwner = (id) => { const s = PB.get('1_學員', id); const g = s ? str(s['管理人']) : ''; return g && g !== str(id) && PB.get('1_學員', g) ? g : str(id); };
   m.phone = (s) => { const p = str(s && s['電話']) || str(s && s['管理人'] && (PB.get('1_學員', s['管理人']) || {})['電話']); return p; };
   m.sigTarget = (r) => (str(r['報名類型']) === '課程' ? m.label('2_課程班級', PB.get('2_課程班級', r['班級'])) : m.label('2_球敘場次', PB.get('2_球敘場次', r['球敘'])));
   m.sigBadge = (st) => '<span class="badge ' + ({ 已報名: 'ok', 候補: 'warn', 保留中: 'info', 已取消: '', 現場待確認: 'warn' }[st] || '') + '">' + esc(st) + '</span>';

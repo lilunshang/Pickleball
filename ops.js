@@ -1506,12 +1506,12 @@
     const recs = x.payRecs.slice().sort((a, b) => byKey(day(b['建立日期']), day(a['建立日期'])));
     const creditOn = PB.has('3_抵用金流水');
     const CT = { 轉入: 'ok', 折抵: 'info', 退現: 'warn', 調整: '' };
-    const creditRows = x.credits.slice(0, 30).map((c) => row({ t: '<span class="badge ' + (CT[str(c['類型'])] || '') + '">' + esc(c['類型']) + '</span> <span class="num">' + (num(c['金額']) > 0 ? '+' : '') + money(c['金額']) + '</span>', s: esc([fmtDT(c['建立時間']), str(c['來源報名']) && PB.get('2_報名', c['來源報名']) ? m.sigTarget(PB.get('2_報名', c['來源報名'])) : '', m.staffName(c['經手人']), str(c['備註'])].filter(Boolean).join('・')) })).join('');
+    const creditRows = x.credits.slice(0, 30).map((c) => row({ t: '<span class="badge ' + (CT[str(c['類型'])] || '') + '">' + esc(c['類型']) + '</span> <span class="num">' + (num(c['金額']) > 0 ? '+' : '') + money(c['金額']) + '</span>', s: esc([fmtDT(c['建立時間']), str(c['付款人']) !== id ? '記在 ' + m.stuName(c['付款人']) : '', str(c['來源報名']) && PB.get('2_報名', c['來源報名']) ? m.sigTarget(PB.get('2_報名', c['來源報名'])) : '', m.staffName(c['經手人']), str(c['備註'])].filter(Boolean).join('・')) })).join('');
     const recRows = recs.map((r) => {
       const y = m.rec(r['應收ID']);
       const b = [];
       if (!y.voided && y.left > 0) b.push(btn('收款', 'payAdd', { id: r['應收ID'] }, 'pri'), btn('提醒', 'payRemind', { ids: r['應收ID'] }, 'ghost'));
-      if (!y.voided && y.left > 0 && creditOn && x.credit > 0 && str(r['付款人'] || r['學員']) === id) b.push(btn('用抵用金付', 'creditUse', { id: r['應收ID'] }));
+      if (!y.voided && y.left > 0 && creditOn && m.stu(m.creditOwner(str(r['付款人'] || r['學員']))).credit > 0 && m.creditOwner(str(r['付款人'] || r['學員'])) === x.creditOwner) b.push(btn('用抵用金付', 'creditUse', { id: r['應收ID'] }));
       if (y.net > 0) b.push(btn('退款', 'refund', { id: r['應收ID'] }, 'ghost'));
       if (y.net > 0 && creditOn && sigEnded(PB.get('2_報名', r['報名']))) b.push(btn('轉抵用金', 'creditIn', { id: r['應收ID'] }, 'ghost'));
       const pays = (PB.ix.payByRec[str(r['應收ID'])] || []).map((p) => fmtD(p['收款日期']) + ' ' + money(p['金額']) + ' ' + str(p['付款方式']) + (str(p['對帳狀態']) !== '已確認' ? '（' + str(p['對帳狀態']) + '）' : '')).join('；');
@@ -1527,7 +1527,7 @@
     const friend = !str(s['LINE_userId']) ? '<span class="badge">未綁 LINE</span>' : s['好友狀態'] === false ? '<span class="badge bad">未加好友（收不到通知）</span>' : '<span class="badge ok">已加好友</span>';
     return '<div class="acts">' + acts.join('') + '</div>' +
       '<div class="kpis" style="margin-bottom:12px"><div class="kpi"><div class="l">剩餘堂數</div><div class="v">' + x.lessons + '</div></div><div class="kpi' + (x.owed > 0 ? ' neg' : '') + '"><div class="l">未收金額</div><div class="v">' + money(x.owed) + '</div><div class="d">以付款人計</div></div><div class="kpi"><div class="l">報名</div><div class="v">' + x.sigs.filter((r) => str(r['報名狀態']) !== '已取消').length + '</div></div>' +
-      (creditOn ? '<div class="kpi' + (x.credit > 0 ? ' pos' : '') + '"><div class="l">課程抵用金</div><div class="v">' + money(x.credit) + '</div><div class="d">不設到期日，可申請退現</div></div>' : '') + '</div>' +
+      (creditOn ? '<div class="kpi' + (x.credit > 0 ? ' pos' : '') + '"><div class="l">課程抵用金</div><div class="v">' + money(x.credit) + '</div><div class="d">' + (x.guardian ? '家人的抵用金算在管理人 ' + esc(m.stuName(x.creditOwner)) : '不設到期日，可申請退現' + (x.family.length ? '（含家人）' : '')) + '</div></div>' : '') + '</div>' +
       kv([
         ['電話', ui.tel(str(s['電話'])) + (!str(s['電話']) && x.guardian ? ' <span class="mut">（家長 ' + esc(m.phone(s)) + '）</span>' : '')],
         ['LINE', esc(str(s['LINE顯示名稱'])) + ' ' + friend],
@@ -1567,7 +1567,7 @@
   };
   A.creditUse = async (d) => {
     const rec = PB.get('3_應收帳款', d.id);
-    const payer = str(rec['付款人']) || str(rec['學員']);
+    const payer = m.creditOwner(str(rec['付款人']) || str(rec['學員'])); // v4.9+：家人的抵用金算管理人
     const bal = m.stu(payer).credit;
     const y = m.rec(d.id);
     const v = await ui.ask('用抵用金付：' + m.stuName(payer), esc(str(rec['項目說明'])) + '<br>未收 ' + money(y.left) + '、抵用金餘額 ' + money(bal), { fields: [{ k: 'amount', label: '折抵金額', t: 'money', req: true, value: Math.min(y.left, bal) }], ok: '折抵' });
