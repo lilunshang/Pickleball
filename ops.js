@@ -2238,7 +2238,7 @@
     title: '營運工作台',
     version: '4.12',
     // v4.12：排課、主檔與紀錄從管理後台移過來（行政客服、管理層；社群行銷看不到）
-    screens: [Today, Queue, PB.Timetable, Classes, Games, Students, Kb, Publish, Sources, PB.schedScreen, PB.dataScreen].filter(Boolean),
+    screens: [Today, Queue, PB.Timetable, PB.schedScreen, Classes, Games, Students, Kb, Publish, Sources, PB.dataScreen].filter(Boolean), // 11/10：排課放在課表下一個
     links: () => (!PB.cfg.kb && PB.cfg.kbUrl ? [{ label: '知識庫', url: PB.cfg.kbUrl, icon: 'kb', mobile: true }] : []),
   });
 })();
