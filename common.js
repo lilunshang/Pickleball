@@ -895,6 +895,7 @@
     if (f.where) Object.keys(f.where).forEach((c) => { const w = f.where[c]; const v = w.charAt(0) === '$' ? vals[w.slice(1)] : w; rows = rows.filter((r) => !v || str(r[c]) === str(v)); });
     if (f.has) Object.keys(f.has).forEach((c) => { rows = rows.filter((r) => !str(r[c]) || split(r[c]).indexOf(f.has[c]) >= 0); });
     rows = rows.filter((r) => ['使用中', ''].indexOf(str(r['狀態'])) >= 0 || cur.indexOf(str(r[k])) >= 0);
+    rows = rows.filter((r) => !day(r['結束日期']) || day(r['結束日期']) >= today() || cur.indexOf(str(r[k])) >= 0); // v4.12：已結束的時段不列（已選的照列）
     rows.sort((a, b) => byKey(WEEK.indexOf(str(a['星期'])) + str(a['開始時間']) + m.venueName(a['據點']), WEEK.indexOf(str(b['星期'])) + str(b['開始時間']) + m.venueName(b['據點'])));
     const kind = f.multi ? 'checkbox' : 'radio';
     const name = id + '_s';
@@ -904,9 +905,15 @@
     return '<div class="slots" id="' + id + '" data-' + (f.multi ? 'multi' : 'radio') + '="' + esc(f.k) + '"' + (f.max ? ' data-max="' + f.max + '"' : '') + '>' + sum +
       days.map((d) => '<div class="slot-row"><div class="slot-d">週' + esc(d || '?') + '</div><div class="slot-c">' + rows.filter((r) => str(r['星期']) === d).map((r) => {
         const v = str(r[k]);
-        const courts = split(r['使用場地']).length;
-        const sub = [venue ? '' : m.venueName(r['據點']), courts ? courts + ' 面' : '', str(r['狀態']) && str(r['狀態']) !== '使用中' ? str(r['狀態']) : ''].filter(Boolean).join('・');
-        return '<label class="slot"><input type="' + kind + '" name="' + name + '" value="' + esc(v) + '"' + (cur.indexOf(v) >= 0 ? ' checked' : '') + '><span><b>' + esc(m.hm(r['開始時間'], r['結束時間'])) + '</b>' + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span></label>';
+        // v4.12：同一個時間有好幾個時段時分得出來 → 球面名稱（3 面以內）、期間
+        const cn = split(r['使用場地']).map(m.courtName).filter(Boolean);
+        const courts = cn.length ? (cn.length <= 3 ? cn.join('、') : cn.length + ' 面') : '';
+        const md = (d) => +d.slice(5, 7) + '/' + +d.slice(8, 10);
+        const ps = day(r['生效日期']);
+        const pe = day(r['結束日期']);
+        const period = pe ? (ps && ps > today() ? md(ps) + '–' : '到 ') + md(pe) : ps && ps > today() ? md(ps) + ' 起' : '';
+        const sub = [venue ? '' : m.venueName(r['據點']), courts, period, str(r['狀態']) && str(r['狀態']) !== '使用中' ? str(r['狀態']) : ''].filter(Boolean).join('・');
+        return '<label class="slot" title="' + esc(cn.join('、') + (str(r['說明']) ? '｜' + str(r['說明']) : '')) + '"><input type="' + kind + '" name="' + name + '" value="' + esc(v) + '"' + (cur.indexOf(v) >= 0 ? ' checked' : '') + '><span><b>' + esc(m.hm(r['開始時間'], r['結束時間'])) + '</b>' + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span></label>';
       }).join('') + '</div></div>').join('') + '</div>';
   }
   function slotSummary(ids) {
@@ -1167,6 +1174,8 @@
     let fields = spec.fields.filter((f) => !f.optional || (db.cols[table] || []).indexOf(f.k) >= 0);
     if (o.only) fields = fields.filter((f) => o.only.indexOf(f.k) >= 0);
     fields = fields.map((f) => (f.t === 'files' ? Object.assign({ _table: table }, f) : f)); // v2.7：上傳要知道是哪張表
+    // v4.12：專項課（一堂）→ 時間地點唯讀、不顯示彈性場地
+    if (table === '2_課程班級' && before && m.isSingle(before)) fields = fields.filter((f) => !f.hideSingle).map((f) => (f.fixSingle ? Object.assign({}, f, { canEdit: false, hint: f.singleHint || '' }) : f));
     const init = Object.assign({}, before || defaultsOf(fields), o.values || {});
     const body = formBody(table, fields, init, before); // v4.12：分區塊
     let savedId = null;
