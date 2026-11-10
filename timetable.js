@@ -182,6 +182,7 @@
     const mode = p.mode || 'day';
     const head = '<div class="ptop"><h1>課表</h1><span class="mut" style="font-size:.85rem">課程和球敘在同一頁</span><span class="sp"></span>' +
       (PB.forms['2_課程班級'] ? ui.btn('私人課程', 'pvNew', {}, 'sm', 'plus') + ui.btn('新增班級', 'classNew', {}, 'sm', 'plus') : '') + (PB.forms['2_球敘場次'] ? ui.btn('新增球敘', 'gameNew', {}, 'sm pri', 'plus') : '') +
+      (PB.acts.vcOpen ? ui.btn('場地停用', 'vcOpen', { venue: p.v || '' }, 'sm bad') : '') + // v4.10
       ui.btn('班級清單', 'ttGo', { to: 'classes' }, 'sm ghost') + ui.btn('球敘清單', 'ttGo', { to: 'games' }, 'sm ghost') + '</div>';
     const seg = '<div class="seg">' + [['day', '依日期'], ['venue', '依據點'], ['term', '期制班']].map((x) => '<button class="' + (mode === x[0] ? 'on' : '') + '" data-act="ttSet" data-k="mode" data-v="' + x[0] + '">' + x[1] + '</button>').join('') + '</div>';
     const kind = mode === 'term' ? '' : '<div class="tt-f"><span>類別</span>' + chips('k', [{ v: '', l: '全部' }, { v: '課程', l: '課程' }, { v: '球敘', l: '球敘' }], p.k) + '</div>';

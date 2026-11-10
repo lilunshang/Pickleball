@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -1462,6 +1462,159 @@
     const v = await ui.ask('這天不能用', '系統會寄出當天受影響的課程與球敘；課程請逐堂「改期」，球敘請「取消球敘」。', { fields: [{ k: 'reason', label: '原因', t: 'text', req: true, hint: '例：學校活動借用、颱風' }], danger: true, ok: '取消這天' });
     if (v) PB.run('availCancel', { ids: [d.id], reason: v.reason });
   };
+
+  // ================================================================
+  // v4.10（11/9）場地停用：某據點一段期間都不能用 → 一次取消球敘、專項課、期制／私人課停課、可用日
+  // 清單在瀏覽器算（不多一個請求）；送出後伺服器用最新資料再檢查（VenueClose.gs）
+  // ================================================================
+  const VC_ACTIVE = ['已報名', '候補', '保留中', '現場待確認'];
+  const vcState = { venue: '', from: '', to: '', slots: [], reason: '', off: {} };
+  function vcCollect(o) {
+    const t = today();
+    const from = o.from && o.from > t ? o.from : t;
+    const inR = (v, d, slot) => !!o.venue && str(v) === o.venue && !!day(d) && day(d) >= from && (!o.to || day(d) <= o.to) &&
+      (!o.slots.length || split(slot).some((x) => o.slots.indexOf(x) >= 0));
+    const byDay = (a, b) => byKey(a.d + a.t, b.d + b.t);
+    const games = PB.rows('2_球敘場次')
+      .filter((g) => inR(g['據點'], g['日期'], g['時段']) && ['取消', '已結束'].indexOf(str(g['狀態'])) < 0 && !str(g['取消請求時間']))
+      .map((g) => {
+        const x = m.game(g);
+        const people = x.sigs.filter((r) => VC_ACTIVE.indexOf(str(r['報名狀態'])) >= 0);
+        const paid = people.filter((r) => m.sigPay(r['報名ID']).net > 0).length;
+        const draft = str(g['狀態']) === '草稿';
+        return {
+          k: 'games', id: str(g['球敘ID']), d: day(g['日期']), t: m.hm(g['開始時間'], g['結束時間']),
+          title: m.gameLabel(g) + '・' + split(g['使用場地']).map(m.courtName).join('、'),
+          what: draft ? '草稿直接取消' : people.length ? '通知 ' + people.length + ' 人' + (paid ? '（已付 ' + paid + ' 人可選改報／抵用金／退款）' : '') + '＋場主' : '沒人報名，直接取消',
+          warn: people.length > 0, hosts: draft ? [] : x.hosts.map((h) => h.name).filter(Boolean),
+        };
+      }).sort(byDay);
+    const classes = [];
+    const sessions = [];
+    PB.rows('2_上課場次').forEach((s) => {
+      const c = PB.get('2_課程班級', s['班級']);
+      if (!c || !inR(s['據點'], s['日期'], s['時段'])) return;
+      if (m.isSingle(c)) {
+        if (str(s['場次狀態']) !== '預定' || ['籌備中', '確定開課'].indexOf(str(c['課程狀態'])) < 0) return;
+        const x = m.cls(c);
+        const people = x.active.length + x.hold.length + x.wait.length;
+        const att = x.ses.reduce((n, z) => n.concat(PB.ix.attBySes[str(z['場次ID'])] || []), []);
+        const block = x.pending ? '開班動作還在處理中' : x.ses.some((z) => str(z['場次狀態']) === '已完成' || str(z['點名確認時間'])) ? '已經上過或點過名' : att.length > x.makeups ? '有補課以外的出缺勤，請先處理' : '';
+        classes.push({
+          k: 'classes', id: str(c['班級ID']), d: day(s['日期']), t: m.hm(s['開始時間'], s['結束時間']),
+          title: str(c['課程名稱']) + '・' + m.courtName(s['使用場地']) + '・' + m.staffName(s['授課教練']),
+          what: block || (people || x.makeups ? '通知 ' + people + ' 人' + (x.makeups ? '、補課 ' + x.makeups + ' 人改回待補課' : '') + '＋教練' : '沒人報名，直接取消'),
+          warn: people + x.makeups > 0, block: block,
+        });
+      } else if (str(s['場次狀態']) === '預定') {
+        const x = m.cls(c);
+        sessions.push({
+          k: 'sessions', id: str(s['場次ID']), d: day(s['日期']), t: m.hm(s['開始時間'], s['結束時間']),
+          title: (m.isPrivate(c) ? '【私人】' : '【期制】') + str(c['課程名稱']) + (s['第幾堂'] ? ' 第 ' + s['第幾堂'] + ' 堂' : ''),
+          what: '停課，通知 ' + x.active.length + ' 位學員與教練；之後要補請「改期」', warn: true,
+        });
+      }
+    });
+    const slotOf = {};
+    PB.rows('1_據點_時段').forEach((s) => { slotOf[str(s['時段ID'])] = s; });
+    const avail = PB.rows('1_據點_可用日')
+      .filter((a) => { const s = slotOf[str(a['時段'])]; return s && str(a['狀態']) !== '取消' && inR(s['據點'], a['日期'], a['時段']); })
+      .map((a) => ({ k: 'avail', id: str(a['可用日ID']), d: day(a['日期']), t: m.hm(slotOf[str(a['時段'])]['開始時間'], slotOf[str(a['時段'])]['結束時間']), title: '可用日（' + str(a['狀態']) + '）', what: '' }))
+      .sort(byDay);
+    return { games: games, classes: classes.sort(byDay), sessions: sessions.sort(byDay), avail: avail, from: from };
+  }
+  const VC_SEC = [['games', '球敘'], ['classes', '專項課'], ['sessions', '期制／私人課（停課）'], ['avail', '可用日']];
+  function vcListHtml() {
+    const o = vcState;
+    if (!o.venue) return '<p class="mut">先選據點</p>';
+    const r = vcCollect(o);
+    const n = VC_SEC.reduce((s, x) => s + r[x[0]].length, 0);
+    if (!n) return '<p class="mut">這段期間沒有要取消的項目</p>';
+    return VC_SEC.filter((x) => r[x[0]].length).map((x) => {
+      const items = r[x[0]];
+      const on = items.filter((it) => !it.block && !o.off[it.k + ':' + it.id]).length;
+      return '<div class="vc-sec"><label class="vc-h"><input type="checkbox" data-vcall="' + x[0] + '"' + (on === items.filter((it) => !it.block).length && on ? ' checked' : '') + '> <b>' + esc(x[1]) + '</b> <span class="mut">' + on + '／' + items.length + '</span></label>' +
+        items.map((it) => '<label class="vc-row' + (it.block ? ' off' : '') + '"><input type="checkbox" data-vc="' + it.k + '" value="' + esc(it.id) + '"' + (it.block ? ' disabled' : !o.off[it.k + ':' + it.id] ? ' checked' : '') + '>' +
+          '<span class="vc-d">' + esc(fmtD(it.d)) + '<br><span class="mut">' + esc(it.t) + '</span></span><span class="vc-t">' + esc(it.title) + (it.what ? '<br><span class="' + (it.block ? 'bad' : it.warn ? 'warnc' : 'mut') + '">' + esc(it.what) + '</span>' : '') + '</span></label>').join('') + '</div>';
+    }).join('');
+  }
+  function vcSlotsHtml() {
+    if (!vcState.venue) return '';
+    const list = PB.rows('1_據點_時段').filter((s) => str(s['據點']) === vcState.venue && str(s['狀態']) !== '停用');
+    if (list.length < 2) return '';
+    return '<div class="fld"><label>只停這些時段（不勾＝全部）</label><div class="vc-slots">' + list.map((s) => '<label class="chk"><input type="checkbox" data-vcslot value="' + esc(s['時段ID']) + '"' + (vcState.slots.indexOf(str(s['時段ID'])) >= 0 ? ' checked' : '') + '> ' + esc(m.slotLabel(s).split('｜')[0]) + '</label>').join('') + '</div></div>';
+  }
+  A.vcOpen = (d) => {
+    Object.assign(vcState, { venue: str(d && d.venue), from: today(), to: '', slots: [], reason: '', off: {} });
+    const venues = PB.rows('1_據點').filter((v) => str(v['狀態']) !== '停用' && str(v['狀態']) !== '已結束').sort((a, b) => byKey(str(a['區域']) + str(a['據點名稱']), str(b['區域']) + str(b['據點名稱'])));
+    const body = '<p style="margin:4px 0 10px">學校借不到、場地維修、颱風…整個據點一段時間不能用時，一次取消這段期間的球敘、專項課、期制／私人課（停課）與可用日。有人報名的會照原本的取消流程通知學員、場主與教練。</p>' +
+      '<div class="fld"><label>據點</label><select data-vcf="venue"><option value="">請選擇</option>' + venues.map((v) => '<option value="' + esc(v['據點ID']) + '"' + (str(v['據點ID']) === vcState.venue ? ' selected' : '') + '>' + esc(v['據點名稱']) + '</option>').join('') + '</select></div>' +
+      '<div class="vc-2"><div class="fld"><label>從</label><input type="date" data-vcf="from" value="' + esc(vcState.from) + '" min="' + today() + '"></div>' +
+      '<div class="fld"><label>到（空白＝之後全部）</label><input type="date" data-vcf="to" value=""></div></div>' +
+      '<div data-vcslots>' + vcSlotsHtml() + '</div>' +
+      '<div class="fld"><label>原因（會寫進備註、可用日取消原因）</label><input type="text" data-vcf="reason" placeholder="例：學校工程，光電戶外球場全面暫停"></div>' +
+      '<div class="vc-list" data-vclist>' + vcListHtml() + '</div>';
+    const refresh = (el, slots) => {
+      if (slots) el.querySelector('[data-vcslots]').innerHTML = vcSlotsHtml();
+      el.querySelector('[data-vclist]').innerHTML = vcListHtml();
+    };
+    return ui.modal({
+      title: '場地停用（批次取消）', body: body, sticky: true,
+      onOpen: (el) => {
+        el.addEventListener('change', (e) => {
+          const t = e.target;
+          if (t.dataset.vcf) {
+            vcState[t.dataset.vcf] = t.value;
+            if (t.dataset.vcf === 'venue') { vcState.slots = []; vcState.off = {}; }
+            if (t.dataset.vcf !== 'reason') refresh(el, t.dataset.vcf === 'venue');
+          } else if (t.hasAttribute('data-vcslot')) {
+            vcState.slots = Array.from(el.querySelectorAll('[data-vcslot]:checked')).map((i) => i.value);
+            refresh(el);
+          } else if (t.dataset.vcall) {
+            el.querySelectorAll('[data-vc="' + t.dataset.vcall + '"]:not(:disabled)').forEach((i) => { vcState.off[t.dataset.vcall + ':' + i.value] = !t.checked; });
+            refresh(el);
+          } else if (t.dataset.vc) {
+            vcState.off[t.dataset.vc + ':' + t.value] = !t.checked;
+            refresh(el);
+          }
+        });
+        el.addEventListener('input', (e) => { if (e.target.dataset.vcf === 'reason') vcState.reason = e.target.value; });
+      },
+      actions: [
+        { label: '取消' },
+        {
+          label: '確定取消勾選的項目', kind: 'bad fill',
+          click: async (el) => {
+            const pick = {};
+            VC_SEC.forEach((x) => { pick[x[0]] = Array.from(el.querySelectorAll('[data-vc="' + x[0] + '"]:checked')).map((i) => i.value); });
+            const n = VC_SEC.reduce((s, x) => s + pick[x[0]].length, 0);
+            if (!vcState.venue) { ui.toast('請選據點', 'bad'); return false; }
+            if (!str(vcState.reason)) { ui.toast('請寫原因', 'bad'); return false; }
+            if (!n) { ui.toast('沒有勾選要取消的項目', 'bad'); return false; }
+            const r0 = vcCollect(vcState);
+            const notify = VC_SEC.reduce((s, x) => s + r0[x[0]].filter((it) => it.warn && pick[x[0]].indexOf(it.id) >= 0).length, 0);
+            const sure = await ui.ask('確定取消 ' + n + ' 項？', esc(m.venueName(vcState.venue)) + ' ' + esc(fmtD(r0.from)) + (vcState.to ? '～' + esc(fmtD(vcState.to)) : ' 起') + '<br>' +
+              VC_SEC.filter((x) => pick[x[0]].length).map((x) => esc(x[1]) + ' ' + pick[x[0]].length).join('、') + (notify ? '<br><b>其中 ' + notify + ' 項有學員，系統會發 LINE 通知。</b>' : '<br>都沒有學員報名，不會發通知給學員。') + '<br>取消後不能一鍵復原。', { danger: true, ok: '確定取消' });
+            if (!sure) return false;
+            const res = await PB.run('venueClose', Object.assign({ venue: vcState.venue, from: vcState.from, to: vcState.to, slots: vcState.slots, reason: vcState.reason }, pick));
+            if (!res) return false;
+            const hosts = (res.data && res.data.hosts) || [];
+            if (hosts.length) setTimeout(() => vcHostNote(hosts), 50);
+            return true;
+          },
+        },
+      ],
+    });
+  };
+  // 沒人報名的球敘不推播場主 → 給一段可以直接貼到 LINE 的文字
+  function vcHostNote(hosts) {
+    const v = m.venueName(vcState.venue);
+    const text = hosts.map((h) => m.staffName(h.id) + ' 您好，' + v + (vcState.reason ? '（' + vcState.reason + '）' : '') + '，以下場次取消，不用到場：\n' + h.dates.map((x) => '・' + x).join('\n')).join('\n\n');
+    ui.modal({
+      title: '請通知場主', body: '<p>這些球敘沒有學員報名，系統沒有推播給場主。可以複製下面的文字傳給場主：</p><textarea readonly style="width:100%;min-height:180px">' + esc(text) + '</textarea>',
+      actions: [{ label: '關閉' }, { label: '複製', kind: 'pri', click: () => { PB.copy(text, '通知文字'); return false; } }],
+    });
+  }
 
   // ================================================================
   // 學員

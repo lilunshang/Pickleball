@@ -465,11 +465,11 @@
       const kinds = uniq(g.list.map((x) => x.t));
       const rows = g.list.sort((a, b) => byKey(a.t + a.d, b.t + b.d)).map((x) => '<tr' + (x.open ? ' class="click" data-act="' + x.open + '" data-id="' + esc(x.id) + '"' : '') + '><td data-stop><input type="checkbox" data-paysel="' + esc(skey(x)) + '"' + (paySel.has(skey(x)) ? ' checked' : '') + '></td><td><span class="badge ' + TBADGE[x.t] + '">' + x.t + '</span></td><td style="white-space:normal">' + esc(x.t === '支出' ? fmtD(x.d) + '・' + x.label : x.label) + '</td><td class="fclip m-hide">' + (x.files ? '📎 ' + x.files : '') + '</td><td class="num">' + money(x.amt) + '</td></tr>').join('');
       return '<div class="card exp-g"><div class="exp-gh"><label class="exp-all"><input type="checkbox" data-paygrp="' + esc(ks.join(',')) + '"' + (on === ks.length ? ' checked' : '') + '><b>' + esc(g.py.name) + '</b></label>' +
-        (g.py.kind ? '<span class="badge">' + esc(g.py.kind) + '</span>' : '') + (kinds.length > 1 ? '<span class="mut" style="font-size:.8rem">' + esc(kinds.join('＋')) + '</span>' : '') + (g.py.info ? '<span class="mut exp-info">' + esc(g.py.info) + '</span>' : '') + (g.py.kind === '人員' ? btn('匯款資料', 'secretView', { id: g.py.id }, 'ghost') : '') +
+        (g.py.kind ? '<span class="badge">' + esc(g.py.kind) + '</span>' : '') + (kinds.length > 1 ? '<span class="mut" style="font-size:.8rem">' + esc(kinds.join('＋')) + '</span>' : '') + (g.py.info ? '<span class="mut exp-info">' + esc(g.py.info) + '</span>' : '') + (g.py.kind === '人員' ? btn('轉帳資訊', 'secretView', { id: g.py.id, amt: sum(g.list, (x) => x.amt) }, 'ghost') : '') +
         '<span class="sp"></span><span class="mut">' + g.list.length + ' 筆</span><b class="num">' + money(sum(g.list, (x) => x.amt)) + '</b></div>' +
         '<div class="tbl-wrap flat"><table class="tbl"><tbody>' + rows + '</tbody></table></div></div>';
     }).join('');
-    const filt = '<div class="ptop"><label class="search">' + PB.icon('search') + '<input placeholder="受款對象、項目" value="' + esc(p.q || '') + '" data-input="arSearch"></label><span class="sp"></span><span class="mut">待付 ' + list.length + ' 筆・' + money(sum(list, (x) => x.amt)) + '</span>' + btn('新增支出', 'expNew', {}, 'ghost', 'plus') + '</div>';
+    const filt = '<div class="ptop"><label class="search">' + PB.icon('search') + '<input placeholder="受款對象、項目" value="' + esc(p.q || '') + '" data-input="arSearch"></label><span class="sp"></span><span class="mut">待付 ' + list.length + ' 筆・' + money(sum(list, (x) => x.amt)) + '</span>' + (list.length ? btn('轉帳清單', 'payList', {}, 'pri') : '') + btn('新增支出', 'expNew', {}, 'ghost', 'plus') + '</div>';
     return filt + (cards || '<div class="card">' + ui.empty('沒有待付款的項目', '') + '</div>') + '<div class="exp-bar" id="payBar">' + barHtml() + '</div>' +
       '<p class="mut" style="font-size:.8rem">同一個人的月結、分潤、支出可以一起勾、一起付（同一次付款、同一張轉帳截圖）。勾選記在這台裝置，可以分幾天慢慢勾。</p>';
   }
@@ -512,10 +512,76 @@
     const out = await PB.run('payBatch', Object.assign({ items: sel.map((x) => ({ t: x.t, id: x.id })) }, r));
     if (out) { sel.forEach((x) => paySel.delete(skey(x))); saveSel(); PB.render(); }
   };
+  // ---- v4.11（11/10）轉帳資訊：銀行代碼、帳號、金額一鍵複製（主理人轉帳用；只讀不存本機） ----
+  const BANK_NAMES = { '004': '臺灣銀行', '005': '土地銀行', '006': '合作金庫', '007': '第一銀行', '008': '華南銀行', '009': '彰化銀行', '011': '上海商銀', '012': '台北富邦', '013': '國泰世華', '017': '兆豐銀行', '048': '王道銀行', '050': '臺灣企銀', '052': '渣打銀行', '053': '台中銀行', '081': '匯豐銀行', '103': '新光銀行', '108': '陽信銀行', '700': '中華郵政', '803': '聯邦銀行', '805': '遠東銀行', '806': '元大銀行', '807': '永豐銀行', '808': '玉山銀行', '809': '凱基銀行', '810': '星展銀行', '812': '台新銀行', '822': '中國信託', '823': '將來銀行', '824': '連線銀行（LINE Bank）', '826': '樂天銀行' };
+  /** 「013」「013 國泰世華」「國泰世華」→ { code, name } */
+  function bankOf(v) {
+    const s0 = str(v).trim();
+    const m0 = s0.match(/^(\d{3})\s*(.*)$/);
+    if (m0) return { code: m0[1], name: str(m0[2]) || BANK_NAMES[m0[1]] || '' };
+    const code = Object.keys(BANK_NAMES).find((c) => s0 && (BANK_NAMES[c].indexOf(s0) >= 0 || s0.indexOf(BANK_NAMES[c].replace(/銀行$/, '')) >= 0));
+    return { code: code || '', name: s0 };
+  }
+  const acctDigits = (v) => str(v).replace(/\D/g, '');
+  const cpBtn = (v, what, short) => '<button class="btn sm ghost" style="padding:2px 8px" data-act="payCopy" data-v="' + esc(v) + '" data-w="' + esc(what) + '" title="複製' + esc(what) + '" aria-label="複製' + esc(what) + '">' + PB.icon('copy') + (short ? '' : '複製') + '</button>';
+  A.payCopy = (d) => PB.copy(d.v, d.w);
+  function transferText(name, info, amt) {
+    const b = bankOf(info.匯款銀行);
+    return [name, '銀行：' + [b.code, b.name].filter(Boolean).join(' '), '帳號：' + acctDigits(info.帳號), amt ? '金額：' + Math.round(amt) : ''].filter(Boolean).join('\n');
+  }
   A.secretView = async (d) => {
     const r = await PB.read('payeeInfo', { staff: [d.id] });
     const x = r && r.staff[d.id];
-    ui.modal({ title: '匯款資料：' + m.staffName(d.id), body: x ? '<div class="tbl-wrap"><table class="tbl"><tbody><tr><td class="mut">匯款銀行</td><td><b>' + esc(x.匯款銀行 || '—') + '</b></td></tr><tr><td class="mut">帳號</td><td><b>' + esc(x.帳號 || '—') + '</b></td></tr></tbody></table></div>' : '<div class="note warn">還沒有匯款資料：請到「主檔與紀錄 → 人員與權限 → 人員」按「請款資料」填寫。</div>', actions: [{ label: '關閉' }] });
+    const name = m.staffName(d.id);
+    const amt = num(d.amt);
+    if (!x || !(x.匯款銀行 || x.帳號)) {
+      return ui.modal({ title: '轉帳資訊：' + name, body: '<div class="note warn">還沒有匯款資料。請本人到 LINE 官方帳號「資料／教練資料 → 匯款帳戶」填寫，或到「主檔與紀錄 → 人員與權限 → 人員」按「請款資料」代填。</div>' + (amt ? '<p>應付金額 <b>' + money(amt) + '</b></p>' : ''), actions: [{ label: '關閉' }] });
+    }
+    const b = bankOf(x.匯款銀行);
+    const acct = acctDigits(x.帳號);
+    const row = (label, shown, val, what) => '<tr><td class="mut" style="width:5em">' + label + '</td><td><b style="font-size:1.05rem">' + esc(shown || '—') + '</b></td><td style="text-align:right">' + (val ? cpBtn(val, what) : '') + '</td></tr>';
+    const body = '<div class="tbl-wrap"><table class="tbl"><tbody>' +
+      row('銀行代碼', b.code, b.code, '銀行代碼') + row('銀行', b.name, '', '') + row('帳號', acct, acct, '帳號') + (amt ? row('金額', money(amt), String(Math.round(amt)), '金額') : '') +
+      '</tbody></table></div>' + (b.code ? '' : '<div class="note warn" style="margin-top:8px">銀行沒有填代碼，轉帳前請先確認。</div>');
+    const text = transferText(name, x, amt);
+    ui.modal({ title: '轉帳資訊：' + name, body: body, actions: [{ label: '關閉' }, { label: '複製全部', kind: 'pri', click: () => { PB.copy(text, '轉帳資訊'); return false; } }] });
+  };
+  /** 待付款的人員一次列出：銀行代碼／帳號／金額各自可複製；勾選了就只列勾選的對象 */
+  A.payList = async () => {
+    const due = payItems(false);
+    const picked = due.filter((x) => paySel.has(skey(x)));
+    const src = picked.length ? picked : due;
+    const groups = {};
+    src.forEach((x) => { (groups[x.py.k] = groups[x.py.k] || { py: x.py, list: [] }).list.push(x); });
+    const order = Object.keys(groups).sort((a, b) => sum(groups[b].list, (x) => x.amt) - sum(groups[a].list, (x) => x.amt));
+    const staff = order.map((k) => groups[k].py).filter((py) => py.kind === '人員').map((py) => py.id);
+    const info = staff.length ? await PB.read('payeeInfo', { staff: staff }) : null;
+    let missing = 0;
+    const lines = [];
+    const rows = order.map((k) => {
+      const g = groups[k];
+      const amt = sum(g.list, (x) => x.amt);
+      const what = uniq(g.list.map((x) => x.t === '月結' ? str(x.r['結算類型']) || '月結' : x.t)).join('＋');
+      const x = g.py.kind === '人員' && info ? info.staff[g.py.id] : null;
+      const has = x && (x.匯款銀行 || x.帳號);
+      const b = has ? bankOf(x.匯款銀行) : { code: '', name: '' };
+      const acct = has ? acctDigits(x.帳號) : '';
+      if (!has && g.py.kind === '人員') missing += 1;
+      lines.push([g.py.name, b.code, b.name, acct, Math.round(amt)].join('\t'));
+      const bankLine = has
+        ? '<span class="mut" style="font-size:.8rem">銀行</span> <b>' + esc(b.code || '—') + '</b> <span class="mut">' + esc(b.name) + '</span>' + (b.code ? cpBtn(b.code, g.py.name + ' 銀行代碼', 1) : '') +
+          '<span style="display:inline-block;width:14px"></span><span class="mut" style="font-size:.8rem">帳號</span> <b style="letter-spacing:.02em">' + esc(acct || '—') + '</b>' + (acct ? cpBtn(acct, g.py.name + ' 帳號', 1) : '')
+        : '<span class="badge ' + (g.py.kind === '人員' ? 'warn' : '') + '">' + (g.py.kind === '人員' ? '沒有匯款資料' : esc(g.py.info || '請依合作方案付款')) + '</span>';
+      return '<div style="border:1px solid var(--line,#dde5e1);border-radius:10px;padding:8px 10px;margin-bottom:8px">' +
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><b>' + esc(g.py.name) + '</b><span class="mut" style="font-size:.76rem">' + esc(what) + '</span><span style="flex:1"></span><b class="num" style="font-size:1.05rem">' + money(amt) + '</b>' + cpBtn(String(Math.round(amt)), g.py.name + ' 金額', 1) + '</div>' +
+        '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:4px">' + bankLine + '</div></div>';
+    }).join('');
+    const total = sum(src, (x) => x.amt);
+    const body = (picked.length ? '<div class="note" style="margin-bottom:8px">只列勾選的 ' + order.length + ' 個對象（清除勾選就列全部）</div>' : '') +
+      (missing ? '<div class="note warn" style="margin-bottom:8px">' + missing + ' 位人員還沒有匯款資料：請他到 LINE 官方帳號填「匯款帳戶」，或在人員「請款資料」代填。</div>' : '') +
+      rows + '<div style="display:flex;padding:4px 10px"><span>合計 ' + order.length + ' 位</span><span style="flex:1"></span><b class="num">' + money(total) + '</b></div>' +
+      '<p class="mut" style="font-size:.8rem;margin-top:8px">轉完帳回到這頁勾選對象 →「付款…」記錄付款日期與轉帳截圖。匯款資料只在打開時讀取，不會存在這台裝置。</p>';
+    ui.modal({ title: '轉帳清單（' + order.length + ' 位・' + money(total) + '）', body: body, actions: [{ label: '關閉' }, { label: '複製整份清單', kind: 'pri', click: () => { PB.copy(['受款人\t銀行代碼\t銀行\t帳號\t金額'].concat(lines).join('\n'), '轉帳清單'); return false; } }] });
   };
 
   /** 付款紀錄：依付款批次（沒有批次的舊資料依付款日期＋受款對象） */

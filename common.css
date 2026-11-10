@@ -781,3 +781,19 @@ a.row{color:inherit;text-decoration:none}
 .pv-sum{margin-top:4px;font-size:1.08rem;color:var(--ink)}
 .pv-chk{display:flex;gap:8px;align-items:center;font-size:.9rem;margin:8px 0}
 @media (max-width:640px){.pv-row{grid-template-columns:1fr}.pv .pv-add input{min-width:0}}
+
+/* v4.10（11/9）場地停用（批次取消） */
+.vc-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.vc-slots{display:flex;flex-wrap:wrap;gap:6px 14px}
+.vc-slots .chk{display:flex;gap:6px;align-items:center;color:var(--ink);font-size:.9rem}
+.vc-list{margin-top:8px;border-top:1px solid var(--line);padding-top:6px}
+.vc-sec{margin:8px 0 12px}
+.vc-h{display:flex;gap:8px;align-items:center;padding:4px 0;color:var(--ink)}
+.vc-row{display:flex;gap:10px;align-items:flex-start;padding:7px 0 7px 4px;border-bottom:1px dashed var(--line);font-size:.9rem;color:var(--ink)}
+.vc-row input{margin-top:3px}
+.vc-row.off{opacity:.6}
+.vc-d{flex:0 0 92px;line-height:1.35}
+.vc-t{flex:1;min-width:0;line-height:1.4}
+.vc-t .warnc{color:var(--warn)}
+.vc-t .bad{color:var(--bad)}
+@media (max-width:640px){.vc-2{grid-template-columns:1fr}.vc-d{flex-basis:78px}}
