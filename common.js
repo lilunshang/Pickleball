@@ -853,7 +853,7 @@
   function fieldHtml(f, v, vals, before) {
     const id = 'f_' + Math.random().toString(36).slice(2, 8);
     const req = f.req ? '<b>*</b>' : '';
-    const locked = before && (f.ro === true || (f.ro === 'edit') || f.canEdit === false || (f.lock && !Object.keys(f.lock).every((c) => f.lock[c].indexOf(str(before[c])) >= 0)));
+    const locked = f.canEdit === false || (before && (f.ro === true || (f.ro === 'edit') || (f.lock && !Object.keys(f.lock).every((c) => f.lock[c].indexOf(str(before[c])) >= 0)))); // v4.12：沒有權限改的欄新增時也唯讀（伺服器本來就不收）
     const hint = f.hint ? '<span class="hint">' + esc(f.hint) + '</span>' : '';
     const hide = f.when && !whenOk(f.when, vals) ? ' style="display:none"' : '';
     const wrap = (inner) => '<div class="fld" data-k="' + esc(f.k) + '"' + hide + '><label for="' + id + '">' + esc(f.label || f.k) + req + '</label>' + inner + hint + '</div>';
@@ -1105,6 +1105,53 @@
   function readFieldsLoose(el, fields) {
     try { return readFields(el, fields); } catch (e) { return {}; }
   }
+  // ================================================================
+  // v4.12（11/10）可收合的區塊：大標／小標（<details>）；收合狀態記在這台裝置
+  // ================================================================
+  const FSEC_LS = 'pb:fsec';
+  const fsecState = () => { try { return JSON.parse(LS.get(FSEC_LS) || '{}') || {}; } catch (e) { return {}; } };
+  /** key：記住收合狀態用；o.sub＝小標；o.meta＝標題右邊的摘要；o.closed＝預設收合 */
+  ui.fsec = (key, title, inner, o) => {
+    o = o || {};
+    const st = fsecState();
+    const open = st[key] === undefined ? !o.closed : st[key] === true;
+    return '<details class="fsec' + (o.sub ? ' fsub' : '') + '" data-sk="' + esc(key) + '"' + (open ? ' open' : '') + '><summary><span class="fsec-t">' + esc(title) + '</span>' + (o.meta ? '<span class="fsec-m">' + o.meta + '</span>' : '') + '</summary><div class="fsec-b">' + inner + '</div></details>';
+  };
+  ui.fsecBar = () => '<div class="fsec-bar"><button type="button" class="btn sm ghost" data-act="fsecAll" data-v="1">全部展開</button><button type="button" class="btn sm ghost" data-act="fsecAll" data-v="0">全部收合</button></div>';
+  PB.acts.fsecAll = (d, el) => { const box = el.closest('.modal') || el.closest('.sheet') || document; box.querySelectorAll('details.fsec').forEach((x) => { x.open = d.v === '1'; }); };
+  document.addEventListener('toggle', (e) => {
+    const d = e.target;
+    if (!d || !d.matches || !d.matches('details.fsec[data-sk]')) return;
+    const st = fsecState();
+    st[d.dataset.sk] = d.open;
+    LS.set(FSEC_LS, JSON.stringify(st));
+  }, true);
+  /** 打開某個欄位所在的區塊（必填沒填時） */
+  ui.fsecReveal = (el, k) => {
+    const box = el.querySelector('.fld[data-k="' + CSS.escape(k) + '"]');
+    for (let p = box && box.parentElement; p && p !== el; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+    if (box && box.scrollIntoView) box.scrollIntoView({ block: 'center' });
+  };
+  /** 表單欄位依 sec（大標／小標）分區塊；沒有 sec 的表單照舊一欄一欄排 */
+  function formBody(table, fields, init, before) {
+    const fh = (f) => fieldHtml(f, init[f.k], init, before);
+    if (!fields.some((f) => f.sec)) return fields.map(fh).join('');
+    const groups = [];
+    const gi = {};
+    fields.forEach((f) => {
+      const parts = str(f.sec || '其他').split('／');
+      const g = parts[0];
+      const sb = parts[1] || '';
+      let G = gi[g];
+      if (!G) { G = gi[g] = { t: g, so: f.sec ? num(f.so) : 999, subs: [], si: {} }; groups.push(G); }
+      let S = G.si[sb];
+      if (!S) { S = G.si[sb] = { t: sb, list: [] }; G.subs.push(S); }
+      S.list.push(f);
+    });
+    groups.sort((a, b) => a.so - b.so);
+    const key = 'f:' + table + ':';
+    return ui.fsecBar() + groups.map((G) => ui.fsec(key + G.t, G.t, G.subs.map((S) => (S.t ? ui.fsec(key + G.t + '/' + S.t, S.t, S.list.map(fh).join(''), { sub: true }) : S.list.map(fh).join(''))).join(''), { meta: G.subs.reduce((n, S) => n + S.list.length, 0) + ' 欄' })).join('');
+  }
   PB.form = { fieldHtml: fieldHtml, readFields: readFields, bindForm: bindForm, displayVal: displayVal };
 
   /**
@@ -1121,7 +1168,7 @@
     if (o.only) fields = fields.filter((f) => o.only.indexOf(f.k) >= 0);
     fields = fields.map((f) => (f.t === 'files' ? Object.assign({ _table: table }, f) : f)); // v2.7：上傳要知道是哪張表
     const init = Object.assign({}, before || defaultsOf(fields), o.values || {});
-    const body = fields.map((f) => fieldHtml(f, init[f.k], init, before)).join('');
+    const body = formBody(table, fields, init, before); // v4.12：分區塊
     let savedId = null;
     const ok = await ui.modal({
       title: o.title || (before ? '編輯' : '新增') + spec.title,
@@ -1135,7 +1182,7 @@
           if (bad.length) { ui.toast(bad.join('、') + ' 找不到符合的選項，請從清單選', 'bad'); return false; }
           const merged = Object.assign({}, init, vals);
           const miss = fields.filter((f) => f.req && (!f.when || whenOk(f.when, merged)) && !(before && f.lock && !Object.keys(f.lock).every((c) => f.lock[c].indexOf(str(before[c])) >= 0)) && (Array.isArray(merged[f.k]) ? !merged[f.k].length : !str(merged[f.k])));
-          if (miss.length) { ui.toast('請填寫：' + miss.map((f) => f.label || f.k).join('、'), 'bad'); return false; }
+          if (miss.length) { ui.fsecReveal(el, miss[0].k); ui.toast('請填寫：' + miss.map((f) => f.label || f.k).join('、'), 'bad'); return false; }
           const r = await PB.run('save', { table: table, id: o.id || '', values: Object.assign({}, o.values || {}, vals) });
           if (!r) return false;
           savedId = (r.data && r.data.id) || o.id;

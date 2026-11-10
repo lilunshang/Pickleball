@@ -1,7 +1,7 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
- * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）
+ * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
  * 每個畫面是一個 { id, label, icon, show, badge, render } 物件；新增畫面＝在 SCREENS 加一個。
  * v2.3：單堂專項課（課程 → 專項課）、抵用金（學員頁）、換人上課、取消原因、換教練檢查可否排課
@@ -405,7 +405,7 @@
       };
     });
     const view = ui.groups(groups, {}, { key: 'single', menu: false, unit: '堂', forceOpen: !!kw });
-    return top + (view || card(ui.empty('沒有專項課', PB.ws.indexOf('管理層') >= 0 ? '在管理後台「排課」排好後發布' : '由管理層在「排課」發布')));
+    return top + (view || card(ui.empty('沒有專項課', '在「排課」排好後發布')));
   }
   function singleRow(x) {
     const c = x.c;
@@ -455,6 +455,7 @@
     if (['籌備中', '確定開課', '進行中'].indexOf(x.st) >= 0) acts.push(ui.btn('後台報名', 'sigNew', { type: '課程', target: id }, '', 'plus'));
     acts.push(ui.btn('報名連結', 'copyLink', { type: '課程', id: id }, 'ghost', 'link'));
     if (PB.forms['2_課程班級']) acts.push(ui.btn('編輯', 'classEdit', { id: id }, 'ghost'));
+    if (PB.ksOk('class', id)) acts.push(ui.btn('更換種類', 'kindSwap', { t: 'class', id: id }, 'ghost')); // v4.12
     if (canDeleteClass(x)) acts.push(ui.btn('刪除班級', 'classDelete', { id: id }, 'bad'));
     const info = kv([
       ['狀態', m.classBadge(x.st) + (x.pending ? ' <span class="badge info">「' + esc(c['開班動作']) + '」排程處理中</span>' : '')],
@@ -518,6 +519,7 @@
     acts.push(ui.btn('報名連結', 'copyLink', { type: '課程', id: id }, 'ghost', 'link'));
     if (ses) acts.push(ui.btn('場次', 'openSes', { id: ses['場次ID'] }, 'ghost'));
     if (can) acts.push(ui.btn('編輯', 'classEdit', { id: id }, 'ghost'));
+    if (PB.ksOk('class', id)) acts.push(ui.btn('更換種類', 'kindSwap', { t: 'class', id: id }, 'ghost')); // v4.12
     if (canDeleteClass(x)) acts.push(ui.btn('刪除班級', 'classDelete', { id: id }, 'bad'));
     const spec = PB.get('0_專項', c['專項']);
     const decideTxt = isPre ? (x.late ? '<span class="badge bad">已過 ' + esc(fmtDT(x.decideAt)) + '，排程還沒處理</span>' : esc(fmtDT(x.decideAt)) + ' 系統自動判斷（已付達 ' + x.min + ' 人成班）') : '';
@@ -669,7 +671,7 @@
       // 1 課程
       let h = '<div class="pv-sec"><h4>1　課程</h4>' +
         fld('類型', seg('kind', [['包班', '包班'], ['個人課', '個人課']]), s.kind === '包班' ? '固定成員、固定時段，通常由聯絡人一次付清' : '1–4 人；人數決定教練費級距') +
-        fld('據點', sel('venue', venues.map((v) => ({ v: v['據點ID'], l: v['據點名稱'] })), '選據點'), venues.length ? '' : '沒有可上課的時段：先到 管理後台 → 據點與場地 新增租約') +
+        fld('據點', sel('venue', venues.map((v) => ({ v: v['據點ID'], l: v['據點名稱'] })), '選據點'), venues.length ? '' : '沒有可上課的時段：先到「主檔與紀錄 → 據點與場地」新增時段（租約由管理層登錄）') +
         (s.venue ? fld('時段', sel('slot', pvSlots(s.venue).map((x) => ({ v: x['時段ID'], l: slotLabel(x) })), '選時段'), '租到的時段；上課時間可以只用其中一段') : '') +
         (slot ? '<div class="pv-row">' + fld('球面', sel('court', split(slot['使用場地']).map((x) => ({ v: x, l: m.courtName(x) })))) +
           fld('上課時間', '<span class="pv-time"><input type="time" data-pv="val" data-k="start" value="' + esc(s.start) + '"> – <input type="time" data-pv="val" data-k="end" value="' + esc(s.end) + '"></span>', '例：19:00–21:00（21:00 之後自由對打只算場地）') + '</div>' +
@@ -679,7 +681,7 @@
         h += fld('上課日期 <span class="mut">已選 ' + lessons + ' 堂</span>', ds.length ? '<div class="chips pv-days">' + ds.map((x) => {
           const on = s.dates.indexOf(x.d) >= 0;
           return '<button type="button" class="chip' + (on ? ' on' : '') + (x.busy && !on ? ' mutc" disabled title="' + esc(x.busy) : '') + '" data-pv="day" data-v="' + x.d + '">' + mdw(x.d) + (x.busy ? '<span class="c">' + esc(x.busy) + '</span>' : '') + '</button>';
-        }).join('') + '</div>' : '<div class="note warn">這個時段還沒有可用日</div>', '只列已租到（可用）的日期；沒有的日子請先到 管理後台 → 據點與場地 加日期');
+        }).join('') + '</div>' : '<div class="note warn">這個時段還沒有可用日</div>', '只列已租到（可用）的日期；沒有的日子請先到「主檔與紀錄 → 據點與場地」加日期');
       }
       h += '</div>';
       // 2 學員
@@ -928,7 +930,7 @@
       if (v.d >= today() && have.indexOf(v.d) < 0 && !v.busy && minOf(sl['開始時間']) <= minOf(start) && endMin(sl['結束時間']) >= endMin(end) && !opts.some((o) => o.d === v.d)) opts.push({ d: v.d, l: mdw(v.d) + ' ' + start + '–' + end });
     }));
     opts.sort((a, b) => byKey(a.d, b.d));
-    if (!opts.length) return ui.toast('這一面在 ' + start + '–' + end + ' 沒有可加的可用日：請先到 管理後台 → 據點與場地 加日期', 'bad');
+    if (!opts.length) return ui.toast('這一面在 ' + start + '–' + end + ' 沒有可加的可用日：請先到「主檔與紀錄 → 據點與場地」加日期', 'bad');
     const bills = pvBills(x).filter((b) => b['作廢'] !== true);
     const payers = uniq(bills.map((b) => str(b['付款人'])).filter(Boolean));
     const perLesson = x.total ? Math.round(num(c['費用']) / x.total * x.active.length) : 0;
@@ -1357,6 +1359,7 @@
     if (can && ['取消', '已結束'].indexOf(x.st) < 0 && day(g['日期']) >= t && !x.cancelPending) acts.push(ui.btn(x.st === '草稿' ? '取消草稿' : '取消球敘', 'gameCancel', { id: id }, 'bad'));
     if (can && x.st === '草稿' && !x.sigs.length) acts.push(ui.btn('刪除草稿', 'gameDelete', { id: id }, 'ghost'));
     if (can && ['草稿', '開放報名', '已額滿'].indexOf(x.st) >= 0) acts.push(ui.btn('編輯', 'gameEdit', { id: id }, 'ghost'));
+    if (PB.ksOk('game', id)) acts.push(ui.btn('更換種類', 'kindSwap', { t: 'game', id: id }, 'ghost')); // v4.12
     const lv = split(g['程度']).map(m.levelName).join('、');
     const courts = x.courts.map((c) => sec(c.name, c.list.length + '／' + c.cap + ' 人') + card(c.list.map((r) => sigRow(r, 'game')).join('') || ui.empty('還沒有人'))).join('');
     const noCourt = x.active.filter((r) => !split(g['使用場地']).some((c) => c === str(r['場地'])));
@@ -2069,11 +2072,173 @@
   };
 
   // ================================================================
+  // v4.12（11/10）更換種類：已發布、沒人報名的課程／球敘 → 選 專項／期制／球敘 → 細項；名稱、費用、人數一起換（後端 KindSwap.gs）
+  // ================================================================
+  const KS_KINDS = [['專項', '專項課'], ['期制', '期制課程'], ['球敘', '球敘']];
+  const ksVenueKind = (vid) => { const v = PB.get('1_據點', vid) || {}; return str(v['據點類別']) || (/國小|國中|高中|大學|科大|學校|中學/.test(str(v['據點名稱'])) ? '學校' : '球館'); };
+  const ksSingleType = () => str((PB.rows('0_課程類型').find((t) => str(t['課程類型']) === str(PB.cfg.singleType || '單堂專項')) || {})['類型ID']);
+  const ksOff = (v) => v === false || str(v).toUpperCase() === 'FALSE';
+  /** 能不能換：回傳 null（可以）或原因 */
+  function ksWhyNot(t, id) {
+    const t0 = today();
+    if (PB.rows('2_報名').some((r) => str(t === 'class' ? r['班級'] : r['球敘']) === str(id))) return '已有報名紀錄';
+    if (t === 'class') {
+      const c = PB.get('2_課程班級', id);
+      if (!c || str(c['課程狀態']) !== '籌備中' || m.isPrivate(c)) return '只有籌備中的課程';
+      if (str(c['開班動作']) && !str(c['開班處理時間'])) return '排程處理中';
+      const ses = PB.rows('2_上課場次').filter((s) => str(s['班級']) === str(id) && ['取消', '改期'].indexOf(str(s['場次狀態'])) < 0);
+      if (!ses.length || ses.some((s) => str(s['場次狀態']) === '已完成' || str(s['點名確認時間']))) return '已上課';
+      const ids = ses.map((s) => str(s['場次ID']));
+      if (PB.rows('2_出缺勤').some((a) => ids.indexOf(str(a['上課場次'])) >= 0)) return '已有出缺勤（補課生）';
+      if (ses.map((s) => day(s['日期'])).sort()[0] < t0) return '日期已過';
+      return null;
+    }
+    const g = PB.get('2_球敘場次', id);
+    if (!g || ['草稿', '開放報名'].indexOf(str(g['狀態'])) < 0 || str(g['取消請求時間'])) return '只有草稿或開放報名';
+    if (day(g['日期']) < t0) return '日期已過';
+    return null;
+  }
+  PB.ksOk = (t, id) => !!PB.forms['2_課程班級'] && !!PB.forms['2_球敘場次'] && !ksWhyNot(t, id);
+  /** 原本這一筆的資料 */
+  function ksSource(t, id) {
+    if (t === 'class') {
+      const c = PB.get('2_課程班級', id);
+      const ses = PB.rows('2_上課場次').filter((s) => str(s['班級']) === str(id) && ['取消', '改期'].indexOf(str(s['場次狀態'])) < 0).sort((a, b) => byKey(day(a['日期']), day(b['日期'])));
+      const s0 = ses[0] || {};
+      const single = !!str(c['專項']) || str(c['課程類型']) === ksSingleType();
+      return { t: t, id: id, row: c, venue: str(c['據點']), day: day(s0['日期'] || c['開課日期']), start: s0['開始時間'] || c['開始時間'], end: s0['結束時間'] || c['結束時間'],
+        courts: [str(s0['使用場地'] || c['使用場地'])].filter(Boolean), kind: single ? '專項' : '期制', ref: single ? str(c['專項']) : str(c['課程模板']),
+        coach: str(s0['授課教練'] || c['主教練']), host: '', level: '', name: str(c['課程名稱']), fee: c['費用'], min: c['人數下限'], max: c['人數上限'], n: ses.length };
+    }
+    const g = PB.get('2_球敘場次', id);
+    const duty = (PB.ix.dutyByGame[str(id)] || [])[0];
+    return { t: t, id: id, row: g, venue: str(g['據點']), day: day(g['日期']), start: g['開始時間'], end: g['結束時間'], courts: split(g['使用場地']), kind: '球敘', ref: str(g['球敘類型']),
+      coach: '', host: str(duty && duty['人員']), level: split(g['程度'])[0] || '', name: str(g['球敘名稱']), fee: g['費用'], min: g['人數下限'], max: g['人數上限'] };
+  }
+  /** 細項選單 */
+  function ksOptions(kind) {
+    if (kind === '專項') {
+      const lvSort = (r) => num((PB.get('0_程度', r['程度']) || {})['排序']);
+      return PB.rows('0_專項').filter((r) => !ksOff(r['是否啟用'])).sort((a, b) => lvSort(a) - lvSort(b) || str(a['專項名稱']).localeCompare(str(b['專項名稱']), 'zh-Hant'))
+        .map((r) => ({ v: str(r['專項ID']), l: (m.levelName(r['程度']) ? m.levelName(r['程度']) + '｜' : '') + str(r['專項名稱']) }));
+    }
+    if (kind === '期制') {
+      const st = ksSingleType();
+      return PB.rows('0_課程模板').filter((r) => str(r['課程類型']) !== st && num(r['總堂數']) > 0 && !m.isPrivate(r))
+        .map((r) => ({ v: str(r['模板ID']), l: str(r['模板名稱']) + '（' + num(r['總堂數']) + ' 堂' + (str(r['費用']) ? '・' + money(r['費用']) : '') + '）' }));
+    }
+    return m.gameTypes().map((t) => ({ v: t.id, l: t.name + (t.host ? '' : '（無場主）') }));
+  }
+  /** 依新種類算出名稱、費用、人數（後端用同一套規則；畫面可再手改） */
+  function ksDefaults(S, kind, ref, courts) {
+    const vk = ksVenueKind(S.venue);
+    const cMin = PB.cfg.classMin || 5;
+    const cMax = PB.cfg.classMax || 6;
+    if (kind === '專項') {
+      const sp = PB.get('0_專項', ref) || {};
+      const p = PB.cfg.specPrice || { 學校: 1000, 球館: 1200 };
+      return { 名稱: str(sp['專項名稱']), 費用: num(sp['費用']) > 0 ? num(sp['費用']) : num(p[vk]) || 1000, 人數下限: num(sp['人數下限']) || cMin, 人數上限: num(sp['人數上限']) || cMax, note: '單堂（' + fmtD(S.day) + '）' };
+    }
+    if (kind === '期制') {
+      const tp = PB.get('0_課程模板', ref) || {};
+      return { 名稱: str(tp['模板名稱']), 費用: str(tp['費用']) !== '' ? num(tp['費用']) : '', 人數下限: num(tp['人數下限']) || cMin, 人數上限: num(tp['人數上限']) || cMax, note: fmtD(S.day) + ' 起 ' + num(tp['總堂數']) + ' 堂（依這一面之後的可用日）' };
+    }
+    const t = m.gameType(ref);
+    const n = courts.length || 1;
+    const capSum = courts.reduce((a, c) => a + num((PB.get('1_據點_場地', c) || {})['人數上限']), 0);
+    const fee = num(vk === '學校' ? t.school : t.gym);
+    return { 名稱: [m.venueName(S.venue), t.name].filter(Boolean).join('・'), 費用: fee > 0 ? fee : num(S.fee), 人數下限: t.min > 0 ? t.min * n : '', 人數上限: t.max > 0 ? t.max * n : capSum, note: n + ' 面' + (t.host ? '' : '・無場主') };
+  }
+  const ksCrossOk = (S, kind) => (S.t === 'game' ? kind !== '球敘' : !(kind === '專項' && S.kind === '專項'));
+  A.kindSwap = async (d) => {
+    const t = d.t === 'game' ? 'game' : 'class';
+    const why = ksWhyNot(t, d.id);
+    if (why) return ui.toast('不能更換種類：' + why, 'bad');
+    const S = ksSource(t, d.id);
+    const st = { kind: S.kind, ref: S.ref };
+    const sel = (name, opts, cur, blank) => '<select name="' + name + '">' + (blank !== undefined ? '<option value="">' + esc(blank) + '</option>' : '') + opts.map((o) => '<option value="' + esc(o.v) + '"' + (o.v === cur ? ' selected' : '') + '>' + esc(o.l) + '</option>').join('') + '</select>';
+    const fld = (label, inner, hint, k) => '<div class="fld"' + (k ? ' data-k="' + k + '"' : '') + '><label>' + esc(label) + '</label>' + inner + (hint ? '<span class="hint">' + esc(hint) + '</span>' : '') + '</div>';
+    const K = 'ks:';
+    const from = (t === 'class' ? (S.kind === '專項' ? '專項課' : '期制課程') : '球敘') + '「' + S.name + '」・' + fmtD(S.day) + ' ' + m.hm(S.start, S.end) + '・' + m.venueName(S.venue) + ' ' + S.courts.map(m.courtName).join('、') + (S.n > 1 ? '・共 ' + S.n + ' 堂' : '');
+    const body = '<p class="ks-from">原本：' + esc(from) + '</p>' + ui.fsecBar() +
+      ui.fsec(K + '種類', '1　種類',
+        ui.fsec(K + '種類/類別', '類別', '<div class="ks-kinds">' + KS_KINDS.map((x) => '<label class="' + (x[0] === st.kind ? 'on' : '') + '"><input type="radio" name="kind" value="' + x[0] + '"' + (x[0] === st.kind ? ' checked' : '') + '>' + x[1] + '</label>').join('') + '</div>', { sub: true }) +
+        ui.fsec(K + '種類/細項', '細項', '<div data-ks="opt"></div><div class="hint" data-ks="note"></div>', { sub: true })) +
+      ui.fsec(K + '內容', '2　名稱、費用、人數',
+        ui.fsec(K + '內容/名稱費用', '名稱與費用', '<div class="ks-grid">' + fld('名稱', '<input name="名稱">', '', '名稱') + fld('費用（每人）', '<input type="number" name="費用" min="0">', '', '費用') + '</div>', { sub: true }) +
+        ui.fsec(K + '內容/人數', '人數', '<div class="ks-grid">' + fld('人數下限', '<input type="number" name="人數下限" min="0">', '', '人數下限') + fld('人數上限', '<input type="number" name="人數上限" min="0">', '', '人數上限') + '</div>', { sub: true }) +
+        '<p class="hint" style="margin:4px 0 8px">換類別或細項時，這裡會依新的種類重新帶入；帶入後可以再改。</p>') +
+      ui.fsec(K + '人員', '3　人員與球面', '<div data-ks="people"></div>') +
+      '<div data-ks="warn"></div>';
+    const fill = (el, reset) => {
+      const kind = st.kind;
+      el.querySelectorAll('.ks-kinds label').forEach((l) => l.classList.toggle('on', l.querySelector('input').value === kind));
+      const opts = ksOptions(kind);
+      if (!opts.some((o) => o.v === st.ref)) st.ref = '';
+      el.querySelector('[data-ks="opt"]').innerHTML = fld(kind === '專項' ? '專項' : kind === '期制' ? '課程模板' : '球敘類型', opts.length ? sel('ref', opts, st.ref, '請選擇') : '<div class="note warn">還沒有可以選的' + (kind === '專項' ? '專項' : kind === '期制' ? '期制課程模板（要填總堂數）' : '球敘類型') + '</div>');
+      const toClass = kind !== '球敘';
+      const courts = toClass ? S.courts.slice(0, 1) : S.courts;
+      const pickCourt = toClass && S.courts.length > 1;
+      const ppl = [];
+      if (toClass) ppl.push(fld('教練', sel('coach', coaches().map((c) => ({ v: c.v, l: c.l })), S.coach, '（未定）')));
+      else if (st.ref && m.gameType(st.ref).host) {
+        const hs = hostChoices(Object.assign({}, S.row, { 球敘ID: t === 'game' ? S.id : '', 日期: S.day, 開始時間: S.start, 結束時間: S.end }), '').map((h) => ({ v: h.v, l: h.l2 }));
+        const cur = S.host || split((PB.get('1_據點', S.venue) || {})['場主'])[0] || '';
+        if (cur && !hs.some((h) => h.v === cur)) hs.unshift({ v: cur, l: m.staffName(cur) });
+        ppl.push(fld('場主', sel('host', hs, cur, '（不排）'), '預設＝原本的場主或據點場主'));
+      }
+      if (!toClass) ppl.push(fld('建議程度', sel('level', PB.rows('0_程度').map((r) => ({ v: str(r['程度ID']), l: str(r['程度名稱']) })), S.level, '（不指定）'), '學員報名頁顯示，不擋報名'));
+      ppl.push(fld('球面', pickCourt ? sel('court', S.courts.map((c) => ({ v: c, l: m.courtName(c) })), S.courts[0]) : '<div class="ro">' + esc((toClass ? courts : S.courts).map(m.courtName).join('、') || '—') + '</div>', pickCourt ? '課程一班只用一面' : ''));
+      el.querySelector('[data-ks="people"]').innerHTML = ppl.join('');
+      const cross = ksCrossOk(S, kind);
+      el.querySelector('[data-ks="warn"]').innerHTML = cross
+        ? '<div class="note warn">會建立新的' + (toClass ? (kind === '專項' ? '專項課' : '期制課程') : '球敘') + '，原本的改成「取消」（不會通知任何人）。<b>報名連結會換新</b>，已經貼出去的連結要重貼。</div>'
+        : '<div class="note">同一筆直接更新，報名連結不變。</div>';
+      const D = st.ref ? ksDefaults(S, kind, st.ref, toClass ? courts : S.courts) : null;
+      el.querySelector('[data-ks="note"]').textContent = D ? D.note : '';
+      if (D && reset) ['名稱', '費用', '人數下限', '人數上限'].forEach((k) => { const i = el.querySelector('[name="' + k + '"]'); if (i) i.value = D[k] === undefined ? '' : D[k]; });
+    };
+    const ok = await ui.modal({
+      title: '更換種類',
+      body: body,
+      sticky: true,
+      actions: [{ label: '取消' }, {
+        label: '確定更換', kind: 'pri',
+        click: async (el) => {
+          const v = (k) => { const i = el.querySelector('[name="' + k + '"]'); return i ? i.value : undefined; };
+          if (!st.ref) { ui.fsecReveal(el, '名稱'); ui.toast('請選擇細項', 'bad'); return false; }
+          if (!str(v('名稱'))) { ui.fsecReveal(el, '名稱'); ui.toast('請填名稱', 'bad'); return false; }
+          if (str(v('費用')) === '') { ui.fsecReveal(el, '費用'); ui.toast('請填費用', 'bad'); return false; }
+          const lo = v('人數下限');
+          const hi = v('人數上限');
+          if (str(lo) !== '' && str(hi) !== '' && num(lo) > num(hi)) { ui.fsecReveal(el, '人數下限'); ui.toast('人數下限不能大於上限', 'bad'); return false; }
+          const args = { t: t, id: S.id, kind: st.kind, ref: st.ref, vals: { 名稱: v('名稱'), 費用: v('費用'), 人數下限: lo, 人數上限: hi } };
+          ['coach', 'host', 'level', 'court'].forEach((k) => { const x = v(k); if (x !== undefined) args[k] = x; });
+          const r = await PB.run('kindSwap', args);
+          if (!r) return false;
+          return r.data || true;
+        },
+      }],
+      onOpen: (el) => {
+        fill(el, false);
+        if (st.ref) { const D = ksDefaults(S, st.kind, st.ref, st.kind === '球敘' ? S.courts : S.courts.slice(0, 1)); ['名稱', '費用', '人數下限', '人數上限'].forEach((k) => { const i = el.querySelector('[name="' + k + '"]'); const cur = { 名稱: S.name, 費用: S.fee, 人數下限: S.min, 人數上限: S.max }[k]; if (i) i.value = str(cur) !== '' ? cur : D[k]; }); }
+        el.addEventListener('change', (e) => {
+          if (e.target.name === 'kind') { st.kind = e.target.value; st.ref = ''; fill(el, true); }
+          else if (e.target.name === 'ref') { st.ref = e.target.value; fill(el, true); }
+          else if (e.target.name === 'court' && st.kind !== '球敘') { /* 一面：人數不變 */ }
+        });
+      },
+    });
+    if (ok && ok.id && ok.moved) (ok.t === 'game' ? openGame(ok.id) : openClass(ok.id)); // 換成另一張表 → 直接打開新的那一筆
+  };
+
+  // ================================================================
   PB.app({
     app: 'ops',
     title: '營運工作台',
-    version: '3.8',
-    screens: [Today, Queue, PB.Timetable, Classes, Games, Students, Kb, Publish, Sources].filter(Boolean),
+    version: '4.12',
+    // v4.12：排課、主檔與紀錄從管理後台移過來（行政客服、管理層；社群行銷看不到）
+    screens: [Today, Queue, PB.Timetable, Classes, Games, Students, Kb, Publish, Sources, PB.schedScreen, PB.dataScreen].filter(Boolean),
     links: () => (!PB.cfg.kb && PB.cfg.kbUrl ? [{ label: '知識庫', url: PB.cfg.kbUrl, icon: 'kb', mobile: true }] : []),
   });
 })();
