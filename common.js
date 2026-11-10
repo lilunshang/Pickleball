@@ -1201,6 +1201,7 @@
       onOpen: (el) => bindForm(el, fields, before),
     });
     if (ok && o.onSaved) o.onSaved(savedId);
+    if (ok && PB.RIPPLE_TABLES.indexOf(table) >= 0) await PB.ripple(); // v4.13：設定改了 → 問要不要套用到已排好的
     return ok ? savedId : null;
   };
   function defaultsOf(fields) {
@@ -1219,6 +1220,43 @@
    * PB.run(op, args, { confirm:{title,text,danger}, quiet })
    * 回傳 { data, notes } 或 null（失敗時已顯示提示）
    */
+  // ================================================================
+  // v4.13：改了價格／教練費設定 → 列出已排好、還沒開始的場次／班級，勾選後一起套用（後端 Ripple.gs）
+  PB.RIPPLE_TABLES = ['0_專項', '0_課程類型', '0_教練費率'];
+  PB.ripple = async () => {
+    if ((PB.ws || []).indexOf('管理層') < 0) return;
+    const r = await PB.run('rippleScan', {}, { quiet: true });
+    if (!r || !r.data) return;
+    const d = r.data;
+    if (!d.fees.length && !d.prices.length && !d.held.length) return;
+    const fmt = (v) => (v === null || v === undefined ? '空白' : money(v));
+    const box = (k, list) => '<div style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto;padding:2px">' + list.map((x) =>
+      '<label style="display:flex;gap:8px;align-items:flex-start;font-size:.9rem"><input type="checkbox" data-rp="' + k + '" value="' + esc(x.id) + '" checked style="margin-top:3px"><span>' + esc(x.label) + '<br><b>' + fmt(x.from) + ' → ' + fmt(x.to) + '</b></span></label>').join('') + '</div>';
+    const head = (t, n, note) => '<div style="margin:14px 0 6px;font-weight:600">' + esc(t) + '（' + n + '）</div>' + (note ? '<div class="mut" style="font-size:.84rem;margin-bottom:6px">' + esc(note) + '</div>' : '');
+    const body = '<p style="margin-top:0">新的設定只會自動用在之後發布的課。下面是已經排好、還沒開始、跟新設定不一樣的項目，勾選的會一起改成新數字。</p>' +
+      (d.fees.length ? head('教練費', d.fees.length + ' 堂', '還沒點名、還沒結算的場次；私人課程不列') + box('fee', d.fees) : '') +
+      (d.prices.length ? head('售價', d.prices.length + ' 班', '還沒有人報名的專項課') + box('price', d.prices) : '') +
+      (d.held.length ? head('不會改的售價', d.held.length + ' 班', '已有人報名或有補課生，維持原價（學員的應收不變）；真的要改請到課程手動處理') +
+        '<div style="display:flex;flex-direction:column;gap:4px;font-size:.88rem">' + d.held.map((x) => '<div>' + esc(x.label) + '　' + fmt(x.from) + '（新設定 ' + fmt(x.to) + '）・' + esc(x.why) + '</div>').join('') + '</div>' : '');
+    const canApply = d.fees.length || d.prices.length;
+    await ui.modal({
+      title: '套用到已排好的課？',
+      body: body,
+      sticky: true,
+      actions: canApply ? [{ label: '先不要' }, {
+        label: '套用勾選的', kind: 'pri',
+        click: async (el) => {
+          const pick = (k) => Array.prototype.slice.call(el.querySelectorAll('input[data-rp="' + k + '"]:checked')).map((i) => i.value);
+          const fees = pick('fee');
+          const prices = pick('price');
+          if (!fees.length && !prices.length) { ui.toast('沒有勾選任何項目', 'bad'); return false; }
+          const x = await PB.run('rippleApply', { fees: fees, prices: prices });
+          return !!x;
+        },
+      }] : [{ label: '知道了' }],
+    });
+  };
+
   PB.run = async (op, args, o) => {
     o = o || {};
     if (o.confirm) {

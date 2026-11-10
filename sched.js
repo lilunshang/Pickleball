@@ -210,6 +210,27 @@
     return '';
   }
 
+  /**
+   * v4.13：場主／教練在 LINE 登錄的可排時間（1_人員_可排時段）→ 只提醒、不擋
+   *   沒填過 → ''；不在可排據點 →「不在可排據點」；這個據點有勾時段、但沒勾這個時段（比對星期＋時間）→「不在可排時段」
+   */
+  function availNote(pid, slot) {
+    if (!pid || !slot) return '';
+    const r = PB.get('1_人員_可排時段', pid);
+    if (!r) return '';
+    const vid = str(slot['據點']);
+    if (split(r['可排據點']).indexOf(vid) < 0) return '不在可排據點';
+    const mine = split(r['可排時段']).map((id) => PB.get('1_據點_時段', id)).filter((s) => s && str(s['據點']) === vid);
+    if (!mine.length) return '';
+    const sig = (s) => str(s['星期']) + '|' + m.hm(s['開始時間']) + '|' + m.hm(s['結束時間']);
+    return mine.some((s) => sig(s) === sig(slot)) ? '' : '不在可排時段';
+  }
+  /** v4.13：場主當天登記不可排（教練的不可排日期在 coachState 裡照舊擋） */
+  function offNote(pid, d) {
+    if (!pid) return '';
+    return PB.rows('2_教練不可排日期').some((r) => str(r['教練']) === pid && day(r['開始日期']) && day(r['開始日期']) <= d && (day(r['結束日期']) || day(r['開始日期'])) >= d) ? '當天登記不可排' : '';
+  }
+
   /** 教練在這一天這個時段能不能排：不可排日期、同時段已有課（含其他草稿與期制預訂） */
   function coachState(coachId, slot, d, k, M) {
     if (!coachId) return '';
@@ -382,8 +403,10 @@
         meta += '<br>' + (typeNeedsHost(x.球敘類型) ? '場主 ' + (h ? esc(m.staffName(h)) + (str(x.場主) && str(x.場主) !== venueHost(slotVenue(x.時段)) ? '（已改）' : '') : '<b>未設定</b>') : '無場主');
         const hb = h ? hostBusy(h, slot, d, k, x, M) : '';
         if (hb) { cls.push('hostwarn'); tag = tag || '場主重疊'; }
+        else if (h && typeNeedsHost(x.球敘類型)) { const hn = offNote(h, d) || availNote(h, slot); if (hn) { cls.push('hostwarn'); tag = tag || (hn === '當天登記不可排' ? '場主不可排' : '場主非可排'); } } // v4.13
       }
       if (c.dk !== '球敘' && !x.教練) { cls.push('nocoach'); tag = tag || '未排教練'; }
+      else if (c.dk !== '球敘' && availNote(x.教練, slot)) { cls.push('hostwarn'); tag = tag || '教練非可排'; } // v4.13：只提醒
       if (An.conf[k]) { cls.push('conf'); tag = tag && tag !== '未排教練' ? tag : '衝突'; }
       if (S.pending[k]) cls.push('dirty');
       if (c.legacy && c.legacy.length) meta += '<br>取代舊球敘草稿';
@@ -589,7 +612,7 @@
   };
 
   async function editClass(k, slot, dd, court, x, where, kd, M) {
-    const coaches = coachList().map((o) => { const why = coachIssue(o.v, slot, k, x, M); return Object.assign(o, { why: why }); });
+    const coaches = coachList().map((o) => { const why = coachIssue(o.v, slot, k, x, M); return Object.assign(o, { why: why, soft: why ? '' : availNote(o.v, slot) }); }); // v4.13：soft＝不在可排據點／時段（只提醒）
     const sr = kd === '期制' ? M.series[k] : null;
     const tpl = kd === '期制' ? PB.get('0_課程模板', x.課程模板) || {} : null;
     const pick = kd === '專項'
@@ -598,7 +621,7 @@
         '<div class="sb-series"><b>上課日（' + sr.dates.length + '／' + sr.n + ' 堂）</b>' + sr.dates.map((d, i) => '<span class="' + (sr.pend.indexOf(d) >= 0 ? 'pend' : '') + '">' + (i + 1) + '. ' + esc(fmtD(d)) + (sr.pend.indexOf(d) >= 0 ? '（可用日待確認）' : '') + '</span>').join('') +
         (sr.short ? '<span class="bad">還差 ' + sr.short + ' 堂：可用日不足，請先產生並確認可用日</span>' : '') + (sr.clash ? '<span class="bad">' + esc(sr.clash) + '</span>' : '') + '<small>這一面接下來的可用日會被預訂到滿堂數（已有課程、球敘的日期略過）；發布後照期制規則招生（籌備中、開課前 7 天決定是否成班）。學員請假時，系統會在期末自動加補課堂。</small></div>';
     const body = '<p class="mut" style="margin:0 0 8px">' + esc(where) + '</p>' + pick +
-      '<div class="fld"><label>教練</label><div class="sb-opts">' + coaches.map((o) => '<label class="sb-opt' + (o.why ? ' busy' : '') + '"><input type="radio" name="coach" value="' + esc(o.v) + '"' + (o.v === x.教練 ? ' checked' : '') + (o.why && o.v !== x.教練 ? ' disabled' : '') + '><span>' + esc(o.l) + '<small>' + esc(o.why || '可排') + '</small></span></label>').join('') +
+      '<div class="fld"><label>教練</label><div class="sb-opts">' + coaches.map((o) => '<label class="sb-opt' + (o.why ? ' busy' : o.soft ? ' soft' : '') + '"><input type="radio" name="coach" value="' + esc(o.v) + '"' + (o.v === x.教練 ? ' checked' : '') + (o.why && o.v !== x.教練 ? ' disabled' : '') + '><span>' + esc(o.l) + '<small>' + esc(o.why || (o.soft ? '⚠ ' + o.soft + '（可排）' : '可排')) + '</small></span></label>').join('') +
       '<label class="sb-opt"><input type="radio" name="coach" value=""' + (!x.教練 ? ' checked' : '') + '><span>之後再派<small>由行政安排</small></span></label></div></div>' +
       '<div class="fld-row"><div class="fld"><label>人數下限</label><input type="number" name="min" min="1" max="12" value="' + (num(x.人數下限) || 5) + '"></div><div class="fld"><label>人數上限</label><input type="number" name="max" min="1" max="12" value="' + (num(x.人數上限) || 6) + '"></div></div>' +
       (kd === '期制' ? '<div class="fld"><label>費用（整期）</label><input type="number" name="fee" min="0" placeholder="' + esc(str(tpl['費用']) ? '模板 ' + num(tpl['費用']) : '') + '" value="' + esc(str(x.費用)) + '"><span class="hint">空白＝依課程模板</span></div>' : '');
@@ -636,9 +659,9 @@
         const vh = venueHost(slotVenue(x.時段));
         const M = model();
         const cur = str(x.場主);
-        const opts = hostList([vh, cur]).map((o) => { const busy = hostBusy(o.v, slot, dd, k, Object.assign({}, x, { 場主: o.v === vh ? '' : o.v }), M); return '<option value="' + esc(o.v === vh ? '' : o.v) + '"' + ((cur ? cur === o.v : o.v === vh) ? ' selected' : '') + '>' + esc(o.l + (o.v === vh ? '（據點預設）' : '') + (busy ? '　⚠ ' + busy : '')) + '</option>'; });
+        const opts = hostList([vh, cur]).map((o) => { const busy = hostBusy(o.v, slot, dd, k, Object.assign({}, x, { 場主: o.v === vh ? '' : o.v }), M) || offNote(o.v, dd) || availNote(o.v, slot); return '<option value="' + esc(o.v === vh ? '' : o.v) + '"' + ((cur ? cur === o.v : o.v === vh) ? ' selected' : '') + '>' + esc(o.l + (o.v === vh ? '（據點預設）' : '') + (busy ? '　⚠ ' + busy : '')) + '</option>'; });
         if (!vh) opts.unshift('<option value=""' + (!cur ? ' selected' : '') + '>（據點沒有設定場主）</option>');
-        return '<div class="fld"><label>場主</label><select name="host">' + opts.join('') + '</select><span class="hint">預設帶入據點場主，可以換人；同時段已在其他據點主持會標 ⚠（只提醒，不擋；同據點同時段由同一人兼顧是正常的，只佔一個名額）。無場主類型（自由球敘）會忽略這一欄。發布時直接排好場主。</span></div>';
+        return '<div class="fld"><label>場主</label><select name="host">' + opts.join('') + '</select><span class="hint">預設帶入據點場主，可以換人；同時段已在其他據點主持、當天登記不可排、不在他登錄的可排據點／時段會標 ⚠（只提醒，不擋；同據點同時段由同一人兼顧是正常的，只佔一個名額）。無場主類型（自由球敘）會忽略這一欄。發布時直接排好場主。</span></div>';
       })() +
       '<p class="mut" style="font-size:.8rem;margin:6px 0 0">同一天同時段、類型、費用、場主與程度相同的球敘格，發布時合成一場（人數依類型的每面上下限 × 面數；類型沒設定就用球面容量），到開放報名時間自動開放；計分沿用同時段上一場，名稱自動為「據點名稱・類型名稱」；程度沒選時才沿用同類型的上一場。</p>';
     const read = (el) => ({ 球敘類型: el.querySelector('[name=type]').value, 費用: el.querySelector('[name=fee]').value, 場主: el.querySelector('[name=host]') ? el.querySelector('[name=host]').value : '', 程度: el.querySelector('[name=lv]') ? el.querySelector('[name=lv]').value : '' });

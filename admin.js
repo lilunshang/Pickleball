@@ -856,7 +856,10 @@
       fields: [{ k: 'v', label: '新的值', t: t, value: p.cur, hint: '清空＝回到預設' }],
       ok: '儲存',
     });
-    if (v) await sysSave([{ id: 'par:' + p.k, v: v.v }]);
+    if (v) {
+      await sysSave([{ id: 'par:' + p.k, v: v.v }]);
+      if (['specSchool', 'specGym'].indexOf(p.k) >= 0) await PB.ripple(); // v4.13：專項預設價改了 → 問要不要套用到已排好的
+    }
   };
 
   // ---- v4.8：表單欄位設定 ----
@@ -991,7 +994,7 @@
   PB.app({
     app: 'admin',
     title: '管理後台',
-    version: '4.12',
+    version: '4.13',
     screens: [Dash, Queue, Finance, Sys], // v4.12：排課、主檔與紀錄移到營運工作台
     links: () => (PB.cfg.opsUrl ? [{ label: '營運工作台', url: PB.cfg.opsUrl, icon: 'swap', mobile: true }] : []),
   });
