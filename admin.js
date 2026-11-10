@@ -323,18 +323,23 @@
     },
   };
   function defaultSettleMonth() {
-    const ms = PB.rows('3_人員費用結算').filter((s) => str(s['狀態']) !== '已付款').map((s) => str(s['月份'])).sort();
+    const ms = PB.rows('3_人員費用結算').filter((s) => str(s['狀態']) === '試算中').map((s) => str(s['月份'])).sort(); // v4.11：只看還在試算的月份
     return ms[0] || months(2)[1];
   }
   A.finTab = (d) => PB.go('finance', Object.assign({}, PB.params(), { tab: d.v }));
   PB.inputs.finMonth = (v) => PB.setParam('m', v);
 
-  function settleTab(mon) {
-    const list = PB.rows('3_人員費用結算').filter((s) => str(s['月份']) === mon).sort((a, b) => byKey(str(a['結算類型']) + m.staffName(a['人員']), str(b['結算類型']) + m.staffName(b['人員'])));
+  function settleTab(mon, p) {
+    // v4.11（11/10）：預設只列「試算中」；送出付款後的在「付款」頁（資料不會刪，付款後在「付款紀錄」）
+    const all = PB.rows('3_人員費用結算').filter((s) => str(s['月份']) === mon);
+    const showAll = (p && p.all) === '1';
+    const sent = all.filter((s) => str(s['狀態']) !== '試算中').length;
+    const list = (showAll ? all : all.filter((s) => str(s['狀態']) === '試算中')).sort((a, b) => byKey(str(a['結算類型']) + m.staffName(a['人員']), str(b['結算類型']) + m.staffName(b['人員'])));
     const tot = (st) => sum(list.filter((s) => !st || str(s['狀態']) === st), (s) => num(s['計算金額']) + num(s['調整金額']));
     const rows = list.map((s) => '<tr class="click" data-act="settleOpen" data-id="' + esc(s['結算ID']) + '"><td data-stop><input type="checkbox" data-q="settle" value="' + esc(s['結算ID']) + '"></td><td>' + esc(m.staffName(s['人員'])) + '</td><td>' + esc(s['結算類型']) + '</td><td class="num">' + money(s['計算金額']) + '</td><td class="num">' + (num(s['調整金額']) ? money(s['調整金額']) : '') + '</td><td class="num"><b>' + money(num(s['計算金額']) + num(s['調整金額'])) + '</b></td><td><span class="badge ' + ({ 試算中: 'warn', 待付款: 'info', 已付款: 'ok' }[str(s['狀態'])] || '') + '">' + esc(s['狀態']) + '</span>' + (day(s['付款日期']) ? ' <span class="mut">' + fmtD(s['付款日期']) + '</span>' : '') + '</td><td class="mut" style="white-space:normal">' + esc(s['調整原因']) + '</td></tr>').join('');
     return '<div class="acts">' + btn('勾選的送出付款', 'settleTo', { to: '待付款' }, 'pri') + btn('去付款（可和分潤、支出一起匯）', 'param2', { k: 'tab', v: '付款' }) + btn('退回試算', 'settleTo', { to: '試算中' }, 'ghost') + '</div>' +
-      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>人員</th><th>類型</th><th class="num">計算</th><th class="num">調整</th><th class="num">應付</th><th>狀態</th><th>調整原因</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8" class="mut">這個月沒有結算單（每月 1 日 06:00 由系統產生上個月的試算）</td></tr>') +
+      '<div class="chips" style="margin-bottom:10px"><button class="chip' + (showAll ? '' : ' on') + '" data-act="param2" data-k="all" data-v="">試算中<span class="c">' + (all.length - sent) + '</span></button><button class="chip' + (showAll ? ' on' : '') + '" data-act="param2" data-k="all" data-v="1">全部（含已送出 ' + sent + '）</button></div>' +
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>人員</th><th>類型</th><th class="num">計算</th><th class="num">調整</th><th class="num">應付</th><th>狀態</th><th>調整原因</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8" class="mut">' + (sent && !showAll ? '這個月的結算單都已送出，在「付款」頁付款；付完會出現在「付款紀錄」' : '這個月沒有結算單（每月 1 日 06:00 由系統產生上個月的試算）') + '</td></tr>') +
       '</tbody><tfoot><tr><td></td><td colspan="4">合計（試算中 ' + money(tot('試算中')) + '・待付款 ' + money(tot('待付款')) + '）</td><td class="num">' + money(tot()) + '</td><td colspan="2"></td></tr></tfoot></table></div>' +
       '<p class="mut" style="font-size:.8rem">試算中可以調整金額；送出付款後不能再改。改了場次的教練費／場主費後，請在管理 GAS 執行 f01Recalc() 重算。</p>';
   }
@@ -437,6 +442,18 @@
     return out;
   }
   const skey = (x) => x.t + ':' + x.id;
+  // v4.11：每個受款對象可收合（記在這台裝置）；人員的匯款資料打開付款頁時讀一次，只放記憶體
+  const LSO = 'pb:payOpen';
+  const payOpen = (() => { try { return new Set(JSON.parse(localStorage.getItem(LSO) || '[]')); } catch (e) { return new Set(); } })();
+  const saveOpen = () => { try { localStorage.setItem(LSO, JSON.stringify(Array.from(payOpen))); } catch (e) { /* 私密視窗 */ } };
+  A.payToggle = (d) => { if (payOpen.has(d.k)) payOpen.delete(d.k); else payOpen.add(d.k); saveOpen(); PB.render(); };
+  A.payOpenAll = (d) => { if (d.v === '1') split(d.ks.replace(/,/g, ' , ')).forEach((k) => payOpen.add(k)); else payOpen.clear(); saveOpen(); PB.render(); };
+  let PAYINFO = null;
+  let payInfoKey = '';
+  function loadPayInfo(ids) {
+    payInfoKey = ids.join(',');
+    PB.read('payeeInfo', { staff: ids }).then((r) => { PAYINFO = (r && r.staff) || {}; }).catch(() => { PAYINFO = {}; }).finally(() => { PB.render(); });
+  }
   const TBADGE = { 支出: '', 月結: 'info', 分潤: 'brand' };
 
   function payTab(mon, p) {
@@ -458,19 +475,39 @@
     const groups = {};
     list.forEach((x) => { (groups[x.py.k] = groups[x.py.k] || { py: x.py, list: [] }).list.push(x); });
     const order = Object.keys(groups).sort((a, b) => sum(groups[b].list, (x) => x.amt) - sum(groups[a].list, (x) => x.amt));
+    const staffIds = uniq(order.map((k) => groups[k].py).filter((py) => py.kind === '人員').map((py) => py.id));
+    if (staffIds.length && payInfoKey !== staffIds.join(',')) loadPayInfo(staffIds);
+    const bankLine = (g, amt) => {
+      if (g.py.kind !== '人員') return g.py.info ? '<span class="mut" style="font-size:.84rem">付款方式：' + esc(g.py.info) + '</span>' : '';
+      if (!PAYINFO) return '<span class="mut" style="font-size:.84rem">讀取匯款資料…</span>';
+      const x = PAYINFO[g.py.id];
+      if (!x || !(x.匯款銀行 || x.帳號)) return '<span class="badge warn">沒有匯款資料</span> <span class="mut" style="font-size:.8rem">請本人在 LINE 填「匯款帳戶」</span>';
+      const b = bankOf(x.匯款銀行);
+      const acct = acctDigits(x.帳號);
+      return '<span class="mut" style="font-size:.8rem">銀行</span> <b>' + esc(b.code || '—') + '</b> <span class="mut" style="font-size:.84rem">' + esc(b.name) + '</span>' + (b.code ? cpBtn(b.code, g.py.name + ' 銀行代碼', 1) : '') +
+        '<span style="display:inline-block;width:10px"></span><span class="mut" style="font-size:.8rem">帳號</span> <b style="letter-spacing:.02em">' + esc(acct || '—') + '</b>' + (acct ? cpBtn(acct, g.py.name + ' 帳號', 1) : '') +
+        '<span style="display:inline-block;width:10px"></span><span class="mut" style="font-size:.8rem">金額</span> <b>' + money(amt) + '</b>' + cpBtn(String(Math.round(amt)), g.py.name + ' 金額', 1) +
+        '<span style="flex:1"></span><button class="btn sm ghost" data-act="payCopy" data-v="' + esc(transferText(g.py.name, x, amt)) + '" data-w="' + esc(g.py.name + ' 轉帳資訊') + '">' + PB.icon('copy') + '複製全部</button>';
+    };
     const cards = order.map((k) => {
       const g = groups[k];
       const ks = g.list.map(skey);
       const on = ks.filter((x) => paySel.has(x)).length;
-      const kinds = uniq(g.list.map((x) => x.t));
+      const kinds = uniq(g.list.map((x) => x.t === '月結' ? str(x.r['結算類型']) || '月結' : x.t));
+      const amt = sum(g.list, (x) => x.amt);
+      const open = payOpen.has(k);
       const rows = g.list.sort((a, b) => byKey(a.t + a.d, b.t + b.d)).map((x) => '<tr' + (x.open ? ' class="click" data-act="' + x.open + '" data-id="' + esc(x.id) + '"' : '') + '><td data-stop><input type="checkbox" data-paysel="' + esc(skey(x)) + '"' + (paySel.has(skey(x)) ? ' checked' : '') + '></td><td><span class="badge ' + TBADGE[x.t] + '">' + x.t + '</span></td><td style="white-space:normal">' + esc(x.t === '支出' ? fmtD(x.d) + '・' + x.label : x.label) + '</td><td class="fclip m-hide">' + (x.files ? '📎 ' + x.files : '') + '</td><td class="num">' + money(x.amt) + '</td></tr>').join('');
-      return '<div class="card exp-g"><div class="exp-gh"><label class="exp-all"><input type="checkbox" data-paygrp="' + esc(ks.join(',')) + '"' + (on === ks.length ? ' checked' : '') + '><b>' + esc(g.py.name) + '</b></label>' +
-        (g.py.kind ? '<span class="badge">' + esc(g.py.kind) + '</span>' : '') + (kinds.length > 1 ? '<span class="mut" style="font-size:.8rem">' + esc(kinds.join('＋')) + '</span>' : '') + (g.py.info ? '<span class="mut exp-info">' + esc(g.py.info) + '</span>' : '') + (g.py.kind === '人員' ? btn('轉帳資訊', 'secretView', { id: g.py.id, amt: sum(g.list, (x) => x.amt) }, 'ghost') : '') +
-        '<span class="sp"></span><span class="mut">' + g.list.length + ' 筆</span><b class="num">' + money(sum(g.list, (x) => x.amt)) + '</b></div>' +
-        '<div class="tbl-wrap flat"><table class="tbl"><tbody>' + rows + '</tbody></table></div></div>';
+      return '<div class="card exp-g"><div class="exp-gh"><input type="checkbox" style="width:16px;height:16px;accent-color:var(--brand)" aria-label="全選 ' + esc(g.py.name) + '" data-paygrp="' + esc(ks.join(',')) + '"' + (on === ks.length ? ' checked' : '') + '>' +
+        '<button class="pay-tg" data-act="payToggle" data-k="' + esc(k) + '" aria-expanded="' + open + '" style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;border:0;background:none;padding:2px 0;font:inherit;color:inherit;text-align:left;cursor:pointer">' +
+        '<span class="grp-arrow' + (open ? ' on' : '') + '">' + PB.icon('chev') + '</span><b style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">' + esc(g.py.name) + '</b>' + (g.py.kind ? '<span class="badge m-hide">' + esc(g.py.kind) + '</span>' : '') +
+        '<span class="mut m-hide" style="font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(kinds.join('＋')) + '・' + g.list.length + ' 筆</span><span style="flex:1"></span><b class="num">' + money(amt) + '</b></button></div>' +
+        (open ? '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line)">' + bankLine(g, amt) + '</div>' +
+          '<div class="tbl-wrap flat"><table class="tbl"><tbody>' + rows + '</tbody></table></div>' : '') + '</div>';
     }).join('');
+    const allKeys = order.join(',');
+    const openBar = order.length > 1 ? '<div style="display:flex;gap:6px;margin-bottom:8px">' + btn('全部展開', 'payOpenAll', { v: '1', ks: allKeys }, 'ghost') + btn('全部收合', 'payOpenAll', { v: '0', ks: '' }, 'ghost') + '</div>' : '';
     const filt = '<div class="ptop"><label class="search">' + PB.icon('search') + '<input placeholder="受款對象、項目" value="' + esc(p.q || '') + '" data-input="arSearch"></label><span class="sp"></span><span class="mut">待付 ' + list.length + ' 筆・' + money(sum(list, (x) => x.amt)) + '</span>' + (list.length ? btn('轉帳清單', 'payList', {}, 'pri') : '') + btn('新增支出', 'expNew', {}, 'ghost', 'plus') + '</div>';
-    return filt + (cards || '<div class="card">' + ui.empty('沒有待付款的項目', '') + '</div>') + '<div class="exp-bar" id="payBar">' + barHtml() + '</div>' +
+    return filt + openBar + (cards || '<div class="card">' + ui.empty('沒有待付款的項目', '') + '</div>') + '<div class="exp-bar" id="payBar">' + barHtml() + '</div>' +
       '<p class="mut" style="font-size:.8rem">同一個人的月結、分潤、支出可以一起勾、一起付（同一次付款、同一張轉帳截圖）。勾選記在這台裝置，可以分幾天慢慢勾。</p>';
   }
   function barHtml() {
@@ -511,6 +548,7 @@
     if (!r) return;
     const out = await PB.run('payBatch', Object.assign({ items: sel.map((x) => ({ t: x.t, id: x.id })) }, r));
     if (out) { sel.forEach((x) => paySel.delete(skey(x))); saveSel(); PB.render(); }
+    PAYINFO = null; payInfoKey = '';
   };
   // ---- v4.11（11/10）轉帳資訊：銀行代碼、帳號、金額一鍵複製（主理人轉帳用；只讀不存本機） ----
   const BANK_NAMES = { '004': '臺灣銀行', '005': '土地銀行', '006': '合作金庫', '007': '第一銀行', '008': '華南銀行', '009': '彰化銀行', '011': '上海商銀', '012': '台北富邦', '013': '國泰世華', '017': '兆豐銀行', '048': '王道銀行', '050': '臺灣企銀', '052': '渣打銀行', '053': '台中銀行', '081': '匯豐銀行', '103': '新光銀行', '108': '陽信銀行', '700': '中華郵政', '803': '聯邦銀行', '805': '遠東銀行', '806': '元大銀行', '807': '永豐銀行', '808': '玉山銀行', '809': '凱基銀行', '810': '星展銀行', '812': '台新銀行', '822': '中國信託', '823': '將來銀行', '824': '連線銀行（LINE Bank）', '826': '樂天銀行' };
