@@ -628,8 +628,9 @@
     const exL = ex.filter((e) => e.per !== 'once').reduce((a, e) => a + num(e.amount), 0);
     const exO = ex.filter((e) => e.per === 'once').reduce((a, e) => a + num(e.amount), 0);
     const lesson = per * n + exL;
-    const total = Math.round(lesson * lessons + exO);
-    return { n: n, per: per, exL: exL, exO: exO, lesson: lesson, total: total, perPerson: Math.round(total / n) };
+    const xr = num(s.extraFee) * (s.xrN || 0); // v4.14：額外租借場地費（代收代付）
+    const total = Math.round(lesson * lessons + exO + xr);
+    return { n: n, per: per, exL: exL, exO: exO, xr: xr, lesson: lesson, total: total, perPerson: Math.round(total / n) };
   };
   /** 據點裡可上課的時段（用途含課程、使用中） */
   const pvSlots = (venue) => PB.rows('1_據點_時段').filter((s) => str(s['據點']) === venue && str(s['狀態']) !== '停用' && split(s['用途']).indexOf('課程') >= 0)
@@ -666,7 +667,8 @@
     const exO = ex.filter((e) => e.per === 'once').reduce((a, e) => a + num(e.amount), 0);
     const racket = Math.max(0, Math.floor(num(s.rackets))) * CH.rkFee();
     const perGame = Math.round(base + exG + racket);
-    return { base: base, exG: exG, exO: exO, racket: racket, perGame: perGame, total: Math.round(perGame * games + exO) };
+    const xr = num(s.extraFee) * (s.xrN || 0); // v4.14：額外租借場地費（代收代付）
+    return { base: base, exG: exG, exO: exO, racket: racket, xr: xr, perGame: perGame, total: Math.round(perGame * games + exO + xr) };
   };
   /** 包場可用的時段：用途含球敘或課程 */
   CH.slots = (venue) => PB.rows('1_據點_時段').filter((x) => str(x['據點']) === venue && str(x['狀態']) !== '停用' && split(x['用途']).some((u) => u === '球敘' || u === '課程'))
@@ -693,38 +695,128 @@
   };
   CH.staff = () => PB.rows('1_人員').filter((p) => !str(p['在職狀態']) || str(p['在職狀態']) === '在職').map((p) => ({ v: str(p['人員ID']), l: str(p['姓名']) })).sort((a, b) => a.l.localeCompare(b.l, 'zh-Hant'));
 
+  // ---------------- v4.14（11/11）先選據點＋日期 → 列出租約內可用的時段／球面；也可以勾「非租約／額外租借（代收代付）」 ----------------
+  const XR = {};
+  XR.courts = (venue) => PB.rows('1_據點_場地').filter((c) => str(c['據點']) === venue && str(c['狀態']) !== '停用').map((c) => str(c['場地ID']));
+  /** 這天這個據點「可用」的時段（用途符合） */
+  XR.slotsOn = (venue, d, uses) => PB.rows('1_據點_可用日').filter((a) => day(a['日期']) === d && str(a['狀態']) === '可用').map((a) => PB.get('1_據點_時段', a['時段']))
+    .filter((sl, i, arr) => sl && arr.indexOf(sl) === i && str(sl['據點']) === venue && str(sl['狀態']) !== '停用' && split(sl['用途']).some((u) => uses.indexOf(u) >= 0));
+  /** 涵蓋這幾面、這段時間的租約時段（沒有＝不在租約） */
+  XR.lease = (venue, d, courts, start, end, uses) => (courts.length && start && end ? XR.slotsOn(venue, d, uses).find((sl) => courts.every((c) => split(sl['使用場地']).indexOf(c) >= 0) &&
+    minOf(sl['開始時間']) <= minOf(start) && endMin(sl['結束時間']) >= endMin(end)) || null : null);
+  /** 有租約可用日的日期（月曆標記） */
+  XR.leaseDays = (venue, uses) => {
+    const ids = PB.rows('1_據點_時段').filter((sl) => str(sl['據點']) === venue && str(sl['狀態']) !== '停用' && split(sl['用途']).some((u) => uses.indexOf(u) >= 0)).map((sl) => str(sl['時段ID']));
+    const out = {};
+    PB.rows('1_據點_可用日').forEach((a) => { if (str(a['狀態']) === '可用' && ids.indexOf(str(a['時段'])) >= 0) out[day(a['日期'])] = true; });
+    return out;
+  };
+  XR.venues = () => PB.rows('1_據點').filter((v) => ['停止合作', '停用'].indexOf(str(v['狀態'])) < 0 && XR.courts(str(v['據點ID'])).length)
+    .sort((a, b) => str(a['據點名稱']).localeCompare(str(b['據點名稱']), 'zh-Hant'));
+  /** 加一堂／加一場：可選的日期（租約內）＋額外租借欄位 */
+  XR.askFields = (opts, unit) => [
+    { k: 'mode', label: '場地', t: 'enum', opts: opts.length ? ['租約內的日子', '非租約／額外租借（代收代付）'] : ['非租約／額外租借（代收代付）'], value: opts.length ? '租約內的日子' : '非租約／額外租借（代收代付）' },
+    { k: 'date', label: '日期', t: 'enum', opts: opts.map((o) => o.l), value: opts[0] ? opts[0].l : '', when: { mode: ['租約內的日子'] }, hint: '只列這幾面這個時間還空著、已租到的日子' },
+    { k: 'xdate', label: '日期', t: 'date', when: { mode: ['非租約／額外租借（代收代付）'] }, hint: '任何日期；同一面同時間已有課或球敘會擋' },
+    { k: 'xfee', label: '場地費（' + unit + '，代收代付）', t: 'money', when: { mode: ['非租約／額外租借（代收代付）'] }, hint: '算進這' + unit.slice(1) + '的帳單與場地成本，並建一筆應付場租' },
+  ];
+  XR.pick = (v, opts) => {
+    if (/^非租約/.test(v.mode)) return { date: v.xdate, extra: true, extraFee: num(v.xfee) };
+    const o = opts.find((y) => y.l === v.date);
+    return { date: o ? o.d : '', extra: false };
+  };
+
   A.pvNew = (d0) => {
     const s = {
       kind: d0 && d0.kind === '包場球敘' ? '包場球敘' : '包班', name: '', venue: '', slot: '', court: '', start: '', end: '', coach: '', dates: [],
       students: [], contact: '', payMode: 'contact', billMode: 'all', fee: '', feeUnit: 'person', extras: [], payments: [], note: '', notify: true,
       courts: [], people: '', rackets: '0', hostMode: 'yes', hostId: '', cBill: 'all', cUnit: 'game', // v4.14：包場球敘
+      cal: today().slice(0, 7), extra: false, extraFee: '', xrN: 0, // v4.14：月曆、額外租借
     };
-    const venues = PB.rows('1_據點').filter((v) => ['合作中', '籌備中', ''].indexOf(str(v['狀態'])) >= 0 && pvSlots(str(v['據點ID'])).length)
-      .sort((a, b) => str(a['據點名稱']).localeCompare(str(b['據點名稱']), 'zh-Hant'));
+    const venues = XR.venues();
     const seg = (key, opts) => '<span class="seg">' + opts.map((o) => '<button type="button" class="chip' + (s[key] === o[0] ? ' on' : '') + '" data-pv="set" data-k="' + key + '" data-v="' + esc(o[0]) + '">' + esc(o[1]) + '</button>').join('') + '</span>';
     const fld = (label, inner, hint) => '<div class="fld"><label>' + label + '</label>' + inner + (hint ? '<div class="hint">' + hint + '</div>' : '') + '</div>';
     const sel = (key, opts, blank) => '<select data-pv="val" data-k="' + key + '">' + (blank ? '<option value="">' + esc(blank) + '</option>' : '') + opts.map((o) => '<option value="' + esc(o.v) + '"' + (str(s[key]) === str(o.v) ? ' selected' : '') + '>' + esc(o.l) + '</option>').join('') + '</select>';
     const stuList = () => PB.rows('1_學員').filter((r) => !str(r['合併至']));
+    // ---- v4.14：據點＋日期 → 時段／球面（課程、包場共用） ----
+    const isCh = () => s.kind === '包場球敘';
+    const uses = () => (isCh() ? ['球敘', '課程'] : ['課程']);
+    const selCourts = () => (isCh() ? s.courts : s.court ? [s.court] : []);
+    const busyOf = (d) => (selCourts().length && s.start && s.end ? (isCh() ? CH.busy(d, s.start, s.end, s.courts) : pvBusy(d, s.start, s.end, s.court)) : '');
+    const leaseOf = (d) => XR.lease(s.venue, d, selCourts(), s.start, s.end, uses());
+    /** 額外租借的天數（不在租約、沒被佔用） */
+    const xrCount = () => (s.extra ? s.dates.filter((d) => !busyOf(d) && !leaseOf(d)).length : 0);
+    const calcNow = () => { s.xrN = xrCount(); return isCh() ? CH.calc(s, Math.max(1, s.dates.length)) : PV.calc(s, Math.max(1, s.dates.length)); };
+    function calHtml() {
+      const ym = s.cal;
+      const y = +ym.slice(0, 4);
+      const mo = +ym.slice(5, 7);
+      const first = new Date(y, mo - 1, 1).getDay();
+      const n = new Date(y, mo, 0).getDate();
+      const lease = XR.leaseDays(s.venue, uses());
+      const t = today();
+      let cells = '日一二三四五六'.split('').map((w) => '<span class="pv-cw">' + w + '</span>').join('');
+      for (let i = 0; i < first; i++) cells += '<span></span>';
+      for (let i = 1; i <= n; i++) {
+        const k = ym + '-' + String(i).padStart(2, '0');
+        const on = s.dates.indexOf(k) >= 0;
+        cells += '<button type="button" class="pv-cd' + (on ? ' on' : '') + (lease[k] ? ' l' : '') + (k === t ? ' t' : '') + '" data-pv="day" data-v="' + k + '"' + (k < t && !on ? ' disabled' : '') + '>' + i + '</button>';
+      }
+      return '<div class="pv-cal"><div class="pv-cn"><button type="button" class="icon-btn" data-pv="cal" data-v="-1" aria-label="上個月">‹</button><b>' + y + ' 年 ' + mo + ' 月</b><button type="button" class="icon-btn" data-pv="cal" data-v="1" aria-label="下個月">›</button></div>' +
+        '<div class="pv-cg">' + cells + '</div><div class="hint"><span class="pv-dot"></span> 有租約可用日・可以跨月、任意日期多選</div></div>';
+    }
+    function placeHtml() {
+      let h = fld('據點', sel('venue', venues.map((v) => ({ v: v['據點ID'], l: v['據點名稱'] })), '選據點'));
+      if (!s.venue) return h;
+      h += fld((isCh() ? '日期' : '上課日期') + ' <span class="mut">已選 ' + s.dates.length + (isCh() ? ' 場' : ' 堂') + '</span>', calHtml(), isCh() ? '一個日期＝一場' : '');
+      if (!s.dates.length) return h + '<div class="hint">選好日期後，下面列出那幾天租約內可用的時段與球面</div>';
+      // 租約內可用的時段（選的日期中有幾天可用）
+      const cnt = {};
+      s.dates.forEach((d) => XR.slotsOn(s.venue, d, uses()).forEach((sl) => { const k = str(sl['時段ID']); cnt[k] = (cnt[k] || 0) + 1; }));
+      const sls = Object.keys(cnt).map((k) => PB.get('1_據點_時段', k)).filter(Boolean)
+        .sort((a, b) => byKey(cnt[str(b['時段ID'])] + '', cnt[str(a['時段ID'])] + '') || byKey(hmOf(a['開始時間']), hmOf(b['開始時間'])));
+      h += fld('租約內可用 <span class="mut">點一下帶入時間' + (isCh() ? '' : '與球面') + '</span>', sls.length ? '<div class="chips pv-sl">' + sls.map((sl) => {
+        const on = s.start === hmOf(sl['開始時間']) && endMin(s.end) === endMin(sl['結束時間']) && selCourts().every((c) => split(sl['使用場地']).indexOf(c) >= 0) && selCourts().length;
+        return '<button type="button" class="chip' + (on ? ' on' : '') + '" data-pv="pick" data-v="' + esc(str(sl['時段ID'])) + '">' + esc(slotLabel(sl)) + '<span class="c">' + cnt[str(sl['時段ID'])] + '/' + s.dates.length + ' 天</span></button>';
+      }).join('') + '</div>' : '<div class="note warn">選的日期都沒有租約可用日：要用請勾下面的「非租約／額外租借」</div>');
+      // 時間
+      h += fld(isCh() ? '時間' : '上課時間', '<span class="pv-time"><input type="time" data-pv="val" data-k="start" value="' + esc(s.start) + '"> – <input type="time" data-pv="val" data-k="end" value="' + esc(s.end) + '"></span>');
+      // 球面：據點全部球面
+      const all = XR.courts(s.venue);
+      h += fld((isCh() ? '包哪幾面' : '球面') + (isCh() ? ' <span class="mut">已選 ' + s.courts.length + ' 面</span>' : ''), '<div class="chips">' + all.map((c) => {
+        const on = selCourts().indexOf(c) >= 0;
+        const leaseN = s.start && s.end ? s.dates.filter((d) => XR.lease(s.venue, d, [c], s.start, s.end, uses())).length : 0;
+        const busyN = s.start && s.end ? s.dates.filter((d) => pvBusy(d, s.start, s.end, c)).length : 0;
+        return '<button type="button" class="chip' + (on ? ' on' : '') + '" data-pv="' + (isCh() ? 'court' : 'court1') + '" data-v="' + esc(c) + '">' + esc(m.courtName(c)) +
+          (s.start && s.end ? '<span class="c">' + (leaseN ? '租約 ' + leaseN + '/' + s.dates.length : '非租約') + (busyN ? '・佔用 ' + busyN : '') + '</span>' : '') + '</button>';
+      }).join('') + '</div>', isCh() ? '同時段其他面照常開球敘' : '');
+      // 每天檢查
+      if (selCourts().length && s.start && s.end) {
+        let bad = 0;
+        let off = 0;
+        const rows = s.dates.map((d) => {
+          const b = busyOf(d);
+          const l = leaseOf(d);
+          if (b) bad++;
+          else if (!l) off++;
+          return '<span class="pv-dk">' + mdw(d) + ' ' + (b ? '<span class="badge bad">' + esc(b) + '</span>' : l ? '<span class="badge ok">租約</span>' : s.extra ? '<span class="badge info">額外租借</span>' : '<span class="badge warn">不在租約</span>') + '</span>';
+        }).join('');
+        h += '<div class="pv-dks">' + rows + '</div>' + (bad ? '<div class="note warn">' + bad + ' 天這' + (isCh() ? '幾' : '一') + '面這段時間已被佔用：請取消那天或換球面／時間</div>' : '');
+        h += '<label class="pv-chk"><input type="checkbox" data-pv="extra"' + (s.extra ? ' checked' : '') + '> 非租約／額外租借（代收代付）' + (off && !s.extra ? ' <span class="badge warn">' + off + ' 天需要勾選</span>' : '') + '</label>';
+        if (s.extra) h += fld('場地費 <span class="mut">每' + (isCh() ? '場' : '堂') + '・只算額外租借的 ' + xrCount() + ' ' + (isCh() ? '場' : '堂') + '</span>', '<input type="number" min="0" step="50" data-pv="val" data-k="extraFee" value="' + esc(s.extraFee) + '" placeholder="金額" style="width:120px">',
+          '向學員收、付給場地：算進帳單和場地成本，並為每' + (isCh() ? '場' : '堂') + '建一筆應付場租；不另建可用日');
+      }
+      return h;
+    }
     function render(el) {
+      s.xrN = xrCount();
       if (s.kind === '包場球敘') { el.innerHTML = chHtml(); return; } // v4.14
-      const slot = PB.get('1_據點_時段', s.slot);
       const lessons = s.dates.length;
       const c = PV.calc(s, Math.max(lessons, 1));
-      // 1 課程
+      // 1 課程（v4.14：先選據點＋日期）
       let h = '<div class="pv-sec"><h4>1　課程</h4>' +
         fld('類型', seg('kind', [['包班', '包班'], ['個人課', '個人課'], ['包場球敘', '包場球敘']]), s.kind === '包班' ? '固定成員、固定時段，通常由聯絡人一次付清' : '1–4 人；人數決定教練費級距') +
-        fld('據點', sel('venue', venues.map((v) => ({ v: v['據點ID'], l: v['據點名稱'] })), '選據點'), venues.length ? '' : '沒有可上課的時段：先到「主檔與紀錄 → 據點與場地」新增時段（租約由管理層登錄）') +
-        (s.venue ? fld('時段', sel('slot', pvSlots(s.venue).map((x) => ({ v: x['時段ID'], l: slotLabel(x) })), '選時段'), '租到的時段；上課時間可以只用其中一段') : '') +
-        (slot ? '<div class="pv-row">' + fld('球面', sel('court', split(slot['使用場地']).map((x) => ({ v: x, l: m.courtName(x) })))) +
-          fld('上課時間', '<span class="pv-time"><input type="time" data-pv="val" data-k="start" value="' + esc(s.start) + '"> – <input type="time" data-pv="val" data-k="end" value="' + esc(s.end) + '"></span>', '例：19:00–21:00（21:00 之後自由對打只算場地）') + '</div>' +
-          fld('教練', sel('coach', coaches(), '選教練')) : '');
-      if (slot && s.court) {
-        const ds = pvDays(s.slot, s.court, s.start, s.end);
-        h += fld('上課日期 <span class="mut">已選 ' + lessons + ' 堂</span>', ds.length ? '<div class="chips pv-days">' + ds.map((x) => {
-          const on = s.dates.indexOf(x.d) >= 0;
-          return '<button type="button" class="chip' + (on ? ' on' : '') + (x.busy && !on ? ' mutc" disabled title="' + esc(x.busy) : '') + '" data-pv="day" data-v="' + x.d + '">' + mdw(x.d) + (x.busy ? '<span class="c">' + esc(x.busy) + '</span>' : '') + '</button>';
-        }).join('') + '</div>' : '<div class="note warn">這個時段還沒有可用日</div>', '只列已租到（可用）的日期；沒有的日子請先到「主檔與紀錄 → 據點與場地」加日期');
-      }
+        placeHtml() + (s.venue && s.dates.length ? fld('教練', sel('coach', coaches(), '選教練')) : '');
       h += '</div>';
       // 2 學員
       h += '<div class="pv-sec"><h4>2　學員 <span class="mut">' + s.students.length + ' 人</span></h4>' +
@@ -778,26 +870,13 @@
         .map((d) => ({ d: d, busy: s.courts.length && s.start && s.end ? CH.busy(d, s.start, s.end, s.courts) : '' }));
     }
     function chHtml() {
-      const cvs = PB.rows('1_據點').filter((v) => ['合作中', '籌備中', ''].indexOf(str(v['狀態'])) >= 0 && CH.slots(str(v['據點ID'])).length)
-        .sort((a, b) => str(a['據點名稱']).localeCompare(str(b['據點名稱']), 'zh-Hant'));
-      const slot = PB.get('1_據點_時段', s.slot);
       const n = s.dates.length;
       const c = CH.calc(s, Math.max(n, 1));
       let h = '<div class="pv-sec"><h4>1　包場</h4>' +
         fld('類型', seg('kind', [['包班', '包班'], ['個人課', '個人課'], ['包場球敘', '包場球敘']]), '一位聯絡人包下一個時段的幾面；不公開、不能從 LINE 報名') +
-        fld('據點', sel('venue', cvs.map((v) => ({ v: v['據點ID'], l: v['據點名稱'] })), '選據點')) +
-        (s.venue ? fld('時段', sel('slot', CH.slots(s.venue).map((x) => ({ v: x['時段ID'], l: slotLabel(x) })), '選時段'), '租到的時段；時間可以只用其中一段') : '');
-      if (slot) {
-        h += fld('包哪幾面 <span class="mut">已選 ' + s.courts.length + ' 面</span>', '<div class="chips">' + split(slot['使用場地']).map((x) => '<button type="button" class="chip' + (s.courts.indexOf(x) >= 0 ? ' on' : '') + '" data-pv="court" data-v="' + esc(x) + '">' + esc(m.courtName(x)) + '</button>').join('') + '</div>', '同時段其他面照常開球敘') +
-          '<div class="pv-row">' + fld('時間', '<span class="pv-time"><input type="time" data-pv="val" data-k="start" value="' + esc(s.start) + '"> – <input type="time" data-pv="val" data-k="end" value="' + esc(s.end) + '"></span>') +
-          fld('包場人數', '<input type="number" min="1" data-pv="val" data-k="people" value="' + esc(s.people) + '" placeholder="例：12" style="width:90px">', '場主費依這個時段的人數級距算') + '</div>';
-        if (s.courts.length) {
-          const ds = chDays();
-          h += fld('日期 <span class="mut">已選 ' + n + ' 場</span>', ds.length ? '<div class="chips pv-days">' + ds.map((x) => {
-            const on = s.dates.indexOf(x.d) >= 0;
-            return '<button type="button" class="chip' + (on ? ' on' : '') + (x.busy && !on ? ' mutc" disabled title="' + esc(x.busy) : '') + '" data-pv="day" data-v="' + x.d + '">' + mdw(x.d) + (x.busy ? '<span class="c">' + esc(x.busy) + '</span>' : '') + '</button>';
-          }).join('') + '</div>' : '<div class="note warn">這個時段還沒有可用日</div>', '一個日期＝一場；只列已租到（可用）的日子');
-        }
+        placeHtml(); // v4.14：先選據點＋日期
+      if (s.venue && s.dates.length) {
+        h += fld('包場人數', '<input type="number" min="1" data-pv="val" data-k="people" value="' + esc(s.people) + '" placeholder="例：12" style="width:90px">', '場主費依這個時段的人數級距算');
         // 場主
         const d1 = s.dates[0];
         const def = d1 && s.start && s.end ? CH.host(s.venue, d1, s.start, s.end) : { id: '', why: '' };
@@ -842,14 +921,16 @@
       if (!n || s.fee === '' || !s.courts.length) return '<span class="mut">選好球面、日期、包場費後顯示合計</span>';
       const lines = ['包場費 ' + (s.cUnit === 'court' ? money(num(s.fee)) + ' × ' + s.courts.length + ' 面' : money(num(s.fee))) + ' × ' + n + ' 場 ＝ ' + money(c.base * n)];
       if (c.racket) lines.push('租拍 ' + num(s.rackets) + ' 支 × ' + money(CH.rkFee()) + ' × ' + n + ' 場 ＝ ' + money(c.racket * n));
+      if (c.xr) lines.push('場地費（額外租借・代收代付）' + money(num(s.extraFee)) + ' × ' + s.xrN + ' 場 ＝ ' + money(c.xr));
       s.extras.filter((e) => num(e.amount) > 0).forEach((e) => lines.push(esc(e.name || '其他') + ' ' + money(e.amount) + (e.per === 'once' ? '' : ' × ' + n + ' 場') + ' ＝ ' + money(num(e.amount) * (e.per === 'once' ? 1 : n))));
       const paid = s.payments.reduce((a, p) => a + num(p.amount), 0);
-      return lines.join('<br>') + '<div class="pv-sum"><b>合計 ' + money(c.total) + '</b>（每場 ' + money(c.perGame) + '）</div><div class="mut">帳單 ' + n + ' 筆給 ' + (s.contact ? esc(m.stuName(s.contact)) : '聯絡人') + (paid ? '・已收 ' + money(paid) + (paid === c.total ? ' <span class="badge ok">收齊</span>' : paid < c.total ? '，未收 ' + money(c.total - paid) : ' <span class="badge warn">多收 ' + money(paid - c.total) + '</span>') : '') + '</div>';
+      return lines.join('<br>') + '<div class="pv-sum"><b>合計 ' + money(c.total) + '</b>（每場 ' + money(c.perGame) + (c.xr ? '，額外租借的場次另加場地費' : '') + '）</div><div class="mut">帳單 ' + n + ' 筆給 ' + (s.contact ? esc(m.stuName(s.contact)) : '聯絡人') + (paid ? '・已收 ' + money(paid) + (paid === c.total ? ' <span class="badge ok">收齊</span>' : paid < c.total ? '，未收 ' + money(c.total - paid) : ' <span class="badge warn">多收 ' + money(paid - c.total) + '</span>') : '') + '</div>';
     }
     function totalHtml(c, lessons) {
       if (!lessons || !s.students.length || s.fee === '') return '<span class="mut">選好日期、學員、上課費後顯示合計</span>';
       const lines = ['上課費 ' + (s.feeUnit === 'group' ? money(num(s.fee)) + ' × ' + lessons + ' 堂' : money(c.per) + ' × ' + c.n + ' 人 × ' + lessons + ' 堂') + ' ＝ ' + money(c.per * c.n * lessons)];
       s.extras.filter((e) => num(e.amount) > 0).forEach((e) => lines.push(esc(e.name || '其他') + ' ' + money(e.amount) + (e.per === 'once' ? '' : ' × ' + lessons + ' 堂') + ' ＝ ' + money(num(e.amount) * (e.per === 'once' ? 1 : lessons))));
+      if (c.xr) lines.push('場地費（額外租借・代收代付）' + money(num(s.extraFee)) + ' × ' + s.xrN + ' 堂 ＝ ' + money(c.xr));
       const bills = s.payMode === 'contact' ? (s.billMode === 'all' ? '帳單 1 筆給 ' + (s.contact ? m.stuName(s.contact) : '聯絡人') : '每堂 1 筆給 ' + (s.contact ? m.stuName(s.contact) : '聯絡人') + '，每堂 ' + money(c.lesson))
         : (s.billMode === 'all' ? '每人 1 筆 ' + money(c.total / c.n) : '每人每堂 1 筆 ' + money(c.lesson / c.n));
       const paid = s.payments.reduce((a, p) => a + num(p.amount), 0);
@@ -865,10 +946,19 @@
       if (inp) inp.focus();
     }
     const findStu = (txt) => { const r = stuList().find((x) => stuLabel(x) === txt) || stuList().find((x) => str(x['姓名']) === txt) || stuList().find((x) => txt && str(x['電話']) === txt.replace(/\D/g, '')); return r ? str(r['學員ID']) : ''; };
+    /** 送出前：被佔用的日期、不在租約又沒勾額外租借 */
+    function placeOk() {
+      const busy = s.dates.filter((d) => busyOf(d));
+      if (busy.length) { ui.toast(mdw(busy[0]) + ' 這段時間已被佔用：' + busyOf(busy[0]), 'bad'); return false; }
+      const off = s.dates.filter((d) => !leaseOf(d));
+      if (off.length && !s.extra) { ui.toast(off.length + ' 天不在租約內（' + off.slice(0, 3).map(mdw).join('、') + '）：請勾「非租約／額外租借」', 'bad'); return false; }
+      if (s.extra && xrCount() && s.extraFee === '') { ui.toast('請填額外租借的場地費（沒有就填 0）', 'bad'); return false; }
+      return true;
+    }
     let chEl = null;
     async function chCreate() {
       const miss = [];
-      if (!s.venue || !s.slot) miss.push('據點與時段');
+      if (!s.venue) miss.push('據點');
       if (!s.courts.length) miss.push('球面');
       if (!s.start || !s.end || minOf(s.end) <= minOf(s.start)) miss.push('時間');
       if (!s.dates.length) miss.push('日期');
@@ -878,9 +968,10 @@
       if (miss.length) { ui.toast('請填寫：' + miss.join('、'), 'bad'); return false; }
       const lefts = s.dates.map((d) => ({ d: d, n: CH.rkLeft(s.venue, d, s.start, s.end) })).filter((x) => x.n !== null && num(s.rackets) > x.n);
       if (lefts.length) { ui.toast(mdw(lefts[0].d) + ' 球拍只剩 ' + lefts[0].n + ' 支', 'bad'); return false; }
+      if (!placeOk()) return false;
       if (s.payments.find((p) => num(p.amount) > 0 && !p.date)) { ui.toast('收款要填日期', 'bad'); return false; }
       const r = await PB.run('charterCreate', {
-        name: s.name, venue: s.venue, slot: s.slot, courts: s.courts, start: s.start, end: s.end, dates: s.dates, contact: s.contact, people: num(s.people),
+        name: s.name, venue: s.venue, courts: s.courts, start: s.start, end: s.end, dates: s.dates, contact: s.contact, people: num(s.people), extra: s.extra && xrCount() > 0, extraFee: num(s.extraFee),
         rackets: num(s.rackets), host: s.hostMode === 'yes', hostId: s.hostMode === 'yes' ? s.hostId : '', billMode: s.cBill, fee: num(s.fee), feeUnit: s.cUnit,
         extras: s.extras.filter((e) => num(e.amount) > 0).map((e) => ({ name: e.name, amount: num(e.amount), per: e.per })),
         payments: s.payments.filter((p) => num(p.amount) > 0).map((p) => ({ date: p.date, amount: num(p.amount), method: p.method, last5: p.last5 })),
@@ -897,7 +988,7 @@
         click: async () => {
           if (s.kind === '包場球敘') return chCreate(); // v4.14
           const miss = [];
-          if (!s.venue || !s.slot || !s.court) miss.push('據點與時段');
+          if (!s.venue || !s.court) miss.push('據點與球面');
           if (!s.start || !s.end || minOf(s.end) <= minOf(s.start)) miss.push('上課時間');
           if (!s.coach) miss.push('教練');
           if (!s.dates.length) miss.push('上課日期');
@@ -907,8 +998,9 @@
           if (s.kind === '個人課' && s.students.length > 4) { ui.toast('個人課最多 4 人，超過請選包班', 'bad'); return false; }
           const bad = s.payments.find((p) => num(p.amount) > 0 && !p.date);
           if (bad) { ui.toast('收款要填日期', 'bad'); return false; }
+          if (!placeOk()) return false;
           const r = await PB.run('privateCreate', {
-            kind: s.kind, name: s.name, venue: s.venue, court: s.court, coach: s.coach, start: s.start, end: s.end, dates: s.dates,
+            kind: s.kind, name: s.name, venue: s.venue, court: s.court, coach: s.coach, start: s.start, end: s.end, dates: s.dates, extra: s.extra && xrCount() > 0, extraFee: num(s.extraFee),
             students: s.students, contact: s.contact, payMode: s.payMode, billMode: s.billMode, fee: num(s.fee), feeUnit: s.feeUnit,
             extras: s.extras.filter((e) => num(e.amount) > 0).map((e) => ({ name: e.name, amount: num(e.amount), per: e.per })),
             payments: s.payments.filter((p) => num(p.amount) > 0).map((p) => ({ who: p.who, date: p.date, amount: num(p.amount), method: p.method, last5: p.last5 })),
@@ -932,15 +1024,28 @@
             s[b.dataset.k] = b.dataset.v;
             if (b.dataset.k === 'kind') {
               s.feeUnit = s.kind === '包班' ? 'person' : 'group';
-              if ((was === '包場球敘') !== (s.kind === '包場球敘')) { s.slot = ''; s.court = ''; s.courts = []; s.dates = []; s.students = s.contact ? [s.contact] : []; } // v4.14：時段清單不同
+              if ((was === '包場球敘') !== (s.kind === '包場球敘')) { s.court = ''; s.courts = []; s.students = s.contact ? [s.contact] : []; } // v4.14：據點、日期、時間保留
             }
-          } else if (k === 'court') { // v4.14：包場選球面
+          } else if (k === 'court') { // v4.14：包場選球面（據點全部球面）
             const i = s.courts.indexOf(b.dataset.v);
             if (i >= 0) s.courts.splice(i, 1); else s.courts.push(b.dataset.v);
-            const sl = PB.get('1_據點_時段', s.slot);
-            const order = sl ? split(sl['使用場地']) : [];
+            const order = XR.courts(s.venue);
             s.courts.sort((a, c) => order.indexOf(a) - order.indexOf(c));
-            s.dates = s.dates.filter((d) => !CH.busy(d, s.start, s.end, s.courts));
+          } else if (k === 'court1') { // v4.14：課程選一面
+            s.court = s.court === b.dataset.v ? '' : b.dataset.v;
+          } else if (k === 'pick') { // v4.14：點租約時段 → 帶入時間（課程也帶入球面）
+            const sl = PB.get('1_據點_時段', b.dataset.v);
+            if (!sl) return;
+            s.start = hmOf(sl['開始時間']);
+            s.end = hmOf(sl['結束時間']) === '23:59' ? '23:59' : hmOf(sl['結束時間']);
+            const cs = split(sl['使用場地']);
+            if (isCh()) s.courts = s.courts.filter((c) => cs.indexOf(c) >= 0);
+            else if (cs.indexOf(s.court) < 0) s.court = cs.find((c) => !s.dates.some((d) => pvBusy(d, s.start, s.end, c))) || cs[0] || '';
+          } else if (k === 'cal') {
+            const y = +s.cal.slice(0, 4);
+            const mo = +s.cal.slice(5, 7) - 1 + Number(b.dataset.v);
+            const dt = new Date(y, mo, 1);
+            s.cal = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
           } else if (k === 'day') {
             const i = s.dates.indexOf(b.dataset.v);
             if (i >= 0) s.dates.splice(i, 1); else s.dates.push(b.dataset.v);
@@ -960,7 +1065,7 @@
             return;
           } else if (k === 'addex') s.extras.push({ name: '', amount: '', per: 'lesson' });
           else if (k === 'unex') s.extras.splice(+b.dataset.i, 1);
-          else if (k === 'addpay') s.payments.push({ who: s.contact || s.students[0] || '', date: today(), amount: s.payments.length ? '' : String((s.kind === '包場球敘' ? CH.calc(s, Math.max(1, s.dates.length)).total : PV.calc(s, Math.max(1, s.dates.length)).total) - s.payments.reduce((a, p) => a + num(p.amount), 0) || ''), method: '轉帳', last5: '' });
+          else if (k === 'addpay') s.payments.push({ who: s.contact || s.students[0] || '', date: today(), amount: s.payments.length ? '' : String(calcNow().total - s.payments.reduce((a, p) => a + num(p.amount), 0) || ''), method: '轉帳', last5: '' });
           else if (k === 'unpay') s.payments.splice(+b.dataset.i, 1);
           else return;
           render(el);
@@ -979,15 +1084,16 @@
           else if (k === 'notify') s.notify = t.checked;
           else return;
           const box = el.querySelector('[data-pv-total]');
-          if (box) box.innerHTML = s.kind === '包場球敘' ? chTotal(CH.calc(s, Math.max(1, s.dates.length)), s.dates.length) : totalHtml(PV.calc(s, Math.max(1, s.dates.length)), s.dates.length);
+          if (box) box.innerHTML = s.kind === '包場球敘' ? chTotal(calcNow(), s.dates.length) : totalHtml(calcNow(), s.dates.length);
         });
         el.addEventListener('change', (e) => {
           const t = e.target;
           const k = t.dataset.pv;
-          if (k === 'val' && ['venue', 'slot', 'court', 'start', 'end', 'coach', 'hostId', 'rackets', 'people'].indexOf(t.dataset.k) >= 0) {
+          if (k === 'extra') { s.extra = t.checked; render(el); return; } // v4.14
+          if (k === 'val' && ['venue', 'slot', 'court', 'start', 'end', 'coach', 'hostId', 'rackets', 'people', 'extraFee'].indexOf(t.dataset.k) >= 0) {
             s[t.dataset.k] = t.value;
-            if (['hostId', 'rackets', 'people'].indexOf(t.dataset.k) >= 0) { render(el); return; } // v4.14
-            if (t.dataset.k === 'venue') { s.slot = ''; s.court = ''; s.courts = []; s.dates = []; }
+            if (['hostId', 'rackets', 'people', 'extraFee'].indexOf(t.dataset.k) >= 0) { render(el); return; } // v4.14
+            if (t.dataset.k === 'venue') { s.slot = ''; s.court = ''; s.courts = []; s.dates = []; s.start = ''; s.end = ''; }
             if (t.dataset.k === 'slot') {
               const sl = PB.get('1_據點_時段', s.slot);
               s.court = sl ? split(sl['使用場地'])[0] || '' : '';
@@ -995,11 +1101,6 @@
               s.start = sl ? hmOf(sl['開始時間']) : '';
               s.end = sl ? (hmOf(sl['結束時間']) === '23:59' ? '23:59' : hmOf(sl['結束時間'])) : '';
               s.dates = [];
-            }
-            if (['court', 'start', 'end'].indexOf(t.dataset.k) >= 0) {
-              const sl = PB.get('1_據點_時段', s.slot);
-              if (sl && (minOf(s.start) < minOf(sl['開始時間']) || endMin(s.end) > endMin(sl['結束時間']))) ui.toast('上課時間要在時段 ' + hmOf(sl['開始時間']) + '–' + hmOf(sl['結束時間']) + ' 之內', 'bad');
-              s.dates = s.dates.filter((d) => (s.kind === '包場球敘' ? !CH.busy(d, s.start, s.end, s.courts) : !pvBusy(d, s.start, s.end, s.court)));
             }
             render(el);
           } else if (k === 'contact' || (k === 'pay' && t.dataset.f === 'method') || k === 'ex' && t.dataset.f === 'per') render(el);
@@ -1091,24 +1192,23 @@
       if (v.d >= today() && have.indexOf(v.d) < 0 && !v.busy && minOf(sl['開始時間']) <= minOf(start) && endMin(sl['結束時間']) >= endMin(end) && !opts.some((o) => o.d === v.d)) opts.push({ d: v.d, l: mdw(v.d) + ' ' + start + '–' + end });
     }));
     opts.sort((a, b) => byKey(a.d, b.d));
-    if (!opts.length) return ui.toast('這一面在 ' + start + '–' + end + ' 沒有可加的可用日：請先到「主檔與紀錄 → 據點與場地」加日期', 'bad');
     const bills = pvBills(x).filter((b) => b['作廢'] !== true);
     const payers = uniq(bills.map((b) => str(b['付款人'])).filter(Boolean));
     const perLesson = x.total ? Math.round(num(c['費用']) / x.total * x.active.length) : 0;
     const v = await ui.ask('加一堂：' + str(c['課程名稱']), '同一面、同時間；要換時間請加完後在場次按「改期」。', {
-      fields: [
-        { k: 'date', label: '日期', t: 'enum', req: true, opts: opts.map((o) => o.l), value: opts[0].l, hint: '只列這一面這個時間還空著、已租到的日子' },
+      fields: XR.askFields(opts, '每堂').concat([
         { k: 'coach', label: '教練', t: 'enum', opts: coaches().map((o) => o.l), value: m.staffName(c['主教練']) },
         { k: 'amount', label: '這堂另外收費（全班合計）', t: 'money', value: perLesson, hint: '0＝不另收（例如原本就預付了多堂）；' + (payers.length > 1 ? payers.length + ' 位付款人平均分' : '帳單給 ' + (payers[0] ? m.stuName(payers[0]) : '聯絡人')) },
         { k: 'paid', label: '已收這堂的錢', t: 'bool', when: { amount: '*' } },
         { k: 'pmethod', label: '收款方式', t: 'enum', opts: ['現金', '轉帳', 'LINEPay'], value: '現金', when: { paid: [true] } },
         { k: 'plast5', label: '末五碼', t: 'text', when: { pmethod: ['轉帳'] } },
-      ], ok: '加一堂',
+      ]), ok: '加一堂',
     });
     if (!v) return;
-    const o = opts.find((y) => y.l === v.date);
+    const pk = XR.pick(v, opts);
+    if (!pk.date) return ui.toast('請選日期', 'bad');
     const coach = coaches().find((y) => y.l === v.coach);
-    PB.run('privateAddLesson', { id: d.id, date: o ? o.d : '', coach: coach ? coach.v : '', amount: num(v.amount), payment: v.paid === true && num(v.amount) > 0 && payers.length <= 1 ? { amount: num(v.amount), date: today(), method: v.pmethod, last5: v.plast5 } : null });
+    PB.run('privateAddLesson', { id: d.id, date: pk.date, extra: pk.extra, extraFee: pk.extraFee, coach: coach ? coach.v : '', amount: num(v.amount), payment: v.paid === true && num(v.amount) > 0 && payers.length <= 1 ? { amount: num(v.amount), date: today(), method: v.pmethod, last5: v.plast5 } : null });
   };
   A.pvAddStu = async (d) => {
     const c = PB.get('2_課程班級', d.id);
@@ -1613,25 +1713,24 @@
       });
     });
     opts.sort((a, b) => byKey(a.d, b.d));
-    if (!opts.length) return ui.toast('這幾面在 ' + start + '–' + end + ' 沒有可加的可用日：請先到「主檔與紀錄 → 據點與場地」加日期', 'bad');
     const hasHost = (PB.ix.dutyByGame[str(g['球敘ID'])] || []).length > 0;
     const v = await ui.ask('加一場：' + m.gameLabel(g), esc(m.venueName(g['據點']) + '・' + courts.map(m.courtName).join('、')) + '・同時間；聯絡人 ' + esc(sig ? m.stuName(sig['學員']) : ''), {
-      fields: [
-        { k: 'date', label: '日期', t: 'enum', req: true, opts: opts.map((o) => o.l), value: opts[0].l, hint: '只列這幾面這個時間還空著、已租到的日子' },
+      fields: XR.askFields(opts, '每場').concat([
         { k: 'people', label: '包場人數', t: 'num', value: num(g['人數上限']) || '' },
         { k: 'rackets', label: '租球拍（支）', t: 'num', value: sig ? num(sig['租拍數']) : 0, hint: '每支算進帳單；和同時段球敘共用庫存' },
         { k: 'host', label: '場主', t: 'enum', opts: ['派場主（同時段場主或據點場主）', '自由球敘（不派場主）'], value: hasHost ? '派場主（同時段場主或據點場主）' : '自由球敘（不派場主）' },
-        { k: 'amount', label: '這場收費', t: 'money', value: num(g['費用']), hint: '含租拍費；0＝不另收' },
+        { k: 'amount', label: '這場收費', t: 'money', value: num(g['費用']) - num(g['場地成本']) * (str(g['時段']) ? 0 : 1), hint: '含租拍費；0＝不另收；額外租借的場地費另外加' },
         { k: 'paid', label: '已收這場的錢', t: 'bool', when: { amount: '*' } },
         { k: 'pmethod', label: '收款方式', t: 'enum', opts: ['轉帳', '現金', 'LINEPay'], value: '轉帳', when: { paid: [true] } },
         { k: 'plast5', label: '末五碼', t: 'text', when: { pmethod: ['轉帳'] } },
         { k: 'notify', label: 'LINE 通知聯絡人', t: 'bool', value: true },
-      ], ok: '加一場',
+      ]), ok: '加一場',
     });
     if (!v) return;
-    const o = opts.find((y) => y.l === v.date);
+    const pk = XR.pick(v, opts);
+    if (!pk.date) return ui.toast('請選日期', 'bad');
     const r = await PB.run('charterAddGame', {
-      id: d.id, date: o ? o.d : '', people: v.people === '' ? '' : num(v.people), rackets: v.rackets === '' ? '' : num(v.rackets), host: !/^自由/.test(v.host),
+      id: d.id, date: pk.date, extra: pk.extra, extraFee: pk.extraFee, people: v.people === '' ? '' : num(v.people), rackets: v.rackets === '' ? '' : num(v.rackets), host: !/^自由/.test(v.host),
       amount: num(v.amount), notify: v.notify !== false, payment: v.paid === true && num(v.amount) > 0 ? { amount: num(v.amount), date: today(), method: v.pmethod, last5: v.plast5 } : null,
     });
     if (r && r.data && r.data.id) setTimeout(() => openGame(r.data.id), 50);

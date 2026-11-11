@@ -781,6 +781,20 @@ a.row{color:inherit;text-decoration:none}
 .pv-total{background:var(--brand-soft);border-radius:var(--r-sm);padding:10px 12px;font-size:.9rem;margin:8px 0 4px;line-height:1.7}
 .pv-sum{margin-top:4px;font-size:1.08rem;color:var(--ink)}
 .pv-chk{display:flex;gap:8px;align-items:center;font-size:.9rem;margin:8px 0}
+/* v4.14：私人課程／包場 月曆、每天檢查 */
+.pv-cal{max-width:340px;border:1px solid var(--line);border-radius:var(--r-sm);padding:8px;background:var(--surface)}
+.pv-cn{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.pv-cg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center}
+.pv-cw{font-size:.75rem;color:var(--mut);padding:2px 0}
+.pv-cd{position:relative;border:1px solid transparent;background:var(--surface2);border-radius:6px;min-height:34px;font:inherit;font-size:.88rem;cursor:pointer;color:var(--ink)}
+.pv-cd.l::after,.pv-dot{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--ok,#2e7d32)}
+.pv-cd.l::after{position:absolute;left:50%;bottom:3px;margin-left:-2.5px}
+.pv-cd.t{border-color:var(--brand)}
+.pv-cd.on{background:var(--brand);color:#fff}
+.pv-cd.on.l::after{background:#fff}
+.pv-cd:disabled{opacity:.35;cursor:not-allowed}
+.pv-dks{display:flex;flex-wrap:wrap;gap:6px 12px;margin:6px 0;font-size:.86rem}
+.pv-dk{white-space:nowrap}
 @media (max-width:640px){.pv-row{grid-template-columns:1fr}.pv .pv-add input{min-width:0}}
 
 /* v4.10（11/9）場地停用（批次取消） */
