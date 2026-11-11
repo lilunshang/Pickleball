@@ -785,11 +785,18 @@
     const skipped = [];
     let nc = 0, ng = 0, swept = 0;
     let guard = 0;
+    let availOk = false; // v4.15：場主／教練請假或不在可排時間 → 問一次
     for (;;) {
       ui.toast('發布中…已完成 ' + (nc + ng) + ' 筆', '', 2500);
-      const out = await PB.runMany([{ op: 'schedPublish', args: { month: S.month, openAt: r, skip: skipped.map((x) => x.id) } }], { quiet: true });
+      const out = await PB.runMany([{ op: 'schedPublish', args: { month: S.month, openAt: r, skip: skipped.map((x) => x.id), availOk: availOk } }], { quiet: true });
       if (!out) break;
       const res = out.results[0];
+      if (!res.ok && res.code === 'AVAIL_CONFIRM' && !availOk) {
+        const go = await ui.ask('可排時間提醒', '下列人員當天請假，或不在他們在 LINE 登錄的可排時間（看板上標 ⚠ 的格子）：<br><br>' + esc(res.message).replace(/\n/g, '<br>') + '<br><br>確定已經跟本人確認過，仍要發布嗎？', { ok: '仍要發布' });
+        if (!go) break;
+        availOk = true;
+        continue;
+      }
       if (!res.ok) { ui.toast(res.message, 'bad'); break; }
       nc += (res.data.classes || []).length;
       ng += (res.data.games || []).length;

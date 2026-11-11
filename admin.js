@@ -484,7 +484,7 @@
       if (!x || !(x.匯款銀行 || x.帳號)) return '<span class="badge warn">沒有匯款資料</span> <span class="mut" style="font-size:.8rem">請本人在 LINE 填「匯款帳戶」</span>';
       const b = bankOf(x.匯款銀行);
       const acct = acctDigits(x.帳號);
-      return '<span class="mut" style="font-size:.8rem">銀行</span> <b>' + esc(b.code || '—') + '</b> <span class="mut" style="font-size:.84rem">' + esc(b.name) + '</span>' + (b.code ? cpBtn(b.code, g.py.name + ' 銀行代碼', 1) : '') +
+      return (x.changed ? '<span class="badge warn" title="' + esc(x.changeNote || '') + '">帳戶 ' + esc(fmtD(x.changed)) + ' 本人剛改過，付款前請跟本人確認</span> ' : '') + '<span class="mut" style="font-size:.8rem">銀行</span> <b>' + esc(b.code || '—') + '</b> <span class="mut" style="font-size:.84rem">' + esc(b.name) + '</span>' + (b.code ? cpBtn(b.code, g.py.name + ' 銀行代碼', 1) : '') +
         '<span style="display:inline-block;width:10px"></span><span class="mut" style="font-size:.8rem">帳號</span> <b style="letter-spacing:.02em">' + esc(acct || '—') + '</b>' + (acct ? cpBtn(acct, g.py.name + ' 帳號', 1) : '') +
         '<span style="display:inline-block;width:10px"></span><span class="mut" style="font-size:.8rem">金額</span> <b>' + money(amt) + '</b>' + cpBtn(String(Math.round(amt)), g.py.name + ' 金額', 1) +
         '<span style="flex:1"></span><button class="btn sm ghost" data-act="payCopy" data-v="' + esc(transferText(g.py.name, x, amt)) + '" data-w="' + esc(g.py.name + ' 轉帳資訊') + '">' + PB.icon('copy') + '複製全部</button>';
@@ -538,7 +538,7 @@
     sel.forEach((x) => { (groups[x.py.k] = groups[x.py.k] || { py: x.py, list: [] }).list.push(x); });
     const staff = Object.keys(groups).map((k) => groups[k].py).filter((py) => py.kind === '人員').map((py) => py.id);
     const info = staff.length ? await PB.read('payeeInfo', { staff: staff }) : null;
-    const bank = (py) => { const r = info && info.staff[py.id]; return r && (r.匯款銀行 || r.帳號) ? r.匯款銀行 + ' ' + r.帳號 : py.kind === '人員' ? '沒有匯款資料' : py.info || ''; };
+    const bank = (py) => { const r = info && info.staff[py.id]; return r && (r.匯款銀行 || r.帳號) ? r.匯款銀行 + ' ' + r.帳號 + (r.changed ? '（⚠ ' + fmtD(r.changed) + ' 本人剛改過帳戶，請先確認）' : '') : py.kind === '人員' ? '沒有匯款資料' : py.info || ''; };
     const list = Object.keys(groups).map((k) => { const g = groups[k]; return '<tr><td><b>' + esc(g.py.name) + '</b><br><span class="mut" style="font-size:.8rem">' + esc(bank(g.py)) + '</span><br><span class="mut" style="font-size:.76rem">' + esc(uniq(g.list.map((x) => x.t)).map((t) => t + ' ' + g.list.filter((x) => x.t === t).length).join('・')) + '</span></td><td class="num"><b>' + money(sum(g.list, (x) => x.amt)) + '</b></td></tr>'; }).join('');
     const body = '<div class="tbl-wrap" style="margin-bottom:10px"><table class="tbl"><tbody>' + list + '</tbody><tfoot><tr><td>合計 ' + sel.length + ' 筆</td><td class="num">' + money(sum(sel, (x) => x.amt)) + '</td></tr></tfoot></table></div>' +
       '<div class="fld-row"><div class="fld"><label>付款日期</label><input type="date" name="date" value="' + today() + '"></div><div class="fld"><label>付款方式</label><select name="method">' + (PB.enums['支出付款方式'] || ['轉帳', '現金', '其他']).map((x) => '<option>' + esc(x) + '</option>').join('') + '</select></div></div>' +
@@ -994,7 +994,7 @@
   PB.app({
     app: 'admin',
     title: '管理後台',
-    version: '4.13',
+    version: '4.15',
     screens: [Dash, Queue, Finance, Sys], // v4.12：排課、主檔與紀錄移到營運工作台
     links: () => (PB.cfg.opsUrl ? [{ label: '營運工作台', url: PB.cfg.opsUrl, icon: 'swap', mobile: true }] : []),
   });
