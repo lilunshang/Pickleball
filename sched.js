@@ -779,7 +779,7 @@
       (An.hard ? '<div class="note warn">還有 ' + An.hard + ' 格衝突，發布時會略過（點上方統計看是哪幾格）。</div>' : '') +
       (An.unnamed ? '<div class="note">未指定教練的課可以先發布，之後由行政在營運工作台「換教練」。</div>' : '') +
       (An.notReady ? '<div class="note warn">有 ' + An.notReady + ' 格的可用日還沒確認，會略過。</div>' : '') +
-      '<div class="fld" style="margin-top:10px"><label>開放報名時間</label><input type="datetime-local" name="openAt" value="' + defaultOpenAt() + '"><span class="hint">課程與球敘都到這個時間才讓學員看到並報名（規則：每月 ' + (PB.cfg.openDay || 25) + ' 日 ' + (PB.cfg.openTime || '12:00') + ' 公告下月）。期制課程照期制規則：籌備中、開課前 7 天決定是否成班。</span></div>';
+      '<div class="fld" style="margin-top:10px"><label>開放報名時間</label>' + PB.dtInput('name="openAt"', defaultOpenAt()) + '<span class="hint">課程與球敘都到這個時間才讓學員看到並報名（規則：每月 ' + (PB.cfg.openDay || 25) + ' 日 ' + (PB.cfg.openTime || '12:00') + ' 公告下月）。期制課程照期制規則：籌備中、開課前 7 天決定是否成班。</span></div>';
     const r = await ui.modal({ title: '發布 ' + S.month + ' 排課', body: body, sticky: true, actions: [{ label: '再看看' }, { label: '確認發布', kind: 'pri', click: (el) => { const v = el.querySelector('[name=openAt]').value; if (!v) { ui.toast('請填開放報名時間', 'bad'); return false; } return v.replace('T', ' '); } }] });
     if (!r) return;
     const skipped = [];

@@ -780,7 +780,7 @@
         return '<button type="button" class="chip' + (on ? ' on' : '') + '" data-pv="pick" data-v="' + esc(str(sl['時段ID'])) + '">' + esc(slotLabel(sl)) + '<span class="c">' + cnt[str(sl['時段ID'])] + '/' + s.dates.length + ' 天</span></button>';
       }).join('') + '</div>' : '<div class="note warn">選的日期都沒有租約可用日：要用請勾下面的「非租約／額外租借」</div>');
       // 時間
-      h += fld(isCh() ? '時間' : '上課時間', '<span class="pv-time"><input type="time" data-pv="val" data-k="start" value="' + esc(s.start) + '"> – <input type="time" data-pv="val" data-k="end" value="' + esc(s.end) + '"></span>', s.end === '23:59' ? '結束 23:59＝到 24:00（上到半夜 12 點填 00:00 也可以）' : '上到半夜 12 點：結束填 00:00'); // v4.15
+      h += fld(isCh() ? '時間' : '上課時間', '<span class="pv-time">' + PB.tmInput('data-pv="val" data-k="start"', s.start) + ' – ' + PB.tmInput('data-pv="val" data-k="end"', s.end) + '</span>', '24 小時制，直接打數字：1900＝19:00；上到半夜 12 點填 24:00'); // v4.15
       // 球面：據點全部球面
       const all = XR.courts(s.venue);
       h += fld((isCh() ? '包哪幾面' : '球面') + (isCh() ? ' <span class="mut">已選 ' + s.courts.length + ' 面</span>' : ''), '<div class="chips">' + all.map((c) => {
@@ -808,7 +808,21 @@
       }
       return h;
     }
+    // v4.15：變更事件裡的重畫延到焦點移走之後，重畫完把焦點放回原本那一格（同一個 data-k／data-pv／name）
+    let deferRender = false;
+    function keepFocus(el, fn) {
+      const a = document.activeElement;
+      const key = a && el.contains(a) ? (a.dataset.k ? '[data-k="' + CSS.escape(a.dataset.k) + '"]' : a.dataset.pv ? '[data-pv="' + CSS.escape(a.dataset.pv) + '"]' + (a.dataset.i ? '[data-i="' + CSS.escape(a.dataset.i) + '"][data-f="' + CSS.escape(a.dataset.f || '') + '"]' : '') : a.name ? '[name="' + CSS.escape(a.name) + '"]' : '') : '';
+      const top = el.closest('.modal-b') || el;
+      const sc = top.scrollTop;
+      fn();
+      top.scrollTop = sc;
+      if (!key) return;
+      const b = el.querySelector(key);
+      if (b && b.focus) { b.focus({ preventScroll: true }); if (b.select && b.classList.contains('tm')) b.select(); }
+    }
     function render(el) {
+      if (deferRender) { deferRender = false; setTimeout(() => keepFocus(el, () => render(el)), 0); return; }
       s.xrN = xrCount();
       if (s.kind === '包場球敘') { el.innerHTML = chHtml(); return; } // v4.14
       const lessons = s.dates.length;
@@ -1079,7 +1093,7 @@
           const t = e.target;
           if (t.matches('[data-pv-search]')) { const id = findStu(str(t.value)); if (id && document.querySelector('#pvStuList option[value="' + CSS.escape(t.value) + '"]')) addStu(el, id); return; }
           const k = t.dataset.pv;
-          if (k === 'val') s[t.dataset.k] = t.value;
+          if (k === 'val') { if (['start', 'end'].indexOf(t.dataset.k) >= 0) return; s[t.dataset.k] = t.value; } // v4.15：時間等離開欄位才更新（打字中不重畫）
           else if (k === 'ex') s.extras[+t.dataset.i][t.dataset.f] = t.value;
           else if (k === 'pay') s.payments[+t.dataset.i][t.dataset.f] = t.value;
           else if (k === 'contact') s.contact = t.value;
@@ -1088,13 +1102,15 @@
           const box = el.querySelector('[data-pv-total]');
           if (box) box.innerHTML = s.kind === '包場球敘' ? chTotal(calcNow(), s.dates.length) : totalHtml(calcNow(), s.dates.length);
         });
-        el.addEventListener('change', (e) => {
+        // v4.15：變更後重畫會換掉整個視窗 → 等焦點移到下一格再重畫，並把焦點放回同一格（以前改時間會「跳掉」）
+        el.addEventListener('change', (e) => { deferRender = true; try { onChange(e); } finally { deferRender = false; } });
+        const onChange = (e) => {
           const t = e.target;
           const k = t.dataset.pv;
           if (k === 'extra') { s.extra = t.checked; render(el); return; } // v4.14
           if (k === 'val' && ['venue', 'slot', 'court', 'start', 'end', 'coach', 'hostId', 'rackets', 'people', 'extraFee'].indexOf(t.dataset.k) >= 0) {
-            s[t.dataset.k] = t.value;
-            if (t.dataset.k === 'end' && /^(00|24):00$/.test(s.end) && s.start !== '00:00') s.end = '23:59'; // v4.15：到午夜＝23:59（畫面欄位打不出 24:00）
+            s[t.dataset.k] = ['start', 'end'].indexOf(t.dataset.k) >= 0 ? PB.tmVal(t.value) : t.value; // v4.15：24:00 → 23:59
+            if (t.dataset.k === 'end' && s.end === '00:00' && s.start !== '00:00') s.end = '23:59'; // v4.15：結束填 00:00＝到午夜
             if (['hostId', 'rackets', 'people', 'extraFee'].indexOf(t.dataset.k) >= 0) { render(el); return; } // v4.14
             if (t.dataset.k === 'venue') { s.slot = ''; s.court = ''; s.courts = []; s.dates = []; s.start = ''; s.end = ''; }
             if (t.dataset.k === 'slot') {
@@ -1107,7 +1123,7 @@
             }
             render(el);
           } else if (k === 'contact' || (k === 'pay' && t.dataset.f === 'method') || k === 'ex' && t.dataset.f === 'per') render(el);
-        });
+        };
       },
     });
   };

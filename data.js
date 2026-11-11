@@ -21,7 +21,7 @@
   const CAN = () => MG() || PB.ws.indexOf('行政客服') >= 0;
   const MG_KEYS = ['合作方案', '合作夥伴', '租約', '教練費率', '角色', '決策紀錄'];
   const keyOk = (k) => MG() || MG_KEYS.indexOf(k) < 0;
-  const MG_COLS = ['標準教練費'];
+  const MG_COLS = ['標準教練費', '教練費'];
   const colsOf = (def) => (def.cols || []).filter((c) => MG() || MG_COLS.indexOf(c[0]) < 0);
 
   // ================================================================
@@ -41,7 +41,7 @@
     合作方案: { t: '3_合作方案', cols: [['方案', (r) => r['方案名稱']], ['對象', (r) => str(r['合作對象類型']) + '：' + (str(r['合作對象類型']) === '人員' ? m.staffName(r['人員']) : str(r['合作對象類型']) === '合作夥伴' ? m.label('1_合作夥伴', PB.get('1_合作夥伴', r['合作夥伴'])) : m.venueName(r['據點']))], ['模式', (r) => str(r['合作模式']) + '・' + str(r['適用範圍'])], ['條件', (r) => planTerms(r)], ['期間', (r) => fmtD(r['生效日期']) + '～' + fmtD(r['失效日期'])]] },
     合作夥伴: { t: '1_合作夥伴', cols: [['名稱', (r) => r['名稱']], ['類型', (r) => r['類型']], ['聯絡人', (r) => r['聯絡人']], ['電話', (r) => r['電話']]] },
     程度: { t: '0_程度', cols: [['程度', (r) => r['程度名稱']], ['排序', (r) => r['排序']], ['說明', (r) => str(r['說明']).slice(0, 40)]], sort: (r) => ('000' + num(r['排序'])).slice(-3) },
-    專項: { t: '0_專項', cols: [['專項', (r) => r['專項名稱']], ['建議程度', (r) => m.levelName(r['程度'])], ['人數', (r) => (str(r['人數下限']) || '5') + '–' + (str(r['人數上限']) || '6')], ['費用', (r) => (num(r['費用']) > 0 ? num(r['費用']).toLocaleString() : '依據點')], ['說明', (r) => str(r['說明']).slice(0, 40)], ['啟用', (r) => (r['是否啟用'] === false ? '停用' : '啟用')]], sort: (r) => ('000' + num((PB.get('0_程度', r['程度']) || {})['排序'])).slice(-3) + str(r['專項名稱']) },
+    專項: { t: '0_專項', cols: [['專項', (r) => r['專項名稱']], ['建議程度', (r) => m.levelName(r['程度'])], ['人數', (r) => (str(r['人數下限']) || '5') + '–' + (str(r['人數上限']) || '6')], ['費用', (r) => (num(r['費用']) > 0 ? num(r['費用']).toLocaleString() : '依據點')], ['教練費', (r) => (str(r['教練費']) ? money(r['教練費']) : '標準')], ['說明', (r) => str(r['說明']).slice(0, 40)], ['啟用', (r) => (r['是否啟用'] === false ? '停用' : '啟用')]], sort: (r) => ('000' + num((PB.get('0_程度', r['程度']) || {})['排序'])).slice(-3) + str(r['專項名稱']) },
     // v3.6：球敘類型
     球敘類型: { t: '0_球敘類型', cols: [['類型', (r) => r['類型名稱']], ['報名規則', (r) => str(r['報名規則']) || '不限'], ['學校', (r) => (num(r['學校費用']) > 0 ? money(r['學校費用']) : '—')], ['球館', (r) => (num(r['球館費用']) > 0 ? money(r['球館費用']) : '—')], ['每面人數', (r) => (str(r['每面人數下限']) || str(r['每面人數上限']) ? (str(r['每面人數下限']) || '—') + '–' + (str(r['每面人數上限']) || '依球面') : '依球面')], ['場主', (r) => (r['需要場主'] === false || str(r['需要場主']).toUpperCase() === 'FALSE' ? '無場主' : '需要')], ['限定', (r) => (str(r['限定性別']) ? '限' + str(r['限定性別']) + '性' : '—')], ['說明', (r) => str(r['說明']).slice(0, 40)], ['啟用', (r) => (r['是否啟用'] === false || str(r['是否啟用']).toUpperCase() === 'FALSE' ? '停用' : '啟用')]], sort: (r) => ('000' + num(r['排序'])).slice(-3) + str(r['類型名稱']) },
     課程類型: { t: '0_課程類型', cols: [['類型', (r) => r['課程類型']], ['標準教練費', (r) => (str(r['標準教練費']) ? money(r['標準教練費']) + '／' + str(r['計費方式']) : '')], ['請假上限', (r) => r['每期請假上限']], ['補課', (r) => (str(r['補課起算']) ? r['補課起算'] + ' + ' + (str(r['補課天數']) || 30) + ' 天' : '')]] },
@@ -848,11 +848,12 @@
   // ================================================================
   const TPRE = { day: [['10:00', '12:00'], ['14:00', '16:00'], ['16:00', '18:00']], eve: [['18:00', '20:00'], ['20:00', '22:00']] };
   const TCB = {};
-  const tHours = (t) => { const a = t[0].split(':').map(Number), b = t[1].split(':').map(Number); return t[0] && t[1] ? ((b[0] * 60 + b[1]) - (a[0] * 60 + a[1])) / 60 : 0; };
+  const tHours = (t) => { const a = t[0].split(':').map(Number), b = PB.tmShow(t[1]).split(':').map(Number); return t[0] && t[1] ? ((b[0] * 60 + b[1]) - (a[0] * 60 + a[1])) / 60 : 0; }; // v4.15：23:59＝24:00
   function trowsInner(k, times) {
     return times.map((t, i) => {
       const h = tHours(t);
-      return '<div class="trow"><input type="time" data-tk="' + k + '" data-ti="' + i + '" data-te="0" value="' + esc(t[0]) + '" aria-label="開始時間"><span class="mut">到</span><input type="time" data-tk="' + k + '" data-ti="' + i + '" data-te="1" value="' + esc(t[1]) + '" aria-label="結束時間">' +
+      return '<div class="trow">' + PB.tmInput('data-tk="' + k + '" data-ti="' + i + '" data-te="0" aria-label="開始時間"', t[0]) + '<span class="mut">到</span>' + PB.tmInput('data-tk="' + k + '" data-ti="' + i + '" data-te="1" aria-label="結束時間"', t[1]) + // v4.15：24 小時制
+
         '<span class="trow-h">' + (t[0] && t[1] ? (h > 0 ? h + ' 小時' : '<span class="bad-t">結束要晚於開始</span>') : '') + '</span>' +
         (times.length > 1 ? '<button type="button" class="fdel" data-tdel="' + k + '" data-ti="' + i + '" title="刪除這個時間" aria-label="刪除這個時間">×</button>' : '') + '</div>';
     }).join('');
@@ -867,7 +868,7 @@
     const box = document.querySelector('[data-trows="' + k + '"]');
     if (!box) return [];
     const out = [];
-    box.querySelectorAll('input[data-tk]').forEach((i) => { const r = +i.dataset.ti; out[r] = out[r] || ['', '']; out[r][+i.dataset.te] = i.value; });
+    box.querySelectorAll('input[data-tk]').forEach((i) => { const r = +i.dataset.ti; out[r] = out[r] || ['', '']; out[r][+i.dataset.te] = PB.tmVal(i.value); }); // v4.15
     return out.filter(Boolean);
   }
   /** 填完且合理的時間（排序、去重）；重疊回傳 err */

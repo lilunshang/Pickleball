@@ -835,3 +835,10 @@ details.fsub>.fsec-b{padding:0 0 4px 15px}
 .vunit{display:block;font-size:.78rem;color:var(--mut);font-weight:400;margin-top:2px}
 .vstats:has(>div:nth-child(5)){grid-template-columns:repeat(5,minmax(0,1fr))}
 @media (max-width:640px){.vstats:has(>div:nth-child(5)){grid-template-columns:repeat(2,minmax(0,1fr))}.vstats>div:nth-child(5){grid-column:1/-1}}
+
+/* v4.15：24 小時制時間欄（文字輸入） */
+.tm,.fld input.tm,.trow input.tm,.pv .fld .pv-time input.tm{width:6.5em;flex:none;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.03em}
+.trow input.tm{padding:5px 8px;min-height:36px}
+.tm.tm-bad,.fld input.tm.tm-bad{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,var(--surface2))}
+.dtp{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dtp input[type=date]{flex:1 1 150px;width:auto}

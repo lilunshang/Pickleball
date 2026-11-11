@@ -294,6 +294,61 @@
   m.coachName = (id) => m.staffName(id);
   /** 學員人數（含專項課補課生）：學員 3/6（含補課 3） */
   m.stuCount = (x, limit) => { const mk = num(x.makeups); return '學員 ' + (x.active.length + mk) + (limit ? '/' + limit : '') + (mk ? '（含補課 ' + mk + '）' : ''); };
+
+  // ================================================================
+  // v4.15（11/11）24 小時制時間欄：文字輸入，可以直接打 1900／19:00／19／930；24:00＝到半夜 12 點（存 23:59）
+  //   取代瀏覽器的 <input type="time">（會跟著系統顯示上午／下午、要滾動選、改一格就觸發變更）
+  // ================================================================
+  /** 解析 → 'HH:MM'；空白 → ''；看不懂 → null（24:00 保留，代表到午夜） */
+  PB.tmParse = (raw) => {
+    const t = str(raw).replace(/[：.．]/g, ':').replace(/\s/g, '');
+    if (!t) return '';
+    let h, mi;
+    let mm = t.match(/^(\d{1,2}):(\d{0,2})$/);
+    if (mm) { h = +mm[1]; mi = mm[2] === '' ? 0 : +mm[2]; } else if (/^\d{1,4}$/.test(t)) {
+      if (t.length <= 2) { h = +t; mi = 0; } else { h = +t.slice(0, t.length - 2); mi = +t.slice(-2); }
+    } else return null;
+    if (h > 24 || mi > 59 || (h === 24 && mi > 0)) return null;
+    return ('0' + h).slice(-2) + ':' + ('0' + mi).slice(-2);
+  };
+  /** 存檔用：24:00 → 23:59；看不懂 → '' */
+  PB.tmVal = (raw) => { const x = PB.tmParse(raw); return x === '24:00' ? '23:59' : x || ''; };
+  /** 顯示用：23:59 → 24:00 */
+  PB.tmShow = (v) => { const x = str(v).slice(0, 5); return x === '23:59' ? '24:00' : x; };
+  /** attrs：其他屬性（data-*、name…） */
+  PB.tmInput = (attrs, val) => '<input type="text" class="tm" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="19:00" ' + (attrs || '') + ' value="' + esc(PB.tmShow(val)) + '">';
+  /** 日期＋時間（24 小時制）：第一個是隱藏欄位，值＝'yyyy-MM-ddTHH:mm'（與原本 datetime-local 相同） */
+  PB.dtInput = (attrs, val) => {
+    const v = str(val).replace(' ', 'T');
+    return '<span class="dtp"><input type="hidden" ' + (attrs || '') + ' value="' + esc(v.slice(0, 16)) + '"><input type="date" data-dtp="d" value="' + esc(v.slice(0, 10)) + '">' +
+      PB.tmInput('data-dtp="t"', v.slice(11, 16)) + '</span>';
+  };
+  // 離開欄位（change，捕捉階段 → 比各畫面自己的 change 先跑）：整理成 HH:MM、看不懂標紅；日期＋時間同步到隱藏欄位
+  document.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!t || !t.classList) return;
+    if (t.classList.contains('tm')) {
+      const x = PB.tmParse(t.value);
+      if (x) t.value = x;
+      t.classList.toggle('tm-bad', x === null);
+    }
+    if (t.dataset && t.dataset.dtp) {
+      const box = t.closest('.dtp');
+      const hid = box && box.querySelector('input[type=hidden]');
+      const d = box.querySelector('[data-dtp="d"]').value;
+      const tm = PB.tmVal(box.querySelector('[data-dtp="t"]').value);
+      if (hid) hid.value = d && tm ? d + 'T' + tm : '';
+    }
+  }, true);
+  // 打字時只留數字和冒號；按 Enter 等於離開欄位
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (t && t.classList && t.classList.contains('tm')) { const c = t.value.replace(/[：.．]/g, ':').replace(/[^\d:]/g, ''); if (c !== t.value) t.value = c; }
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (e.key === 'Enter' && t && t.classList && t.classList.contains('tm')) { e.preventDefault(); t.dispatchEvent(new Event('change', { bubbles: true })); }
+  }, true);
   m.hm = (s, e) => str(s).slice(0, 5) + (e ? '–' + str(e).slice(0, 5).replace('23:59', '24:00') : '');
   m.slotLabel = (s) => (s ? '週' + str(s['星期']) + ' ' + m.hm(s['開始時間'], s['結束時間']) + '｜' + split(s['用途']).join('・') : '');
   m.classLabel = (c) => (c ? str(c['課程名稱']) + (str(c['期別']) ? ' ' + str(c['期別']) : '') : '');
@@ -879,6 +934,8 @@
       }
       return wrap('<select id="' + id + '" name="' + esc(f.k) + '"><option value="">' + (f.req ? '請選擇' : '（不指定）') + '</option>' + opts.map((o) => '<option value="' + esc(o.v) + '"' + (o.v === str(val) ? ' selected' : '') + '>' + esc(o.l) + '</option>').join('') + (str(val) && !opts.some((o) => o.v === str(val)) ? '<option value="' + esc(val) + '" selected>' + esc(displayVal(f, val)) + '</option>' : '') + '</select>');
     }
+    if (t === 'time') return wrap(PB.tmInput('id="' + id + '" name="' + esc(f.k) + '"', val)); // v4.15：24 小時制、可直接打字
+    if (t === 'dt') return wrap(PB.dtInput('id="' + id + '" name="' + esc(f.k) + '"', val)); // v4.15
     const type = { num: 'number', money: 'number', date: 'date', time: 'time', dt: 'datetime-local', phone: 'tel' }[t] || 'text';
     const shown = t === 'dt' ? str(val).replace(' ', 'T') : t === 'time' ? str(val).slice(0, 5) : val;
     return wrap('<input id="' + id + '" type="' + type + '" name="' + esc(f.k) + '" value="' + esc(shown) + '"' + (type === 'number' ? ' step="any" inputmode="decimal"' : '') + (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') + '>');
@@ -1057,6 +1114,7 @@
         const hit = opts.find((o) => o.l === inp.value) || opts.find((o) => o.v === inp.value);
         v[f.k] = hit ? hit.v : inp.value ? '?' + inp.value : '';
       } else if (f.t === 'dt') v[f.k] = inp.value.replace('T', ' ');
+      else if (f.t === 'time') v[f.k] = PB.tmVal(inp.value); // v4.15：24:00 → 23:59
       else v[f.k] = inp.value;
     });
     return v;
