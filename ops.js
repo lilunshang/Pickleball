@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -653,10 +653,51 @@
   }
   const stuLabel = (r) => str(r['姓名']) + (str(r['電話']) ? '・' + str(r['電話']) : '') + (str(r['LINE顯示名稱']) && str(r['LINE顯示名稱']) !== str(r['姓名']) ? '（' + str(r['LINE顯示名稱']) + '）' : '');
 
-  A.pvNew = () => {
+  // ---------------- v4.14（11/11）包場球敘：一位聯絡人包下幾面（後端 Charter.gs charterCreate／charterAddGame） ----------------
+  const CH = {};
+  /** 每支球拍的租金：看已有的報名（租拍費 ÷ 租拍數），沒有就 50（後端以 RACKET_FEE 為準） */
+  CH.rkFee = () => { const r = PB.rows('2_報名').find((x) => num(x['租拍數']) > 0 && num(x['租拍費']) > 0); return r ? Math.round(num(r['租拍費']) / num(r['租拍數'])) : 50; };
+  /** 與後端 charterCalc_ 相同 */
+  CH.calc = (s, games) => {
+    const fee = num(s.fee);
+    const base = s.cUnit === 'court' ? fee * Math.max(1, s.courts.length) : fee;
+    const ex = s.extras.filter((e) => num(e.amount) > 0);
+    const exG = ex.filter((e) => e.per !== 'once').reduce((a, e) => a + num(e.amount), 0);
+    const exO = ex.filter((e) => e.per === 'once').reduce((a, e) => a + num(e.amount), 0);
+    const racket = Math.max(0, Math.floor(num(s.rackets))) * CH.rkFee();
+    const perGame = Math.round(base + exG + racket);
+    return { base: base, exG: exG, exO: exO, racket: racket, perGame: perGame, total: Math.round(perGame * games + exO) };
+  };
+  /** 包場可用的時段：用途含球敘或課程 */
+  CH.slots = (venue) => PB.rows('1_據點_時段').filter((x) => str(x['據點']) === venue && str(x['狀態']) !== '停用' && split(x['用途']).some((u) => u === '球敘' || u === '課程'))
+    .sort((a, b) => byKey('日一二三四五六'.indexOf(str(a['星期']).replace(/^(星期|週)/, '').charAt(0)) + hmOf(a['開始時間']), '日一二三四五六'.indexOf(str(b['星期']).replace(/^(星期|週)/, '').charAt(0)) + hmOf(b['開始時間'])));
+  /** 這天這段時間：選的幾面誰佔用了 */
+  CH.busy = (d, start, end, courts) => courts.map((c) => { const b = pvBusy(d, start, end, c); return b ? m.courtName(c) + b : ''; }).filter(Boolean).join('、');
+  /** 同據點同時段的球敘（不含取消、草稿） */
+  CH.overlap = (venue, d, start, end) => PB.rows('2_球敘場次').filter((o) => str(o['據點']) === venue && day(o['日期']) === d && ['取消', '草稿'].indexOf(str(o['狀態'])) < 0 &&
+    minOf(start) < endMin(o['結束時間']) && minOf(o['開始時間']) < endMin(end));
+  /** 球拍還能租幾支（null＝不限）；同時段其他球敘共用 */
+  CH.rkLeft = (venue, d, start, end) => {
+    const v = PB.get('1_據點', venue) || {};
+    if (str(v['可租球拍數']) === '') return null;
+    const ids = CH.overlap(venue, d, start, end).map((o) => str(o['球敘ID']));
+    const used = PB.rows('2_報名').filter((r) => ids.indexOf(str(r['球敘'])) >= 0 && ['已報名', '候補', '現場待確認'].indexOf(str(r['報名狀態'])) >= 0).reduce((a, r) => a + num(r['租拍數']), 0);
+    return Math.max(0, num(v['可租球拍數']) - used);
+  };
+  /** 預設場主：同時段已排場主的球敘 → 那位；否則據點場主 */
+  CH.host = (venue, d, start, end) => {
+    const g = CH.overlap(venue, d, start, end).find((o) => !m.isCharter(o) && (PB.ix.dutyByGame[str(o['球敘ID'])] || []).some((x) => str(x['人員'])));
+    if (g) return { id: str((PB.ix.dutyByGame[str(g['球敘ID'])] || []).find((x) => str(x['人員']))['人員']), why: '同時段球敘的場主' };
+    const h = split((PB.get('1_據點', venue) || {})['場主'])[0] || '';
+    return { id: h, why: h ? '據點場主' : '' };
+  };
+  CH.staff = () => PB.rows('1_人員').filter((p) => !str(p['在職狀態']) || str(p['在職狀態']) === '在職').map((p) => ({ v: str(p['人員ID']), l: str(p['姓名']) })).sort((a, b) => a.l.localeCompare(b.l, 'zh-Hant'));
+
+  A.pvNew = (d0) => {
     const s = {
-      kind: '包班', name: '', venue: '', slot: '', court: '', start: '', end: '', coach: '', dates: [],
+      kind: d0 && d0.kind === '包場球敘' ? '包場球敘' : '包班', name: '', venue: '', slot: '', court: '', start: '', end: '', coach: '', dates: [],
       students: [], contact: '', payMode: 'contact', billMode: 'all', fee: '', feeUnit: 'person', extras: [], payments: [], note: '', notify: true,
+      courts: [], people: '', rackets: '0', hostMode: 'yes', hostId: '', cBill: 'all', cUnit: 'game', // v4.14：包場球敘
     };
     const venues = PB.rows('1_據點').filter((v) => ['合作中', '籌備中', ''].indexOf(str(v['狀態'])) >= 0 && pvSlots(str(v['據點ID'])).length)
       .sort((a, b) => str(a['據點名稱']).localeCompare(str(b['據點名稱']), 'zh-Hant'));
@@ -665,12 +706,13 @@
     const sel = (key, opts, blank) => '<select data-pv="val" data-k="' + key + '">' + (blank ? '<option value="">' + esc(blank) + '</option>' : '') + opts.map((o) => '<option value="' + esc(o.v) + '"' + (str(s[key]) === str(o.v) ? ' selected' : '') + '>' + esc(o.l) + '</option>').join('') + '</select>';
     const stuList = () => PB.rows('1_學員').filter((r) => !str(r['合併至']));
     function render(el) {
+      if (s.kind === '包場球敘') { el.innerHTML = chHtml(); return; } // v4.14
       const slot = PB.get('1_據點_時段', s.slot);
       const lessons = s.dates.length;
       const c = PV.calc(s, Math.max(lessons, 1));
       // 1 課程
       let h = '<div class="pv-sec"><h4>1　課程</h4>' +
-        fld('類型', seg('kind', [['包班', '包班'], ['個人課', '個人課']]), s.kind === '包班' ? '固定成員、固定時段，通常由聯絡人一次付清' : '1–4 人；人數決定教練費級距') +
+        fld('類型', seg('kind', [['包班', '包班'], ['個人課', '個人課'], ['包場球敘', '包場球敘']]), s.kind === '包班' ? '固定成員、固定時段，通常由聯絡人一次付清' : '1–4 人；人數決定教練費級距') +
         fld('據點', sel('venue', venues.map((v) => ({ v: v['據點ID'], l: v['據點名稱'] })), '選據點'), venues.length ? '' : '沒有可上課的時段：先到「主檔與紀錄 → 據點與場地」新增時段（租約由管理層登錄）') +
         (s.venue ? fld('時段', sel('slot', pvSlots(s.venue).map((x) => ({ v: x['時段ID'], l: slotLabel(x) })), '選時段'), '租到的時段；上課時間可以只用其中一段') : '') +
         (slot ? '<div class="pv-row">' + fld('球面', sel('court', split(slot['使用場地']).map((x) => ({ v: x, l: m.courtName(x) })))) +
@@ -725,7 +767,84 @@
     }
     function autoName() {
       const v = PB.get('1_據點', s.venue);
+      if (s.kind === '包場球敘') return (v ? str(v['據點名稱']) : '據點') + '・包場球敘（' + (s.contact ? m.stuName(s.contact) : '聯絡人') + '）';
       return (v ? str(v['據點名稱']) : '據點') + '｜' + s.kind + '（' + (s.contact ? m.stuName(s.contact) : '聯絡人') + '）';
+    }
+    // ---- v4.14 包場球敘的畫面 ----
+    function chDays() {
+      const t = today();
+      return PB.rows('1_據點_可用日').filter((a) => str(a['時段']) === s.slot && str(a['狀態']) === '可用').map((a) => day(a['日期']))
+        .filter((d) => d >= t && d <= addDays(t, 180)).sort().filter((d, i, arr) => arr.indexOf(d) === i)
+        .map((d) => ({ d: d, busy: s.courts.length && s.start && s.end ? CH.busy(d, s.start, s.end, s.courts) : '' }));
+    }
+    function chHtml() {
+      const cvs = PB.rows('1_據點').filter((v) => ['合作中', '籌備中', ''].indexOf(str(v['狀態'])) >= 0 && CH.slots(str(v['據點ID'])).length)
+        .sort((a, b) => str(a['據點名稱']).localeCompare(str(b['據點名稱']), 'zh-Hant'));
+      const slot = PB.get('1_據點_時段', s.slot);
+      const n = s.dates.length;
+      const c = CH.calc(s, Math.max(n, 1));
+      let h = '<div class="pv-sec"><h4>1　包場</h4>' +
+        fld('類型', seg('kind', [['包班', '包班'], ['個人課', '個人課'], ['包場球敘', '包場球敘']]), '一位聯絡人包下一個時段的幾面；不公開、不能從 LINE 報名') +
+        fld('據點', sel('venue', cvs.map((v) => ({ v: v['據點ID'], l: v['據點名稱'] })), '選據點')) +
+        (s.venue ? fld('時段', sel('slot', CH.slots(s.venue).map((x) => ({ v: x['時段ID'], l: slotLabel(x) })), '選時段'), '租到的時段；時間可以只用其中一段') : '');
+      if (slot) {
+        h += fld('包哪幾面 <span class="mut">已選 ' + s.courts.length + ' 面</span>', '<div class="chips">' + split(slot['使用場地']).map((x) => '<button type="button" class="chip' + (s.courts.indexOf(x) >= 0 ? ' on' : '') + '" data-pv="court" data-v="' + esc(x) + '">' + esc(m.courtName(x)) + '</button>').join('') + '</div>', '同時段其他面照常開球敘') +
+          '<div class="pv-row">' + fld('時間', '<span class="pv-time"><input type="time" data-pv="val" data-k="start" value="' + esc(s.start) + '"> – <input type="time" data-pv="val" data-k="end" value="' + esc(s.end) + '"></span>') +
+          fld('包場人數', '<input type="number" min="1" data-pv="val" data-k="people" value="' + esc(s.people) + '" placeholder="例：12" style="width:90px">', '場主費依這個時段的人數級距算') + '</div>';
+        if (s.courts.length) {
+          const ds = chDays();
+          h += fld('日期 <span class="mut">已選 ' + n + ' 場</span>', ds.length ? '<div class="chips pv-days">' + ds.map((x) => {
+            const on = s.dates.indexOf(x.d) >= 0;
+            return '<button type="button" class="chip' + (on ? ' on' : '') + (x.busy && !on ? ' mutc" disabled title="' + esc(x.busy) : '') + '" data-pv="day" data-v="' + x.d + '">' + mdw(x.d) + (x.busy ? '<span class="c">' + esc(x.busy) + '</span>' : '') + '</button>';
+          }).join('') + '</div>' : '<div class="note warn">這個時段還沒有可用日</div>', '一個日期＝一場；只列已租到（可用）的日子');
+        }
+        // 場主
+        const d1 = s.dates[0];
+        const def = d1 && s.start && s.end ? CH.host(s.venue, d1, s.start, s.end) : { id: '', why: '' };
+        h += fld('場主', seg('hostMode', [['yes', '派場主'], ['no', '自由球敘（不派場主）']]) +
+          (s.hostMode === 'yes' ? ' ' + sel('hostId', CH.staff(), '自動' + (def.id ? '：' + m.staffName(def.id) + '（' + def.why + '）' : '：同時段場主或據點場主')) : ''),
+          s.hostMode === 'yes' ? '場主同時段已在旁邊那場的話，月結把兩場人數加在一起算一筆場主費；開放中那場的場主名額不受影響' : '不排場主，球友自己輪替');
+        // 球拍
+        const lefts = s.dates.map((d) => CH.rkLeft(s.venue, d, s.start, s.end)).filter((x) => x !== null);
+        const left = lefts.length ? Math.min.apply(null, lefts) : null;
+        h += fld('租球拍（每場幾支）', '<input type="number" min="0" data-pv="val" data-k="rackets" value="' + esc(s.rackets) + '" style="width:80px"> <span class="mut">每支 ' + money(CH.rkFee()) + '，算進帳單' + (left !== null ? '・最少剩 ' + left + ' 支（和同時段球敘共用）' : '・據點沒設庫存（不限）') + '</span>');
+      }
+      h += '</div>';
+      // 2 聯絡人
+      h += '<div class="pv-sec"><h4>2　聯絡人</h4>' +
+        (s.contact ? '<div class="pv-stus"><div class="pv-stu"><span class="nm">' + esc(m.stuName(s.contact)) + '</span><span class="mut">' + esc(str((PB.get('1_學員', s.contact) || {})['電話'])) + '</span><button type="button" class="icon-btn" data-pv="unstu" data-v="' + esc(s.contact) + '" aria-label="移除">✕</button></div></div>' :
+          '<div class="pv-add"><input list="pvStuList" data-pv-search placeholder="輸入姓名或電話搜尋，按 Enter 加入" autocomplete="off"><datalist id="pvStuList">' +
+          stuList().map((r) => '<option value="' + esc(stuLabel(r)) + '">').join('') + '</datalist>' +
+          '<button type="button" class="btn sm" data-pv="addstu">加入</button><button type="button" class="btn sm ghost" data-pv="newstu">＋新增學員</button></div>') +
+        '<div class="hint">只記聯絡人（付款、收 LINE 通知）；一起打的人不用登記</div></div>';
+      // 3 收費
+      h += '<div class="pv-sec"><h4>3　收費</h4>' +
+        fld('什麼時候收', seg('cBill', [['all', '一次收全部場次'], ['game', '每場收']]), '每場一筆帳單（月結收入算在各場）；一次收＝每筆都在第一場前到期') +
+        fld('包場費', '<span class="pv-time"><input type="number" min="0" step="50" data-pv="val" data-k="fee" value="' + esc(s.fee) + '" placeholder="金額" style="width:120px"> ' + seg('cUnit', [['game', '每場整場'], ['court', '每面每場']]) + '</span>') +
+        '<div class="fld"><label>其他費用 <span class="mut">例如清潔費、加時場租</span></label>' +
+        s.extras.map((e, i) => '<div class="pv-ex"><input data-pv="ex" data-i="' + i + '" data-f="name" value="' + esc(e.name) + '" placeholder="名稱"><input type="number" min="0" data-pv="ex" data-i="' + i + '" data-f="amount" value="' + esc(e.amount) + '" placeholder="金額" style="width:100px">' +
+          '<select data-pv="ex" data-i="' + i + '" data-f="per"><option value="lesson"' + (e.per !== 'once' ? ' selected' : '') + '>每場</option><option value="once"' + (e.per === 'once' ? ' selected' : '') + '>一次</option></select><button type="button" class="icon-btn" data-pv="unex" data-i="' + i + '" aria-label="移除">✕</button></div>').join('') +
+        '<button type="button" class="btn sm ghost" data-pv="addex">＋其他費用</button></div>' +
+        '<div class="pv-total" data-pv-total>' + chTotal(c, n) + '</div>';
+      h += '<div class="fld"><label>已收款 <span class="mut">' + (isMgmt() ? '你登記的會直接「已確認」' : '登記後待管理層對帳') + '</span></label>' +
+        s.payments.map((p, i) => '<div class="pv-pay">' +
+          '<input type="date" data-pv="pay" data-i="' + i + '" data-f="date" value="' + esc(p.date) + '"><input type="number" min="0" data-pv="pay" data-i="' + i + '" data-f="amount" value="' + esc(p.amount) + '" placeholder="金額" style="width:100px">' +
+          '<select data-pv="pay" data-i="' + i + '" data-f="method">' + ['轉帳', '現金', 'LINEPay'].map((x) => '<option' + (p.method === x ? ' selected' : '') + '>' + x + '</option>').join('') + '</select>' +
+          (p.method === '轉帳' ? '<input data-pv="pay" data-i="' + i + '" data-f="last5" value="' + esc(p.last5) + '" placeholder="末五碼" maxlength="5" style="width:80px">' : '') +
+          '<button type="button" class="icon-btn" data-pv="unpay" data-i="' + i + '" aria-label="移除">✕</button></div>').join('') +
+        '<button type="button" class="btn sm ghost" data-pv="addpay">＋登記一筆收款</button><div class="hint">還沒收就留空，之後在球敘詳情的帳單按「收款」</div></div></div>';
+      h += '<div class="pv-sec"><h4>其他</h4>' +
+        fld('名稱 <span class="mut">選填</span>', '<input data-pv="val" data-k="name" value="' + esc(s.name) + '" placeholder="' + esc(autoName()) + '">') +
+        '<label class="pv-chk"><input type="checkbox" data-pv="notify"' + (s.notify ? ' checked' : '') + '> 建立後用 LINE 通知聯絡人（日期與帳單）' + (s.hostMode === 'yes' ? '；場主也會收到排班通知' : '') + '</label></div>';
+      return h;
+    }
+    function chTotal(c, n) {
+      if (!n || s.fee === '' || !s.courts.length) return '<span class="mut">選好球面、日期、包場費後顯示合計</span>';
+      const lines = ['包場費 ' + (s.cUnit === 'court' ? money(num(s.fee)) + ' × ' + s.courts.length + ' 面' : money(num(s.fee))) + ' × ' + n + ' 場 ＝ ' + money(c.base * n)];
+      if (c.racket) lines.push('租拍 ' + num(s.rackets) + ' 支 × ' + money(CH.rkFee()) + ' × ' + n + ' 場 ＝ ' + money(c.racket * n));
+      s.extras.filter((e) => num(e.amount) > 0).forEach((e) => lines.push(esc(e.name || '其他') + ' ' + money(e.amount) + (e.per === 'once' ? '' : ' × ' + n + ' 場') + ' ＝ ' + money(num(e.amount) * (e.per === 'once' ? 1 : n))));
+      const paid = s.payments.reduce((a, p) => a + num(p.amount), 0);
+      return lines.join('<br>') + '<div class="pv-sum"><b>合計 ' + money(c.total) + '</b>（每場 ' + money(c.perGame) + '）</div><div class="mut">帳單 ' + n + ' 筆給 ' + (s.contact ? esc(m.stuName(s.contact)) : '聯絡人') + (paid ? '・已收 ' + money(paid) + (paid === c.total ? ' <span class="badge ok">收齊</span>' : paid < c.total ? '，未收 ' + money(c.total - paid) : ' <span class="badge warn">多收 ' + money(paid - c.total) + '</span>') : '') + '</div>';
     }
     function totalHtml(c, lessons) {
       if (!lessons || !s.students.length || s.fee === '') return '<span class="mut">選好日期、學員、上課費後顯示合計</span>';
@@ -737,6 +856,7 @@
       return lines.join('<br>') + '<div class="pv-sum"><b>合計 ' + money(c.total) + '</b>（每人 ' + money(c.perPerson) + '）</div><div class="mut">' + bills + (paid ? '・已收 ' + money(paid) + (paid === c.total ? ' <span class="badge ok">收齊</span>' : paid < c.total ? '，未收 ' + money(c.total - paid) : ' <span class="badge warn">多收 ' + money(paid - c.total) + '</span>') : '') + '</div>';
     }
     function addStu(el, id) {
+      if (id && s.kind === '包場球敘') { s.contact = id; s.students = [id]; render(el); return; } // v4.14：包場只記聯絡人
       if (!id || s.students.indexOf(id) >= 0) return;
       s.students.push(id);
       if (!s.contact) s.contact = id;
@@ -745,11 +865,37 @@
       if (inp) inp.focus();
     }
     const findStu = (txt) => { const r = stuList().find((x) => stuLabel(x) === txt) || stuList().find((x) => str(x['姓名']) === txt) || stuList().find((x) => txt && str(x['電話']) === txt.replace(/\D/g, '')); return r ? str(r['學員ID']) : ''; };
+    let chEl = null;
+    async function chCreate() {
+      const miss = [];
+      if (!s.venue || !s.slot) miss.push('據點與時段');
+      if (!s.courts.length) miss.push('球面');
+      if (!s.start || !s.end || minOf(s.end) <= minOf(s.start)) miss.push('時間');
+      if (!s.dates.length) miss.push('日期');
+      if (!(num(s.people) >= 1)) miss.push('包場人數');
+      if (!s.contact) miss.push('聯絡人');
+      if (s.fee === '') miss.push('包場費');
+      if (miss.length) { ui.toast('請填寫：' + miss.join('、'), 'bad'); return false; }
+      const lefts = s.dates.map((d) => ({ d: d, n: CH.rkLeft(s.venue, d, s.start, s.end) })).filter((x) => x.n !== null && num(s.rackets) > x.n);
+      if (lefts.length) { ui.toast(mdw(lefts[0].d) + ' 球拍只剩 ' + lefts[0].n + ' 支', 'bad'); return false; }
+      if (s.payments.find((p) => num(p.amount) > 0 && !p.date)) { ui.toast('收款要填日期', 'bad'); return false; }
+      const r = await PB.run('charterCreate', {
+        name: s.name, venue: s.venue, slot: s.slot, courts: s.courts, start: s.start, end: s.end, dates: s.dates, contact: s.contact, people: num(s.people),
+        rackets: num(s.rackets), host: s.hostMode === 'yes', hostId: s.hostMode === 'yes' ? s.hostId : '', billMode: s.cBill, fee: num(s.fee), feeUnit: s.cUnit,
+        extras: s.extras.filter((e) => num(e.amount) > 0).map((e) => ({ name: e.name, amount: num(e.amount), per: e.per })),
+        payments: s.payments.filter((p) => num(p.amount) > 0).map((p) => ({ date: p.date, amount: num(p.amount), method: p.method, last5: p.last5 })),
+        notify: s.notify,
+      });
+      if (!r) return false;
+      if (r.data && r.data.id) setTimeout(() => openGame(r.data.id), 50);
+      return true;
+    }
     ui.modal({
-      title: '新增私人課程（包班／個人課）', sticky: true, body: '<div class="pv"></div>',
+      title: '新增私人課程（包班／個人課／包場球敘）', sticky: true, body: '<div class="pv"></div>',
       actions: [{ label: '取消' }, {
         label: '建立', kind: 'pri',
         click: async () => {
+          if (s.kind === '包場球敘') return chCreate(); // v4.14
           const miss = [];
           if (!s.venue || !s.slot || !s.court) miss.push('據點與時段');
           if (!s.start || !s.end || minOf(s.end) <= minOf(s.start)) miss.push('上課時間');
@@ -776,18 +922,31 @@
       onOpen: (body) => {
         const el = body.querySelector('.pv');
         render(el);
+        chEl = el;
         el.addEventListener('click', (e) => {
           const b = e.target.closest('[data-pv]');
           if (!b || b.tagName === 'INPUT' || b.tagName === 'SELECT') return;
           const k = b.dataset.pv;
           if (k === 'set') {
+            const was = s.kind;
             s[b.dataset.k] = b.dataset.v;
-            if (b.dataset.k === 'kind') { s.feeUnit = s.kind === '包班' ? 'person' : 'group'; }
+            if (b.dataset.k === 'kind') {
+              s.feeUnit = s.kind === '包班' ? 'person' : 'group';
+              if ((was === '包場球敘') !== (s.kind === '包場球敘')) { s.slot = ''; s.court = ''; s.courts = []; s.dates = []; s.students = s.contact ? [s.contact] : []; } // v4.14：時段清單不同
+            }
+          } else if (k === 'court') { // v4.14：包場選球面
+            const i = s.courts.indexOf(b.dataset.v);
+            if (i >= 0) s.courts.splice(i, 1); else s.courts.push(b.dataset.v);
+            const sl = PB.get('1_據點_時段', s.slot);
+            const order = sl ? split(sl['使用場地']) : [];
+            s.courts.sort((a, c) => order.indexOf(a) - order.indexOf(c));
+            s.dates = s.dates.filter((d) => !CH.busy(d, s.start, s.end, s.courts));
           } else if (k === 'day') {
             const i = s.dates.indexOf(b.dataset.v);
             if (i >= 0) s.dates.splice(i, 1); else s.dates.push(b.dataset.v);
             s.dates.sort();
           } else if (k === 'unstu') {
+            if (s.kind === '包場球敘') { s.contact = ''; s.students = []; render(el); return; }
             s.students = s.students.filter((x) => x !== b.dataset.v);
             if (s.contact === b.dataset.v) s.contact = s.students[0] || '';
             s.payments.forEach((p) => { if (p.who === b.dataset.v) p.who = s.contact; });
@@ -801,7 +960,7 @@
             return;
           } else if (k === 'addex') s.extras.push({ name: '', amount: '', per: 'lesson' });
           else if (k === 'unex') s.extras.splice(+b.dataset.i, 1);
-          else if (k === 'addpay') s.payments.push({ who: s.contact || s.students[0] || '', date: today(), amount: s.payments.length ? '' : String(PV.calc(s, Math.max(1, s.dates.length)).total - s.payments.reduce((a, p) => a + num(p.amount), 0) || ''), method: '轉帳', last5: '' });
+          else if (k === 'addpay') s.payments.push({ who: s.contact || s.students[0] || '', date: today(), amount: s.payments.length ? '' : String((s.kind === '包場球敘' ? CH.calc(s, Math.max(1, s.dates.length)).total : PV.calc(s, Math.max(1, s.dates.length)).total) - s.payments.reduce((a, p) => a + num(p.amount), 0) || ''), method: '轉帳', last5: '' });
           else if (k === 'unpay') s.payments.splice(+b.dataset.i, 1);
           else return;
           render(el);
@@ -820,17 +979,19 @@
           else if (k === 'notify') s.notify = t.checked;
           else return;
           const box = el.querySelector('[data-pv-total]');
-          if (box) box.innerHTML = totalHtml(PV.calc(s, Math.max(1, s.dates.length)), s.dates.length);
+          if (box) box.innerHTML = s.kind === '包場球敘' ? chTotal(CH.calc(s, Math.max(1, s.dates.length)), s.dates.length) : totalHtml(PV.calc(s, Math.max(1, s.dates.length)), s.dates.length);
         });
         el.addEventListener('change', (e) => {
           const t = e.target;
           const k = t.dataset.pv;
-          if (k === 'val' && ['venue', 'slot', 'court', 'start', 'end', 'coach'].indexOf(t.dataset.k) >= 0) {
+          if (k === 'val' && ['venue', 'slot', 'court', 'start', 'end', 'coach', 'hostId', 'rackets', 'people'].indexOf(t.dataset.k) >= 0) {
             s[t.dataset.k] = t.value;
-            if (t.dataset.k === 'venue') { s.slot = ''; s.court = ''; s.dates = []; }
+            if (['hostId', 'rackets', 'people'].indexOf(t.dataset.k) >= 0) { render(el); return; } // v4.14
+            if (t.dataset.k === 'venue') { s.slot = ''; s.court = ''; s.courts = []; s.dates = []; }
             if (t.dataset.k === 'slot') {
               const sl = PB.get('1_據點_時段', s.slot);
               s.court = sl ? split(sl['使用場地'])[0] || '' : '';
+              s.courts = []; // v4.14
               s.start = sl ? hmOf(sl['開始時間']) : '';
               s.end = sl ? (hmOf(sl['結束時間']) === '23:59' ? '23:59' : hmOf(sl['結束時間'])) : '';
               s.dates = [];
@@ -838,7 +999,7 @@
             if (['court', 'start', 'end'].indexOf(t.dataset.k) >= 0) {
               const sl = PB.get('1_據點_時段', s.slot);
               if (sl && (minOf(s.start) < minOf(sl['開始時間']) || endMin(s.end) > endMin(sl['結束時間']))) ui.toast('上課時間要在時段 ' + hmOf(sl['開始時間']) + '–' + hmOf(sl['結束時間']) + ' 之內', 'bad');
-              s.dates = s.dates.filter((d) => !pvBusy(d, s.start, s.end, s.court));
+              s.dates = s.dates.filter((d) => (s.kind === '包場球敘' ? !CH.busy(d, s.start, s.end, s.courts) : !pvBusy(d, s.start, s.end, s.court)));
             }
             render(el);
           } else if (k === 'contact' || (k === 'pay' && t.dataset.f === 'method') || k === 'ex' && t.dataset.f === 'per') render(el);
@@ -1040,7 +1201,7 @@
   function openTargets() {
     const t = today();
     const cls = PB.rows('2_課程班級').filter((c) => ['籌備中', '確定開課', '進行中'].indexOf(str(c['課程狀態'])) >= 0).map((c) => ({ type: '課程', id: c['班級ID'], l: '課程｜' + m.label('2_課程班級', c) }));
-    const gs = PB.rows('2_球敘場次').filter((g) => day(g['日期']) >= t && ['開放報名', '已額滿'].indexOf(str(g['狀態'])) >= 0).sort((a, b) => byKey(day(a['日期']), day(b['日期']))).map((g) => ({ type: '球敘', id: g['球敘ID'], l: '球敘｜' + m.label('2_球敘場次', g) }));
+    const gs = PB.rows('2_球敘場次').filter((g) => day(g['日期']) >= t && ['開放報名', '已額滿'].indexOf(str(g['狀態'])) >= 0 && !m.isCharter(g)) // v4.14：包場不能後台報名.sort((a, b) => byKey(day(a['日期']), day(b['日期']))).map((g) => ({ type: '球敘', id: g['球敘ID'], l: '球敘｜' + m.label('2_球敘場次', g) }));
     return cls.concat(gs);
   }
   A.sigCancel = async (d) => {
@@ -1321,7 +1482,7 @@
       if (kw) list = list.filter((g) => m.label('2_球敘場次', g).toLowerCase().indexOf(kw) >= 0);
       list.sort((a, b) => (tab === '過去' ? -1 : 1) * byKey(day(a['日期']) + str(a['開始時間']), day(b['日期']) + str(b['開始時間'])));
       const drafts = PB.rows('2_球敘場次').filter((g) => str(g['狀態']) === '草稿' && day(g['日期']) >= t).length;
-      const top = '<div class="ptop"><h1>球敘</h1><span class="sp"></span>' + (PB.forms['2_球敘場次'] ? ui.btn('新增球敘', 'gameNew', {}, 'pri', 'plus') : '') + '</div>' +
+      const top = '<div class="ptop"><h1>球敘</h1><span class="sp"></span>' + (PB.forms['2_課程班級'] ? ui.btn('包場', 'pvNew', { kind: '包場球敘' }, '', 'plus') : '') + (PB.forms['2_球敘場次'] ? ui.btn('新增球敘', 'gameNew', {}, 'pri', 'plus') : '') + '</div>' + // v4.14：包場
         '<div class="ptop"><div class="chips">' + ['近期', '草稿', '過去'].map((k) => '<button class="chip' + (k === tab ? ' on' : '') + '" data-act="param" data-k="tab" data-v="' + k + '">' + k + (k === '草稿' && drafts ? '<span class="c">' + drafts + '</span>' : '') + '</button>').join('') + '</div><span class="sp"></span>' +
         '<label class="search">' + PB.icon('search') + '<input placeholder="搜尋據點、日期" value="' + esc(p.q || '') + '" data-input="gameSearch"></label></div>';
       const gRow = (g) => {
@@ -1350,6 +1511,7 @@
   A.openGame = (d) => openGame(d.id);
   function gameBody(id) {
     const g = PB.get('2_球敘場次', id);
+    if (m.isCharter(g)) return charterBody(id); // v4.14
     const x = m.game(g);
     const t = today();
     const acts = [];
@@ -1378,6 +1540,102 @@
     ]) + courts + (noCourt.length ? sec('未分面', noCourt.length + ' 人') + card(noCourt.map((r) => sigRow(r, 'game')).join('')) : '') +
       (x.wait.length ? sec('候補', x.wait.length + ' 人') + card(x.wait.map((r) => sigRow(r, 'game')).join('')) : '');
   }
+  // ---- v4.14（11/11）包場球敘詳情 ----
+  const chSig = (x) => x.sigs.find((r) => /^charter/.test(str(r['來源代碼'])) && str(r['報名狀態']) !== '已取消') || x.sigs.find((r) => /^charter/.test(str(r['來源代碼']))) || x.sigs[0] || null;
+  /** 同一組包場（2_報名.同行批次 相同）的球敘，依日期排 */
+  const chGroup = (g, sig) => {
+    const batch = sig ? str(sig['同行批次']) : '';
+    if (!batch) return [{ g: g, sig: sig }];
+    return PB.rows('2_報名').filter((r) => str(r['同行批次']) === batch && str(r['報名類型']) === '球敘').map((r) => ({ g: PB.get('2_球敘場次', r['球敘']), sig: r })).filter((o) => o.g)
+      .sort((a, b) => byKey(day(a.g['日期']) + hmOf(a.g['開始時間']), day(b.g['日期']) + hmOf(b.g['開始時間'])));
+  };
+  function charterBody(id) {
+    const g = PB.get('2_球敘場次', id);
+    const x = m.game(g);
+    const t = today();
+    const can = !!PB.forms['2_球敘場次'];
+    const sig = chSig(x);
+    const contact = sig ? str(sig['學員']) : '';
+    const group = chGroup(g, sig);
+    const acts = [];
+    if (can && ['取消'].indexOf(x.st) < 0) acts.push(ui.btn('加一場', 'chAddGame', { id: id }, 'pri', 'plus'));
+    if (can && ['開放報名', '已額滿'].indexOf(x.st) >= 0) acts.push(ui.btn('編輯', 'gameEdit', { id: id }, 'ghost'));
+    if (can && ['取消', '已結束'].indexOf(x.st) < 0 && day(g['日期']) >= t && !x.cancelPending) acts.push(ui.btn('取消這場', 'gameCancel', { id: id }, 'bad'));
+    const billsOf = (o) => (o.sig ? PB.rows('3_應收帳款').filter((b) => str(b['報名']) === str(o.sig['報名ID'])) : []);
+    const bx = group.reduce((a, o) => a.concat(billsOf(o).map((b) => ({ b: b, o: o, y: m.rec(b['應收ID']) }))), []);
+    const live = bx.filter((v) => !v.y.voided && str(v.o.g['狀態']) !== '取消');
+    const due = sum(live, (v) => v.y.due);
+    const net = sum(live, (v) => v.y.net);
+    const left = sum(live, (v) => Math.max(0, v.y.left));
+    const mine = bx.filter((v) => v.o.g === g && !v.y.voided);
+    const hostHtml = hostCell(g, x, can && ['開放報名', '已額滿'].indexOf(x.st) >= 0 && day(g['日期']) >= t).replace('無場主球敘（不需要場主）', '自由球敘（不派場主）');
+    const info = kv([
+      ['類型', '包場球敘 <span class="badge">不公開</span>'],
+      ['狀態', m.gameBadge(x.st, g) + (x.cancelPending ? ' <span class="badge info">取消處理中：系統正在通知聯絡人</span>' : '') + (sig && str(sig['來源代碼']) === 'charter-new' ? ' <span class="badge info">LINE 通知排程中</span>' : '')],
+      ['時間', esc(fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間']))],
+      ['地點', esc(m.venueName(g['據點']) + '・' + x.courts.map((c) => c.name).join('、') + '（' + x.courts.length + ' 面）')],
+      ['聯絡人', contact ? esc(m.stuName(contact)) + ' ' + ui.tel(m.phone(PB.get('1_學員', contact))) : '<span class="badge bad">沒有聯絡人</span>'],
+      ['包場人數', esc((str(g['人數上限']) || '—') + ' 人') + ' <span class="mut">（場主費依人數級距；要改請按「編輯」改人數上限）</span>'],
+      ['球拍', sig && num(sig['租拍數']) ? esc(num(sig['租拍數']) + ' 支（同時段共用據點庫存）') : '<span class="mut">沒有租</span>'],
+      ['場主', hostHtml],
+      ['這場', mine.length ? money(sum(mine, (v) => v.y.due)) + '・已收 ' + money(sum(mine, (v) => v.y.net)) + (sum(mine, (v) => Math.max(0, v.y.left)) > 0 ? ' <span class="badge warn">未收 ' + money(sum(mine, (v) => Math.max(0, v.y.left))) + '</span>' : ' <span class="badge ok">收齊</span>') : '<span class="mut">沒有帳單</span>'],
+      ['整組', group.length + ' 場・' + money(due) + '・已收 ' + money(net) + (left > 0 ? ' <span class="badge warn">未收 ' + money(left) + '</span>' : ' <span class="badge ok">收齊</span>')],
+    ]);
+    const billRows = bx.map((v) => {
+      const b = v.b;
+      const y = v.y;
+      const st = y.voided ? '<span class="badge">作廢</span>' : y.left > 0 ? '<span class="badge warn">未收 ' + money(y.left) + '</span>' : '<span class="badge ok">已收齊</span>';
+      const bt = [];
+      if (!y.voided && y.left > 0) bt.push(btn('收款', 'payAdd', { id: b['應收ID'] }, 'pri'));
+      if (!y.voided) bt.push(btn('改金額', 'pvBill', { id: b['應收ID'] }, 'ghost'));
+      if (!y.voided && y.net > 0 && y.net > y.due) bt.push(btn('退款', 'refund', { id: b['應收ID'] }, 'ghost'));
+      const pays = (PB.ix.payByRec[str(b['應收ID'])] || []).map((p) => fmtD(p['收款日期']).replace(/（.）/, '') + ' ' + money(p['金額']) + ' ' + str(p['付款方式']) + (str(p['帳號末五碼']) ? '・' + str(p['帳號末五碼']) : '') + (str(p['對帳狀態']) === '待確認' ? '（待確認）' : '')).join('；');
+      return row({ t: esc(fmtD(v.o.g['日期']).replace(/（.）/, '')) + ' <span class="num">' + money(y.due) + '</span> ' + st + (v.o.g === g ? ' <span class="badge brand">這場</span>' : ''), s: esc(str(b['項目說明'])) + (pays ? '<br><span class="mut">' + esc(pays) + '</span>' : ''), r: bt.join('') });
+    }).join('');
+    const games = group.map((o) => row({ act: o.g === g ? '' : 'openGame', id: o.g['球敘ID'], when: esc(fmtD(o.g['日期']).replace(/（.）/, '')) + '<small>週' + wd(o.g['日期']) + '</small>', t: esc(m.hm(o.g['開始時間'], o.g['結束時間'])) + ' ' + m.gameBadge(str(o.g['狀態']), o.g) + (o.g === g ? ' <span class="badge brand">這場</span>' : ''), s: esc(split(o.g['使用場地']).map(m.courtName).join('、') + '・' + ((PB.ix.dutyByGame[str(o.g['球敘ID'])] || []).map((d) => m.staffName(d['人員'])).join('、') || '不派場主')) })).join('');
+    return '<div class="acts">' + acts.join('') + '</div>' + info +
+      sec('帳單', bx.length + ' 筆') + card(billRows || ui.empty('沒有帳單')) +
+      sec('同一組包場', group.length + ' 場') + card(games);
+  }
+  A.chAddGame = async (d) => {
+    const g = PB.get('2_球敘場次', d.id);
+    const x = m.game(g);
+    const sig = chSig(x);
+    const group = chGroup(g, sig);
+    const have = group.filter((o) => str(o.g['狀態']) !== '取消').map((o) => day(o.g['日期']));
+    const courts = split(g['使用場地']);
+    const start = hmOf(g['開始時間']);
+    const end = hmOf(g['結束時間']);
+    const opts = [];
+    CH.slots(str(g['據點'])).filter((sl) => courts.every((c) => split(sl['使用場地']).indexOf(c) >= 0) && minOf(sl['開始時間']) <= minOf(start) && endMin(sl['結束時間']) >= endMin(end)).forEach((sl) => {
+      PB.rows('1_據點_可用日').filter((a) => str(a['時段']) === str(sl['時段ID']) && str(a['狀態']) === '可用').map((a) => day(a['日期'])).forEach((dd) => {
+        if (dd >= today() && have.indexOf(dd) < 0 && !opts.some((o) => o.d === dd) && !CH.busy(dd, start, end, courts)) opts.push({ d: dd, l: mdw(dd) + ' ' + start + '–' + end });
+      });
+    });
+    opts.sort((a, b) => byKey(a.d, b.d));
+    if (!opts.length) return ui.toast('這幾面在 ' + start + '–' + end + ' 沒有可加的可用日：請先到「主檔與紀錄 → 據點與場地」加日期', 'bad');
+    const hasHost = (PB.ix.dutyByGame[str(g['球敘ID'])] || []).length > 0;
+    const v = await ui.ask('加一場：' + m.gameLabel(g), esc(m.venueName(g['據點']) + '・' + courts.map(m.courtName).join('、')) + '・同時間；聯絡人 ' + esc(sig ? m.stuName(sig['學員']) : ''), {
+      fields: [
+        { k: 'date', label: '日期', t: 'enum', req: true, opts: opts.map((o) => o.l), value: opts[0].l, hint: '只列這幾面這個時間還空著、已租到的日子' },
+        { k: 'people', label: '包場人數', t: 'num', value: num(g['人數上限']) || '' },
+        { k: 'rackets', label: '租球拍（支）', t: 'num', value: sig ? num(sig['租拍數']) : 0, hint: '每支算進帳單；和同時段球敘共用庫存' },
+        { k: 'host', label: '場主', t: 'enum', opts: ['派場主（同時段場主或據點場主）', '自由球敘（不派場主）'], value: hasHost ? '派場主（同時段場主或據點場主）' : '自由球敘（不派場主）' },
+        { k: 'amount', label: '這場收費', t: 'money', value: num(g['費用']), hint: '含租拍費；0＝不另收' },
+        { k: 'paid', label: '已收這場的錢', t: 'bool', when: { amount: '*' } },
+        { k: 'pmethod', label: '收款方式', t: 'enum', opts: ['轉帳', '現金', 'LINEPay'], value: '轉帳', when: { paid: [true] } },
+        { k: 'plast5', label: '末五碼', t: 'text', when: { pmethod: ['轉帳'] } },
+        { k: 'notify', label: 'LINE 通知聯絡人', t: 'bool', value: true },
+      ], ok: '加一場',
+    });
+    if (!v) return;
+    const o = opts.find((y) => y.l === v.date);
+    const r = await PB.run('charterAddGame', {
+      id: d.id, date: o ? o.d : '', people: v.people === '' ? '' : num(v.people), rackets: v.rackets === '' ? '' : num(v.rackets), host: !/^自由/.test(v.host),
+      amount: num(v.amount), notify: v.notify !== false, payment: v.paid === true && num(v.amount) > 0 ? { amount: num(v.amount), date: today(), method: v.pmethod, last5: v.plast5 } : null,
+    });
+    if (r && r.data && r.data.id) setTimeout(() => openGame(r.data.id), 50);
+  };
   // ---- v3.5：球敘場主（加／換／移除）----
   function hostCell(g, x, edit) {
     const gid = str(g['球敘ID']);
@@ -2236,7 +2494,7 @@
   PB.app({
     app: 'ops',
     title: '營運工作台',
-    version: '4.13',
+    version: '4.14',
     // v4.12：排課、主檔與紀錄從管理後台移過來（行政客服、管理層；社群行銷看不到）
     screens: [Today, Queue, PB.Timetable, PB.schedScreen, Classes, Games, Students, Kb, Publish, Sources, PB.dataScreen].filter(Boolean), // 11/10：排課放在課表下一個
     links: () => (!PB.cfg.kb && PB.cfg.kbUrl ? [{ label: '知識庫', url: PB.cfg.kbUrl, icon: 'kb', mobile: true }] : []),

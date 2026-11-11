@@ -448,6 +448,7 @@
   };
   /** v4.9：私人課程（包班、個人課）＝課程類型名稱含「個人課」或「包班」；與後端 isPrivateClass_、學員 OA isPrivate_ 相同 */
   m.isPrivate = (c) => !!c && /個人課|包班/.test(m.typeName(c['課程類型']));
+  m.isCharter = (g) => !!g && /包場/.test(m.gameTypeName(g['球敘類型'])); // v4.14：包場球敘（不公開）
   m.specName = (id) => { const s = PB.get('0_專項', id); return s ? str(s['專項名稱']) : ''; };
   m.cls = (c) => {
     if (typeof c === 'string') c = PB.get('2_課程班級', c);
