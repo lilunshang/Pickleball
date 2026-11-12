@@ -285,6 +285,14 @@
 
   // ---- 名稱 ----
   const nameOf = (t, col) => (id) => { const r = PB.get(t, id); return r ? str(r[col]) : str(id); };
+  // v4.16：場主經手的現金／匹客城（月底和場主費一起結，付款時自動確認，不進「待對帳」）
+  let hostSet = null; let hostSetKey = null;
+  m.hostHeld = (p) => {
+    if (['現金', '匹客城'].indexOf(str(p['付款方式'])) < 0 || !str(p['經手人']) || !PB.has('2_場主排班')) return false;
+    const rows = PB.rows('2_場主排班');
+    if (hostSetKey !== rows) { hostSetKey = rows; hostSet = new Set(rows.map((r) => str(r['人員'])).filter(Boolean)); }
+    return hostSet.has(str(p['經手人']));
+  };
   m.stuName = (id) => { const s = PB.get('1_學員', id); return s ? str(s['姓名']) || str(s['LINE顯示名稱']) || '（未填姓名）' : str(id); };
   m.staffName = nameOf('1_人員', '姓名');
   m.venueName = nameOf('1_據點', '據點名稱');
@@ -1329,6 +1337,7 @@
     //   AVAIL_CONFIRM 場主／教練請假或不在可排時間；XR_CONFIRM 非租約／額外租借的日子要先向場地訂好
     const ASK = {
       AVAIL_CONFIRM: { flag: 'availOk', title: '可排時間提醒', ok: '仍要排', text: (m) => '下列人員當天請假，或不在他們在 LINE 登錄的可排時間：<br><br>' + esc(m).replace(/\n/g, '<br>') + '<br><br>確定已經跟本人確認過，仍要這樣排嗎？' },
+      PV_FEE_CONFIRM: { flag: 'pvFeeOk', title: '個人課場地費', ok: '確定建立', text: (m) => '系統依據點當天的合作方案算出場地費，會算進帳單：<br><br>' + esc(m).replace(/\n/g, '<br>') + '<br><br>學校場地對學員說「後面那段是我們送的」。' }, // v4.16
       XR_CONFIRM: { flag: 'xrBooked', title: '額外租借：場地訂好了嗎？', ok: '已向場地訂好', text: (m) => '這些日子不在租約內：<b>' + esc(m) + '</b><br><br>系統只會記帳（場地費代收代付、建一筆應付場租），<b>不會幫你向場地訂場</b>。請確認已經跟場地訂好這些日子與球面。' },
     };
     const ak = !res.ok && ASK[res.code];

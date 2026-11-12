@@ -478,6 +478,8 @@
     const staffIds = uniq(order.map((k) => groups[k].py).filter((py) => py.kind === '人員').map((py) => py.id));
     if (staffIds.length && payInfoKey !== staffIds.join(',')) loadPayInfo(staffIds);
     const bankLine = (g, amt) => {
+      // v4.16：應交扣抵讓淨額變負 → 場主要轉給公司（收到後一樣勾選「付款…」記錄）
+      if (amt < 0) return '<span class="badge warn">淨額 ' + money(amt) + '：請 ' + esc(g.py.name) + ' 轉 ' + money(-amt) + ' 給公司</span> <span class="mut" style="font-size:.8rem">收到後勾選這幾筆按「付款…」記錄，付款方式寫「場主轉入」</span>';
       if (g.py.kind !== '人員') return g.py.info ? '<span class="mut" style="font-size:.84rem">付款方式：' + esc(g.py.info) + '</span>' : '';
       if (!PAYINFO) return '<span class="mut" style="font-size:.84rem">讀取匯款資料…</span>';
       const x = PAYINFO[g.py.id];
@@ -539,7 +541,7 @@
     const staff = Object.keys(groups).map((k) => groups[k].py).filter((py) => py.kind === '人員').map((py) => py.id);
     const info = staff.length ? await PB.read('payeeInfo', { staff: staff }) : null;
     const bank = (py) => { const r = info && info.staff[py.id]; return r && (r.匯款銀行 || r.帳號) ? r.匯款銀行 + ' ' + r.帳號 + (r.changed ? '（⚠ ' + fmtD(r.changed) + ' 本人剛改過帳戶，請先確認）' : '') : py.kind === '人員' ? '沒有匯款資料' : py.info || ''; };
-    const list = Object.keys(groups).map((k) => { const g = groups[k]; return '<tr><td><b>' + esc(g.py.name) + '</b><br><span class="mut" style="font-size:.8rem">' + esc(bank(g.py)) + '</span><br><span class="mut" style="font-size:.76rem">' + esc(uniq(g.list.map((x) => x.t)).map((t) => t + ' ' + g.list.filter((x) => x.t === t).length).join('・')) + '</span></td><td class="num"><b>' + money(sum(g.list, (x) => x.amt)) + '</b></td></tr>'; }).join('');
+    const list = Object.keys(groups).map((k) => { const g = groups[k]; return '<tr><td><b>' + esc(g.py.name) + '</b><br><span class="mut" style="font-size:.8rem">' + esc(bank(g.py)) + '</span><br><span class="mut" style="font-size:.76rem">' + esc(uniq(g.list.map((x) => x.t)).map((t) => t + ' ' + g.list.filter((x) => x.t === t).length).join('・')) + '</span></td><td class="num"><b>' + money(sum(g.list, (x) => x.amt)) + '</b>' + (sum(g.list, (x) => x.amt) < 0 ? '<br><span class="mut" style="font-size:.76rem">對方轉給公司</span>' : '') + '</td></tr>'; }).join('');
     const body = '<div class="tbl-wrap" style="margin-bottom:10px"><table class="tbl"><tbody>' + list + '</tbody><tfoot><tr><td>合計 ' + sel.length + ' 筆</td><td class="num">' + money(sum(sel, (x) => x.amt)) + '</td></tr></tfoot></table></div>' +
       '<div class="fld-row"><div class="fld"><label>付款日期</label><input type="date" name="date" value="' + today() + '"></div><div class="fld"><label>付款方式</label><select name="method">' + (PB.enums['支出付款方式'] || ['轉帳', '現金', '其他']).map((x) => '<option>' + esc(x) + '</option>').join('') + '</select></div></div>' +
       '<div class="fld"><label>備註</label><input name="note" placeholder="例：10 月教練費與代墊一起匯"></div>' +
@@ -588,9 +590,12 @@
   A.payList = async () => {
     const due = payItems(false);
     const picked = due.filter((x) => paySel.has(skey(x)));
-    const src = picked.length ? picked : due;
+    let src = picked.length ? picked : due;
     const groups = {};
     src.forEach((x) => { (groups[x.py.k] = groups[x.py.k] || { py: x.py, list: [] }).list.push(x); });
+    // v4.16：淨額 ≤ 0（應交扣抵比場主費多）不用轉帳，另外列出
+    const owe = Object.keys(groups).filter((k) => sum(groups[k].list, (x) => x.amt) <= 0).map((k) => { const g = groups[k]; delete groups[k]; return g; });
+    src = src.filter((x) => groups[x.py.k]);
     const order = Object.keys(groups).sort((a, b) => sum(groups[b].list, (x) => x.amt) - sum(groups[a].list, (x) => x.amt));
     const staff = order.map((k) => groups[k].py).filter((py) => py.kind === '人員').map((py) => py.id);
     const info = staff.length ? await PB.read('payeeInfo', { staff: staff }) : null;
@@ -616,6 +621,7 @@
     }).join('');
     const total = sum(src, (x) => x.amt);
     const body = (picked.length ? '<div class="note" style="margin-bottom:8px">只列勾選的 ' + order.length + ' 個對象（清除勾選就列全部）</div>' : '') +
+      (owe.length ? '<div class="note warn" style="margin-bottom:8px">不用轉帳、要請對方轉給公司：' + owe.map((g) => esc(g.py.name) + ' ' + money(-sum(g.list, (x) => x.amt))).join('、') + '</div>' : '') +
       (missing ? '<div class="note warn" style="margin-bottom:8px">' + missing + ' 位人員還沒有匯款資料：請他到 LINE 官方帳號填「匯款帳戶」，或在人員「請款資料」代填。</div>' : '') +
       rows + '<div style="display:flex;padding:4px 10px"><span>合計 ' + order.length + ' 位</span><span style="flex:1"></span><b class="num">' + money(total) + '</b></div>' +
       '<p class="mut" style="font-size:.8rem;margin-top:8px">轉完帳回到這頁勾選對象 →「付款…」記錄付款日期與轉帳截圖。匯款資料只在打開時讀取，不會存在這台裝置。</p>';
@@ -679,7 +685,7 @@
     const rows = list.slice(0, 300).map((r) => {
       const x = m.rec(r['應收ID']);
       const sig = PB.get('2_報名', r['報名']);
-      return '<tr><td>' + esc(fmtD(r['建立日期'])) + '</td><td>' + esc(m.stuName(str(r['付款人']) || r['學員'])) + (str(r['付款人']) && str(r['付款人']) !== str(r['學員']) ? '<br><span class="mut">替 ' + esc(m.stuName(r['學員'])) + '</span>' : '') + '</td><td style="white-space:normal;min-width:160px">' + esc(str(r['項目說明']) || str(r['收入來源'])) + '<br><span class="mut">' + esc(str(r['款項類別'])) + (sig ? '・' + esc(str(sig['報名狀態'])) : '') + '</span></td><td class="num">' + money(x.due) + '</td><td class="num">' + money(x.net) + '</td><td class="num"><b>' + money(x.left) + '</b></td><td>' + m.payBadge(x.status) + '</td><td>' + esc(sig && str(sig['付款期限']) ? fmtDT(sig['付款期限']) : fmtD(r['到期日'])) + '</td></tr>';
+      return '<tr><td>' + esc(fmtD(r['建立日期'])) + '</td><td>' + esc(str(r['付款人']) || str(r['學員']) ? m.stuName(str(r['付款人']) || r['學員']) : '名單外') + (str(r['付款人']) && str(r['付款人']) !== str(r['學員']) ? '<br><span class="mut">替 ' + esc(m.stuName(r['學員'])) + '</span>' : '') + '</td><td style="white-space:normal;min-width:160px">' + esc(str(r['項目說明']) || str(r['收入來源'])) + '<br><span class="mut">' + esc(str(r['款項類別'])) + (sig ? '・' + esc(str(sig['報名狀態'])) : '') + '</span></td><td class="num">' + money(x.due) + '</td><td class="num">' + money(x.net) + '</td><td class="num"><b>' + money(x.left) + '</b></td><td>' + m.payBadge(x.status) + '</td><td>' + esc(sig && str(sig['付款期限']) ? fmtDT(sig['付款期限']) : fmtD(r['到期日'])) + '</td></tr>';
     }).join('');
     return '<div class="ptop"><div class="chips"><button class="chip' + (only ? ' on' : '') + '" data-act="param2" data-k="all" data-v="">未收</button><button class="chip' + (!only ? ' on' : '') + '" data-act="param2" data-k="all" data-v="1">全部</button></div><span class="sp"></span><label class="search">' + PB.icon('search') + '<input placeholder="學員、項目" value="' + esc(p.q || '') + '" data-input="arSearch"></label></div>' +
       '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>建立</th><th>付款人</th><th>項目</th><th class="num">應收</th><th class="num">已付</th><th class="num">未收</th><th>狀態</th><th>期限</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8" class="mut">沒有資料</td></tr>') + '</tbody><tfoot><tr><td colspan="3">合計 ' + list.length + ' 筆</td><td class="num">' + money(sum(list, (r) => m.rec(r['應收ID']).due)) + '</td><td class="num">' + money(sum(list, (r) => m.rec(r['應收ID']).net)) + '</td><td class="num">' + money(sum(list, (r) => m.rec(r['應收ID']).left)) + '</td><td colspan="2"></td></tr></tfoot></table></div>' +

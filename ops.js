@@ -134,14 +134,34 @@
     },
   });
   q({
-    id: 'pay', title: '轉帳／現金待對帳', hint: '對照銀行入帳明細或場主交款；截圖不算入帳',
-    items: () => PB.rows('3_收款明細').filter((p) => str(p['對帳狀態']) === '待確認').sort((a, b) => byKey(day(a['收款日期']), day(b['收款日期']))),
+    id: 'pay', title: '轉帳／現金待對帳', hint: '對照銀行入帳明細；截圖不算入帳。場主經手的現金、匹客城不在這裡：場主繳回（下方「場主交付」）確認後自動確認',
+    items: () => PB.rows('3_收款明細').filter((p) => str(p['對帳狀態']) === '待確認' && !m.hostHeld(p)).sort((a, b) => byKey(day(a['收款日期']), day(b['收款日期']))),
     row: (p) => {
       const rec = PB.get('3_應收帳款', p['應收款項']) || {};
       const payer = str(rec['付款人']) || str(rec['學員']);
-      return row({ check: 'pay', id: p['收款ID'], t: esc(m.stuName(payer)) + ' <span class="num">' + money(p['金額']) + '</span>', s: esc([fmtD(p['收款日期']), str(p['付款方式']), str(p['帳號末五碼']) ? '末五碼 ' + p['帳號末五碼'] : '', /^學員回報/.test(str(p['備註'])) ? str(p['備註']) : '經手 ' + m.staffName(p['經手人']), str(rec['項目說明'])].filter(Boolean).join('・')), r: btn('確認入帳', 'payConfirm', { id: p['收款ID'] }, 'pri') + btn('有誤', 'payWrong', { id: p['收款ID'] }, 'bad') });
+      return row({ check: 'pay', id: p['收款ID'], t: esc(payer ? m.stuName(payer) : '名單外') + ' <span class="num">' + money(p['金額']) + '</span>', s: esc([fmtD(p['收款日期']), str(p['付款方式']), str(p['帳號末五碼']) ? '末五碼 ' + p['帳號末五碼'] : '', /^學員回報/.test(str(p['備註'])) ? str(p['備註']) : '經手 ' + m.staffName(p['經手人']), str(rec['項目說明'])].filter(Boolean).join('・')), r: btn('確認入帳', 'payConfirm', { id: p['收款ID'] }, 'pri') + btn('有誤', 'payWrong', { id: p['收款ID'] }, 'bad') });
     },
     bulk: { label: '確認勾選的入帳', act: 'payConfirmChecked' },
+  });
+  q({
+    id: 'hostDue', title: '場主手上還沒繳回的錢', hint: '場主經手的現金＋匹客城，還沒被已確認的繳回抵掉。場主當月收的錢要全部繳回，場主費另外照付',
+    items: () => {
+      const by = {};
+      PB.rows('3_收款明細').filter((p) => str(p['對帳狀態']) === '待確認' && m.hostHeld(p)).forEach((p) => {
+        const k = str(p['經手人']);
+        const x = by[k] || (by[k] = { who: k, amt: 0, n: 0, first: '' });
+        x.amt += num(p['金額']); x.n += 1;
+        if (!x.first || day(p['收款日期']) < x.first) x.first = day(p['收款日期']);
+      });
+      return Object.keys(by).map((k) => by[k]).sort((a, b) => byKey(a.first, b.first));
+    },
+    row: (x) => row({ t: esc(m.staffName(x.who)) + ' <span class="num">' + money(x.amt) + '</span>', s: esc(x.n + ' 筆・最早 ' + fmtD(x.first)) }),
+  });
+  q({
+    id: 'hand', title: '場主交付待確認', hint: '場主把收到的錢繳回公司：對照銀行入帳或收到的現金後確認；確認後，該場主經手的現金／匹客城收款依日期自動確認到這筆金額為止',
+    items: () => PB.has('3_場主交付') ? PB.rows('3_場主交付').filter((h) => str(h['對帳狀態']) === '待確認').sort((a, b) => byKey(day(a['交付日期']), day(b['交付日期']))) : [],
+    row: (h) => row({ check: 'hand', id: h['交付ID'], t: esc(m.staffName(h['人員'])) + ' <span class="num">' + money(h['金額']) + '</span>', s: esc([fmtD(h['交付日期']), str(h['方式']), str(h['帳號末五碼']) ? '末五碼 ' + h['帳號末五碼'] : '', str(h['備註'])].filter(Boolean).join('・')), r: btn('確認', 'handConfirm', { id: h['交付ID'] }, 'pri') + btn('有誤', 'handWrong', { id: h['交付ID'] }, 'bad') }),
+    bulk: { label: '確認勾選的交付', act: 'handConfirmChecked' },
   });
   q({
     id: 'decide', title: '待確認成班（期制班）', hint: '決定日（開課前 7 天）到了，或已付首堂達人數上限',
@@ -628,10 +648,24 @@
     const exL = ex.filter((e) => e.per !== 'once').reduce((a, e) => a + num(e.amount), 0);
     const exO = ex.filter((e) => e.per === 'once').reduce((a, e) => a + num(e.amount), 0);
     const lesson = per * n + exL;
-    const xr = num(s.extraFee) * (s.xrN || 0); // v4.14：額外租借場地費（代收代付）
-    const total = Math.round(lesson * lessons + exO + xr);
-    return { n: n, per: per, exL: exL, exO: exO, xr: xr, lesson: lesson, total: total, perPerson: Math.round(total / n) };
+    const xr = 0; // v4.16：包班／個人課的場地費（含額外租借）改由伺服器依合作方案算，建立前確認
+    const vf = num(s.vfTotal); // v4.16：預覽得到的學校場地費
+    const total = Math.round(lesson * lessons + exO + xr + vf);
+    return { n: n, per: per, exL: exL, exO: exO, xr: xr, vf: vf, lesson: lesson, total: total, perPerson: Math.round(total / n) };
   };
+  // v4.16（11/12）個人課：上課費依人數自動帶入（每小時整組 × 上課時數）；學校租約內場地費每段 850 預覽
+  //   其他場地（球館代收代付、比例分潤不收）由伺服器依據點當天的合作方案算，建立前列出來確認
+  const PVC = () => (PB.cfg && PB.cfg.pv) || { schoolFee: 850, schoolHours: 2, price: { 1: 1500, 2: 1500, 3: 1700, 4: 1900 } };
+  const venueKind = (vid) => { const v = PB.get('1_據點', vid) || {}; const k = str(v['據點類別']); return k || (/國小|國中|高中|大學|科大|學校|中學/.test(str(v['據點名稱'])) ? '學校' : '球館'); };
+  PV.hours = (start, end) => (start && end && minOf(start) !== null && endMin(end) > minOf(start) ? Math.round((endMin(end) - minOf(start)) / 30) / 2 : 0);
+  PV.unitPrice = (n) => num((PVC().price || {})[Math.min(4, Math.max(1, n))]);
+  PV.autoFee = (n, h) => { const u = PV.unitPrice(n); return u && h ? Math.round(u * h) : ''; };
+  /** v4.16：包場球敘預設收費＝該據點類別的一般球敘每人價 */
+  PV.gatherPrice = (vid) => {
+    const t = PB.rows('0_球敘類型').find((x) => str(x['類型名稱']) === '一般球敘') || PB.rows('0_球敘類型').find((x) => /一般/.test(str(x['類型名稱'])));
+    return t ? num(venueKind(vid) === '學校' ? t['學校費用'] : t['球館費用']) : 0;
+  };
+  PV.school = (h) => { const c = PVC(); const per = num(c.schoolHours) || 2; const units = Math.max(1, Math.ceil(h / per - 1e-9)); return { units: units, per: per, fee: units * num(c.schoolFee) }; };
   /** 據點裡可上課的時段（用途含課程、使用中） */
   const pvSlots = (venue) => PB.rows('1_據點_時段').filter((s) => str(s['據點']) === venue && str(s['狀態']) !== '停用' && split(s['用途']).indexOf('課程') >= 0)
     .sort((a, b) => byKey('日一二三四五六'.indexOf(str(a['星期']).replace(/^(星期|週)/, '').charAt(0)) + hmOf(a['開始時間']), '日一二三四五六'.indexOf(str(b['星期']).replace(/^(星期|週)/, '').charAt(0)) + hmOf(b['開始時間'])));
@@ -639,7 +673,8 @@
   /** 這一面、這段時間在某天被誰佔用（課程場次、球敘）；skipClass＝自己這班 */
   function pvBusy(day0, start, end, court, skipClass) {
     const ov = (s1, e1) => minOf(start) < endMin(e1) && minOf(s1) < endMin(end);
-    const ses = PB.rows('2_上課場次').find((s) => day(s['日期']) === day0 && str(s['使用場地']) === court && ['取消', '改期'].indexOf(str(s['場次狀態'])) < 0 && str(s['班級']) !== str(skipClass) && ov(s['開始時間'], s['結束時間']));
+    const occEnd = (s) => (str(s['場地保留至']) && endMin(s['場地保留至']) > endMin(s['結束時間']) ? s['場地保留至'] : s['結束時間']); // v4.16：學校場地送的時間也佔場
+    const ses = PB.rows('2_上課場次').find((s) => day(s['日期']) === day0 && str(s['使用場地']) === court && ['取消', '改期'].indexOf(str(s['場次狀態'])) < 0 && str(s['班級']) !== str(skipClass) && ov(s['開始時間'], occEnd(s)));
     if (ses) return '已有課程';
     const g = PB.rows('2_球敘場次').find((x) => day(x['日期']) === day0 && str(x['狀態']) !== '取消' && split(x['使用場地']).indexOf(court) >= 0 && ov(x['開始時間'], x['結束時間']));
     return g ? '已有球敘' : '';
@@ -721,7 +756,7 @@
     { k: 'xfee', label: '場地費（' + unit + '，代收代付）', t: 'money', when: { mode: ['非租約／額外租借（代收代付）'] }, hint: '算進這' + unit.slice(1) + '的帳單與場地成本，並建一筆應付場租' },
   ];
   XR.pick = (v, opts) => {
-    if (/^非租約/.test(v.mode)) return { date: v.xdate, extra: true, extraFee: num(v.xfee) };
+    if (/^非租約/.test(v.mode)) return { date: v.xdate, extra: true, extraFee: v.xfee === '' || v.xfee === undefined || v.xfee === null ? '' : num(v.xfee) }; // v4.16：空白＝個人課依合作方案自動算
     const o = opts.find((y) => y.l === v.date);
     return { date: o ? o.d : '', extra: false };
   };
@@ -732,6 +767,7 @@
       students: [], contact: '', payMode: 'contact', billMode: 'all', fee: '', feeUnit: 'person', extras: [], payments: [], note: '', notify: true,
       courts: [], people: '', rackets: '0', hostMode: 'yes', hostId: '', cBill: 'all', cUnit: 'game', // v4.14：包場球敘
       cal: today().slice(0, 7), extra: false, extraFee: '', xrN: 0, // v4.14：月曆、額外租借
+      feeAuto: true, vfTotal: 0, vfSchool: 0, vfOther: 0, // v4.16：個人課上課費自動帶入、學校場地費預覽
     };
     const venues = XR.venues();
     const seg = (key, opts) => '<span class="seg">' + opts.map((o) => '<button type="button" class="chip' + (s[key] === o[0] ? ' on' : '') + '" data-pv="set" data-k="' + key + '" data-v="' + esc(o[0]) + '">' + esc(o[1]) + '</button>').join('') + '</span>';
@@ -746,7 +782,23 @@
     const leaseOf = (d) => XR.lease(s.venue, d, selCourts(), s.start, s.end, uses());
     /** 額外租借的天數（不在租約、沒被佔用） */
     const xrCount = () => (s.extra ? s.dates.filter((d) => !busyOf(d) && !leaseOf(d)).length : 0);
-    const calcNow = () => { s.xrN = xrCount(); return isCh() ? CH.calc(s, Math.max(1, s.dates.length)) : PV.calc(s, Math.max(1, s.dates.length)); };
+    /** v4.16：個人課 — 學校租約內的堂數與場地費預覽；其他堂數（伺服器依合作方案算）；上課費自動帶入 */
+    const pvPrep = () => {
+      s.vfTotal = 0; s.vfSchool = 0; s.vfOther = 0;
+      const h = PV.hours(s.start, s.end);
+      if (isCh()) { // 包場球敘：收費＝一般球敘每人價 × 人數；學校不另收場地費，球館代收代付（伺服器算）
+        if (s.feeAuto !== false && s.venue && num(s.people) > 0 && PV.gatherPrice(s.venue)) { s.fee = String(PV.gatherPrice(s.venue) * num(s.people)); s.cUnit = 'game'; }
+        if (s.venue && s.courts.length && h) s.dates.forEach((d) => { if (!busyOf(d) && !(leaseOf(d) && venueKind(s.venue) === '學校')) s.vfOther++; });
+        return;
+      }
+      if (s.kind === '個人課' && s.feeAuto !== false) { const f = PV.autoFee(s.students.length || 1, h); if (f !== '') { s.fee = String(f); s.feeUnit = 'group'; } } // 包班每案不同，不自動算
+      if (!s.venue || !s.court || !h) return;
+      s.dates.forEach((d) => {
+        if (busyOf(d)) return;
+        if (leaseOf(d) && venueKind(s.venue) === '學校') { s.vfSchool++; s.vfTotal += PV.school(h).fee; } else s.vfOther++;
+      });
+    };
+    const calcNow = () => { s.xrN = xrCount(); pvPrep(); return isCh() ? CH.calc(s, Math.max(1, s.dates.length)) : PV.calc(s, Math.max(1, s.dates.length)); };
     function calHtml() {
       const ym = s.cal;
       const y = +ym.slice(0, 4);
@@ -803,8 +855,8 @@
         }).join('');
         h += '<div class="pv-dks">' + rows + '</div>' + (bad ? '<div class="note warn">' + bad + ' 天這' + (isCh() ? '幾' : '一') + '面這段時間已被佔用：請取消那天或換球面／時間</div>' : '');
         h += '<label class="pv-chk"><input type="checkbox" data-pv="extra"' + (s.extra ? ' checked' : '') + '> 非租約／額外租借（代收代付）' + (off && !s.extra ? ' <span class="badge warn">' + off + ' 天需要勾選</span>' : '') + '</label>';
-        if (s.extra) h += fld('場地費 <span class="mut">每' + (isCh() ? '場' : '堂') + '・只算額外租借的 ' + xrCount() + ' ' + (isCh() ? '場' : '堂') + '</span>', '<input type="number" min="0" step="50" data-pv="val" data-k="extraFee" value="' + esc(s.extraFee) + '" placeholder="金額" style="width:120px">',
-          '向學員收、付給場地：算進帳單和場地成本，並為每' + (isCh() ? '場' : '堂') + '建一筆應付場租；不另建可用日');
+        if (s.extra) h += fld('場地費 <span class="mut">每' + (isCh() ? '場' : '堂') + '・只算額外租借的 ' + xrCount() + ' ' + (isCh() ? '場' : '堂') + '</span>', '<input type="number" min="0" step="50" data-pv="val" data-k="extraFee" value="' + esc(s.extraFee) + '" placeholder="空白＝自動" style="width:120px">',
+          '向學員收、付給場地：算進帳單和場地成本，並為每' + (isCh() ? '場' : '堂') + '建一筆應付場租；不另建可用日' + '。留空＝依球館每面每小時單價自動算（比例分潤的場地不收）');
       }
       return h;
     }
@@ -824,6 +876,7 @@
     function render(el) {
       if (deferRender) { deferRender = false; setTimeout(() => keepFocus(el, () => render(el)), 0); return; }
       s.xrN = xrCount();
+      pvPrep(); // v4.16
       if (s.kind === '包場球敘') { el.innerHTML = chHtml(); return; } // v4.14
       const lessons = s.dates.length;
       const c = PV.calc(s, Math.max(lessons, 1));
@@ -848,7 +901,7 @@
         fld('誰付款', seg('payMode', [['contact', '聯絡人付全部'], ['each', '每人各付']])) +
         fld('什麼時候收', seg('billMode', [['all', '一次收全部堂數'], ['lesson', '每堂上課收']]), s.billMode === 'lesson' ? '每一堂一筆帳單；之後「加一堂」也會再開一筆' : '') +
         fld('上課費', '<span class="pv-time"><input type="number" min="0" step="50" data-pv="val" data-k="fee" value="' + esc(s.fee) + '" placeholder="金額" style="width:120px"> ' + seg('feeUnit', [['person', '每人每堂'], ['group', '每堂整組']]) + '</span>',
-          s.kind === '個人課' ? '個人課價格：1 對 1 每小時 1,500；1 對 3 每組每小時 1,700（2 小時就填 2 倍，選「每堂整組」）' : '例：每人每堂 1,200') +
+          s.kind === '個人課' ? (s.feeAuto !== false && PV.hours(s.start, s.end) ? '自動帶入：1 對 ' + Math.max(1, s.students.length) + ' 每小時 ' + money(PV.unitPrice(s.students.length || 1)) + ' × ' + PV.hours(s.start, s.end) + ' 小時（自己改金額後就不再自動帶）' : '個人課每小時整組：' + [1, 2, 3, 4].map((k) => '1 對 ' + k + ' ' + money(PV.unitPrice(k))).join('、') + '；場地費另計，系統依據點自動算') : '例：每人每堂 1,200') +
         '<div class="fld"><label>其他費用 <span class="mut">全班一起算，例如額外的場租</span></label>' +
         s.extras.map((e, i) => '<div class="pv-ex"><input data-pv="ex" data-i="' + i + '" data-f="name" value="' + esc(e.name) + '" placeholder="名稱，例：21–22 場租"><input type="number" min="0" data-pv="ex" data-i="' + i + '" data-f="amount" value="' + esc(e.amount) + '" placeholder="金額" style="width:100px">' +
           '<select data-pv="ex" data-i="' + i + '" data-f="per"><option value="lesson"' + (e.per !== 'once' ? ' selected' : '') + '>每堂</option><option value="once"' + (e.per === 'once' ? ' selected' : '') + '>一次</option></select><button type="button" class="icon-btn" data-pv="unex" data-i="' + i + '" aria-label="移除">✕</button></div>').join('') +
@@ -913,7 +966,7 @@
       // 3 收費
       h += '<div class="pv-sec"><h4>3　收費</h4>' +
         fld('什麼時候收', seg('cBill', [['all', '一次收全部場次'], ['game', '每場收']]), '每場一筆帳單（月結收入算在各場）；一次收＝每筆都在第一場前到期') +
-        fld('包場費', '<span class="pv-time"><input type="number" min="0" step="50" data-pv="val" data-k="fee" value="' + esc(s.fee) + '" placeholder="金額" style="width:120px"> ' + seg('cUnit', [['game', '每場整場'], ['court', '每面每場']]) + '</span>') +
+        fld('包場費' + (s.feeAuto !== false && PV.gatherPrice(s.venue) && num(s.people) ? ' <span class="mut">自動帶入：一般球敘 ' + money(PV.gatherPrice(s.venue)) + ' × ' + num(s.people) + ' 人（自己改了就不再自動帶）</span>' : ''), '<span class="pv-time"><input type="number" min="0" step="50" data-pv="val" data-k="fee" value="' + esc(s.fee) + '" placeholder="金額" style="width:120px"> ' + seg('cUnit', [['game', '每場整場'], ['court', '每面每場']]) + '</span>') +
         '<div class="fld"><label>其他費用 <span class="mut">例如清潔費、加時場租</span></label>' +
         s.extras.map((e, i) => '<div class="pv-ex"><input data-pv="ex" data-i="' + i + '" data-f="name" value="' + esc(e.name) + '" placeholder="名稱"><input type="number" min="0" data-pv="ex" data-i="' + i + '" data-f="amount" value="' + esc(e.amount) + '" placeholder="金額" style="width:100px">' +
           '<select data-pv="ex" data-i="' + i + '" data-f="per"><option value="lesson"' + (e.per !== 'once' ? ' selected' : '') + '>每場</option><option value="once"' + (e.per === 'once' ? ' selected' : '') + '>一次</option></select><button type="button" class="icon-btn" data-pv="unex" data-i="' + i + '" aria-label="移除">✕</button></div>').join('') +
@@ -936,6 +989,7 @@
       const lines = ['包場費 ' + (s.cUnit === 'court' ? money(num(s.fee)) + ' × ' + s.courts.length + ' 面' : money(num(s.fee))) + ' × ' + n + ' 場 ＝ ' + money(c.base * n)];
       if (c.racket) lines.push('租拍 ' + num(s.rackets) + ' 支 × ' + money(CH.rkFee()) + ' × ' + n + ' 場 ＝ ' + money(c.racket * n));
       if (c.xr) lines.push('場地費（額外租借・代收代付）' + money(num(s.extraFee)) + ' × ' + s.xrN + ' 場 ＝ ' + money(c.xr));
+      if (s.vfOther) lines.push('<span class="mut">' + s.vfOther + ' 場是球館或非租約：場地費依據點合作方案代收代付' + (c.xr ? '（上面已列額外租借）' : '') + '，建立前會列出來確認</span>'); // v4.16
       s.extras.filter((e) => num(e.amount) > 0).forEach((e) => lines.push(esc(e.name || '其他') + ' ' + money(e.amount) + (e.per === 'once' ? '' : ' × ' + n + ' 場') + ' ＝ ' + money(num(e.amount) * (e.per === 'once' ? 1 : n))));
       const paid = s.payments.reduce((a, p) => a + num(p.amount), 0);
       return lines.join('<br>') + '<div class="pv-sum"><b>合計 ' + money(c.total) + '</b>（每場 ' + money(c.perGame) + (c.xr ? '，額外租借的場次另加場地費' : '') + '）</div><div class="mut">帳單 ' + n + ' 筆給 ' + (s.contact ? esc(m.stuName(s.contact)) : '聯絡人') + (paid ? '・已收 ' + money(paid) + (paid === c.total ? ' <span class="badge ok">收齊</span>' : paid < c.total ? '，未收 ' + money(c.total - paid) : ' <span class="badge warn">多收 ' + money(paid - c.total) + '</span>') : '') + '</div>';
@@ -945,6 +999,12 @@
       const lines = ['上課費 ' + (s.feeUnit === 'group' ? money(num(s.fee)) + ' × ' + lessons + ' 堂' : money(c.per) + ' × ' + c.n + ' 人 × ' + lessons + ' 堂') + ' ＝ ' + money(c.per * c.n * lessons)];
       s.extras.filter((e) => num(e.amount) > 0).forEach((e) => lines.push(esc(e.name || '其他') + ' ' + money(e.amount) + (e.per === 'once' ? '' : ' × ' + lessons + ' 堂') + ' ＝ ' + money(num(e.amount) * (e.per === 'once' ? 1 : lessons))));
       if (c.xr) lines.push('場地費（額外租借・代收代付）' + money(num(s.extraFee)) + ' × ' + s.xrN + ' 堂 ＝ ' + money(c.xr));
+      { // v4.16：包班、個人課
+        const h = PV.hours(s.start, s.end);
+        const sc = PV.school(h);
+        if (s.vfSchool) lines.push('學校場地費 ' + money(sc.fee) + ' × ' + s.vfSchool + ' 堂 ＝ ' + money(c.vf) + (h < sc.units * sc.per ? '<span class="mut">（每 ' + sc.per + ' 小時一段，後面送的時間一起保留這一面）</span>' : ''));
+        if (s.vfOther) lines.push('<span class="mut">另 ' + s.vfOther + ' 堂的場地費依據點合作方案自動算（球館代收代付、比例分潤的場地不收），建立前會列出來確認</span>');
+      }
       const bills = s.payMode === 'contact' ? (s.billMode === 'all' ? '帳單 1 筆給 ' + (s.contact ? m.stuName(s.contact) : '聯絡人') : '每堂 1 筆給 ' + (s.contact ? m.stuName(s.contact) : '聯絡人') + '，每堂 ' + money(c.lesson))
         : (s.billMode === 'all' ? '每人 1 筆 ' + money(c.total / c.n) : '每人每堂 1 筆 ' + money(c.lesson / c.n));
       const paid = s.payments.reduce((a, p) => a + num(p.amount), 0);
@@ -966,7 +1026,7 @@
       if (busy.length) { ui.toast(mdw(busy[0]) + ' 這段時間已被佔用：' + busyOf(busy[0]), 'bad'); return false; }
       const off = s.dates.filter((d) => !leaseOf(d));
       if (off.length && !s.extra) { ui.toast(off.length + ' 天不在租約內（' + off.slice(0, 3).map(mdw).join('、') + '）：請勾「非租約／額外租借」', 'bad'); return false; }
-      if (s.extra && xrCount() && s.extraFee === '') { ui.toast('請填額外租借的場地費（沒有就填 0）', 'bad'); return false; }
+      // v4.16：額外租借場地費空白＝依據點合作方案自動算（建立前會列出來確認）
       return true;
     }
     let chEl = null;
@@ -986,7 +1046,7 @@
       if (!placeOk()) return false;
       if (s.payments.find((p) => num(p.amount) > 0 && !p.date)) { ui.toast('收款要填日期', 'bad'); return false; }
       const r = await PB.run('charterCreate', {
-        name: s.name, venue: s.venue, courts: s.courts, start: s.start, end: s.end, dates: s.dates, contact: s.contact, people: num(s.people), extra: s.extra && xrCount() > 0, extraFee: num(s.extraFee),
+        name: s.name, venue: s.venue, courts: s.courts, start: s.start, end: s.end, dates: s.dates, contact: s.contact, people: num(s.people), extra: s.extra && xrCount() > 0, extraFee: s.extraFee === '' ? '' : num(s.extraFee),
         rackets: num(s.rackets), host: s.hostMode === 'yes', hostId: s.hostMode === 'yes' ? s.hostId : '', billMode: s.cBill, fee: num(s.fee), feeUnit: s.cUnit,
         extras: s.extras.filter((e) => num(e.amount) > 0).map((e) => ({ name: e.name, amount: num(e.amount), per: e.per })),
         payments: s.payments.filter((p) => num(p.amount) > 0).map((p) => ({ date: p.date, amount: num(p.amount), method: p.method, last5: p.last5 })),
@@ -1016,7 +1076,7 @@
           if (bad) { ui.toast('收款要填日期', 'bad'); return false; }
           if (!placeOk()) return false;
           const r = await PB.run('privateCreate', {
-            kind: s.kind, name: s.name, venue: s.venue, court: s.court, coach: s.coach, start: s.start, end: s.end, dates: s.dates, extra: s.extra && xrCount() > 0, extraFee: num(s.extraFee),
+            kind: s.kind, name: s.name, venue: s.venue, court: s.court, coach: s.coach, start: s.start, end: s.end, dates: s.dates, extra: s.extra && xrCount() > 0, extraFee: s.extraFee === '' ? '' : num(s.extraFee),
             students: s.students, contact: s.contact, payMode: s.payMode, billMode: s.billMode, fee: num(s.fee), feeUnit: s.feeUnit,
             extras: s.extras.filter((e) => num(e.amount) > 0).map((e) => ({ name: e.name, amount: num(e.amount), per: e.per })),
             payments: s.payments.filter((p) => num(p.amount) > 0).map((p) => ({ who: p.who, date: p.date, amount: num(p.amount), method: p.method, last5: p.last5 })),
@@ -1038,8 +1098,11 @@
           if (k === 'set') {
             const was = s.kind;
             s[b.dataset.k] = b.dataset.v;
+            if (b.dataset.k === 'feeUnit' || b.dataset.k === 'cUnit') s.feeAuto = false; // v4.16
             if (b.dataset.k === 'kind') {
               s.feeUnit = s.kind === '包班' ? 'person' : 'group';
+              if (s.feeAuto !== false && s.kind === '包班') s.fee = ''; // v4.16：自動帶的金額不帶到包班
+              s.feeAuto = (s.kind === '個人課' || s.kind === '包場球敘') && (s.fee === '' || s.feeAuto !== false); // v4.16
               if ((was === '包場球敘') !== (s.kind === '包場球敘')) { s.court = ''; s.courts = []; s.students = s.contact ? [s.contact] : []; } // v4.14：據點、日期、時間保留
             }
           } else if (k === 'court') { // v4.14：包場選球面（據點全部球面）
@@ -1093,7 +1156,7 @@
           const t = e.target;
           if (t.matches('[data-pv-search]')) { const id = findStu(str(t.value)); if (id && document.querySelector('#pvStuList option[value="' + CSS.escape(t.value) + '"]')) addStu(el, id); return; }
           const k = t.dataset.pv;
-          if (k === 'val') { if (['start', 'end'].indexOf(t.dataset.k) >= 0) return; s[t.dataset.k] = t.value; } // v4.15：時間等離開欄位才更新（打字中不重畫）
+          if (k === 'val') { if (['start', 'end'].indexOf(t.dataset.k) >= 0) return; s[t.dataset.k] = t.value; if (t.dataset.k === 'fee') s.feeAuto = false; } // v4.15：時間等離開欄位才更新（打字中不重畫）；v4.16 自己改上課費 → 不再自動帶
           else if (k === 'ex') s.extras[+t.dataset.i][t.dataset.f] = t.value;
           else if (k === 'pay') s.payments[+t.dataset.i][t.dataset.f] = t.value;
           else if (k === 'contact') s.contact = t.value;
@@ -1213,11 +1276,12 @@
     opts.sort((a, b) => byKey(a.d, b.d));
     const bills = pvBills(x).filter((b) => b['作廢'] !== true);
     const payers = uniq(bills.map((b) => str(b['付款人'])).filter(Boolean));
-    const perLesson = x.total ? Math.round(num(c['費用']) / x.total * x.active.length) : 0;
+    const isPv1 = !/包班/.test(str((PB.get('0_課程類型', c['課程類型']) || {})['課程類型'])); // v4.16：個人課 → 上課費依人數自動帶入；場地費伺服器另算
+    const perLesson = isPv1 ? num(PV.autoFee(x.active.length || 1, PV.hours(start, end))) : ''; // v4.16：包班每案不同，請自己填
     const v = await ui.ask('加一堂：' + str(c['課程名稱']), '同一面、同時間；要換時間請加完後在場次按「改期」。', {
       fields: XR.askFields(opts, '每堂').concat([
         { k: 'coach', label: '教練', t: 'enum', opts: coaches().map((o) => o.l), value: m.staffName(c['主教練']) },
-        { k: 'amount', label: '這堂另外收費（全班合計）', t: 'money', value: perLesson, hint: '0＝不另收（例如原本就預付了多堂）；' + (payers.length > 1 ? payers.length + ' 位付款人平均分' : '帳單給 ' + (payers[0] ? m.stuName(payers[0]) : '聯絡人')) },
+        { k: 'amount', label: '這堂上課費（全班合計）', t: 'money', value: perLesson, hint: (isPv1 ? '依人數自動帶入。' : '包班每案不同，請填這堂上課費。') + '場地費系統依據點另外算進帳單（建立前會列出來確認）。' + '0＝不另收（例如原本就預付了多堂）；' + (payers.length > 1 ? payers.length + ' 位付款人平均分' : '帳單給 ' + (payers[0] ? m.stuName(payers[0]) : '聯絡人')) },
         { k: 'paid', label: '已收這堂的錢', t: 'bool', when: { amount: '*' } },
         { k: 'pmethod', label: '收款方式', t: 'enum', opts: ['現金', '轉帳', 'LINEPay'], value: '現金', when: { paid: [true] } },
         { k: 'plast5', label: '末五碼', t: 'text', when: { pmethod: ['轉帳'] } },
@@ -1383,6 +1447,17 @@
   A.payWrong = async (d) => {
     const v = await ui.ask('標記有誤', '這筆不再算已付（名額可能因此被釋出），請寫原因並聯絡學員。', { fields: [{ k: 'note', label: '原因', t: 'text', req: true }], danger: true, ok: '標記有誤' });
     if (v) PB.run('payWrong', { id: d.id, note: v.note });
+  };
+  // v4.16：場主交付
+  A.handConfirm = (d) => PB.run('handConfirm', { ids: [d.id] });
+  A.handConfirmChecked = () => {
+    const ids = checked('hand');
+    if (!ids.length) return ui.toast('請先勾選');
+    PB.run('handConfirm', { ids: ids }, { confirm: { title: '確認交付 ' + ids.length + ' 筆', text: '總額 ' + money(sum(ids, (id) => (PB.get('3_場主交付', id) || {})['金額'])) + '。只確認已入帳或已收到的現金。', ok: '確認' } });
+  };
+  A.handWrong = async (d) => {
+    const v = await ui.ask('交付有誤', '這筆不算已交付，請寫原因並聯絡場主。', { fields: [{ k: 'note', label: '原因', t: 'text', req: true }], danger: true, ok: '標記有誤' });
+    if (v) PB.run('handWrong', { id: d.id, note: v.note });
   };
   A.payRemind = (d) => PB.run('payRemind', { ids: split(d.ids) });
   A.payAdd = async (d) => {
@@ -2612,7 +2687,7 @@
   PB.app({
     app: 'ops',
     title: '營運工作台',
-    version: '4.15',
+    version: '4.16',
     // v4.12：排課、主檔與紀錄從管理後台移過來（行政客服、管理層；社群行銷看不到）
     screens: [Today, Queue, PB.Timetable, PB.schedScreen, Classes, Games, Students, Kb, Publish, Sources, PB.dataScreen].filter(Boolean), // 11/10：排課放在課表下一個
     links: () => (!PB.cfg.kb && PB.cfg.kbUrl ? [{ label: '知識庫', url: PB.cfg.kbUrl, icon: 'kb', mobile: true }] : []),
