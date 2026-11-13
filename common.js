@@ -1337,7 +1337,7 @@
     //   AVAIL_CONFIRM 場主／教練請假或不在可排時間；XR_CONFIRM 非租約／額外租借的日子要先向場地訂好
     const ASK = {
       AVAIL_CONFIRM: { flag: 'availOk', title: '可排時間提醒', ok: '仍要排', text: (m) => '下列人員當天請假，或不在他們在 LINE 登錄的可排時間：<br><br>' + esc(m).replace(/\n/g, '<br>') + '<br><br>確定已經跟本人確認過，仍要這樣排嗎？' },
-      PV_FEE_CONFIRM: { flag: 'pvFeeOk', title: '個人課場地費', ok: '確定建立', text: (m) => '系統依據點當天的合作方案算出場地費，會算進帳單：<br><br>' + esc(m).replace(/\n/g, '<br>') + '<br><br>學校場地對學員說「後面那段是我們送的」。' }, // v4.16
+      PV_FEE_CONFIRM: { flag: 'pvFeeOk', title: '場地費確認', ok: '確定', text: (m) => '系統依據點當天的合作方案算出場地費，會算進帳單：<br><br>' + esc(m).replace(/\n/g, '<br>') + (/學校/.test(m) ? '<br><br>學校場地對學員說「後面那段是我們送的」。' : '') }, // v4.16；v4.17：包班、包場、加一堂／加一場也用這個視窗 → 標題與按鈕改通用文字，學校那句只在有學校場地時顯示
       XR_CONFIRM: { flag: 'xrBooked', title: '額外租借：場地訂好了嗎？', ok: '已向場地訂好', text: (m) => '這些日子不在租約內：<b>' + esc(m) + '</b><br><br>系統只會記帳（場地費代收代付、建一筆應付場租），<b>不會幫你向場地訂場</b>。請確認已經跟場地訂好這些日子與球面。' },
     };
     const ak = !res.ok && ASK[res.code];

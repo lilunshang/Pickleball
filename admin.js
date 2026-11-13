@@ -1000,7 +1000,7 @@
   PB.app({
     app: 'admin',
     title: '管理後台',
-    version: '4.15',
+    version: '4.16',
     screens: [Dash, Queue, Finance, Sys], // v4.12：排課、主檔與紀錄移到營運工作台
     links: () => (PB.cfg.opsUrl ? [{ label: '營運工作台', url: PB.cfg.opsUrl, icon: 'swap', mobile: true }] : []),
   });
