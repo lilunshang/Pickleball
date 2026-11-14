@@ -619,7 +619,18 @@
     const v = await ui.ask('順延：' + m.classLabel(c), '最多順延 1 次；已報名的學員自動帶到新日期並收到通知。', { fields: [{ k: 'date', label: '順延到', t: 'date', req: true, hint: '要是上課時段的「可用」日' }], ok: '順延' });
     if (v) PB.run('classAction', { id: d.id, action: '順延', date: v.date });
   };
-  A.copyClass = (d) => PB.run('copyClass', { id: d.id }, { confirm: { title: '用彈性場地加開一班', text: '會複製一個籌備中班級（使用原班的彈性場地），原班的彈性場地清空。之後請確認主教練。', ok: '加開' } }).then((r) => r && r.data && r.data.id && openClass(r.data.id));
+  // v4.18：加開的班和原班同時段 → 一定要另外選主教練（伺服器檢查請假、撞課、可排時間）
+  A.copyClass = async (d) => {
+    const c = PB.get('2_課程班級', d.id);
+    const list = coaches().filter((x) => x.v !== str(c['主教練']));
+    const v = await ui.ask('用彈性場地加開一班', '會複製一個籌備中班級（使用原班的彈性場地），原班的彈性場地清空。加開的班和原班同一個時段，主教練要另外選一位。', {
+      fields: [{ k: 'coach', label: '加開班的主教練', t: 'enum', req: true, opts: list.map((x) => x.l), hint: '目前原班：' + (m.staffName(c['主教練']) || '未排') }], ok: '加開' });
+    if (!v) return;
+    const pick = list.find((x) => x.l === v.coach);
+    if (!pick) return;
+    const r = await PB.run('copyClass', { id: d.id, coach: pick.v });
+    if (r && r.data && r.data.id) openClass(r.data.id);
+  };
   A.copyLink = async (d) => {
     const v = await ui.ask('複製報名連結', '學員點連結可直接報名，不必先加好友。來源碼會記在報名紀錄上。', { fields: [{ k: 'src', label: '來源碼（選填）', t: 'text', value: PB.LS.get('pb:src') || '', hint: '小寫英數與底線，例如 line_post_1026；私訊給個人可留空' }], ok: '複製' });
     if (!v) return;
