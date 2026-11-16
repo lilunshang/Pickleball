@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜管理後台 admin.js v4.12（2026/11/10：排課、主檔與紀錄移到營運工作台 → sched.js、data.js）；v4.8（2026/11/06：系統設定加「表單」欄位設定）；v4.7（2026/11/06：系統設定 — 按鈕、介面、參數）；v3.4（2026/10/28：批次新增時段、複製到其他星期、租約一天多個時段）；v3.1（2026/10/27：據點與場地改版：據點左清單＋右分頁、跨據點總表、可用日月曆）；v3.0（球拍租借收入另列、不進分潤）；v2.4（2026/10/26：專項列表加「費用」）
+ * 理論上匹克球｜管理後台 admin.js v4.19（2026/11/16：總覽加名單外收入、閒置場地成本）；v4.12（2026/11/10：排課、主檔與紀錄移到營運工作台 → sched.js、data.js）；v4.8（2026/11/06：系統設定加「表單」欄位設定）；v4.7（2026/11/06：系統設定 — 按鈕、介面、參數）；v3.4（2026/10/28：批次新增時段、複製到其他星期、租約一天多個時段）；v3.1（2026/10/27：據點與場地改版：據點左清單＋右分頁、跨據點總表、可用日月曆）；v3.0（球拍租借收入另列、不進分潤）；v2.4（2026/10/26：專項列表加「費用」）
  * 特助、主理人：總覽 Dashboard、管理待處理、財務（人員月結、分潤、支出、應收）、系統設定
  * Dashboard 全部在瀏覽器計算（換月份不發請求）；口徑：
  *   球敘收入＝當月球敘的報名實收（含待對帳、扣退款），v3.0 起扣掉球拍租借（另列「租拍收入」，全歸公司、不分潤）　課程收入＝當月扣堂數 × 每堂單價（與 F02 相同）
@@ -50,11 +50,112 @@
   const memo = {};
   PB.onRebuild = () => Object.keys(memo).forEach((k) => delete memo[k]);
 
+  // ---- v4.19：名單外收入（場主 OA 收班回報）＋閒置場地成本（與管理 GAS v1.16 Idle.gs 同一套算法）----
+  const RACKET_SRC = '球拍租借';
+  const LEASE_MODE = '包場租約';
+  /** 球敘ID → { heads 名單外人數, rev 實收, rk 臨時租拍實收 }：3_應收帳款 報名空白、球敘＝本場、沒作廢 */
+  function outsideMap() {
+    if (memo._out) return memo._out;
+    const o = {};
+    PB.rows('3_應收帳款').forEach((r) => {
+      const gid = str(r['球敘']);
+      if (!gid || str(r['報名']) || r['作廢'] === true || str(r['作廢']).toUpperCase() === 'TRUE') return;
+      const x = (o[gid] = o[gid] || { heads: 0, rev: 0, rk: 0 });
+      const paid = m.rec(r['應收ID']).net;
+      if (str(r['收入來源']) === RACKET_SRC) { x.rk += paid; return; }
+      x.rev += paid;
+      x.heads += Math.max(0, Math.floor(num(r['數量'])));
+    });
+    return (memo._out = o);
+  }
+  const outsideOf = (gid) => outsideMap()[gid] || { heads: 0, rev: 0, rk: 0 };
+  const hmMin = (v) => { const t = str(v).match(/(\d{1,2}):(\d{2})/); return t ? +t[1] * 60 + +t[2] : null; };
+  const spanOf = (s, e) => {
+    const a = hmMin(s);
+    let b = hmMin(e);
+    if (a === null || b === null) return null;
+    if (b === 23 * 60 + 59) b = 24 * 60;
+    if (b <= a) b += 24 * 60;
+    return [a, b];
+  };
+  const minHm = (n) => ('0' + (Math.floor(n / 60) % 24)).slice(-2) + ':' + ('0' + (n % 60)).slice(-2);
+  /** 這個據點、這天、這個範圍（球敘／課程）適用的據點方案是不是包場租約（完全相符優先於全部、生效日期新的優先） */
+  function isLeaseDay(vid, scope, d) {
+    if (!PB.has('3_合作方案')) return false;
+    const cand = PB.rows('3_合作方案').filter((p) => {
+      if (str(p['合作對象類型']) === '人員' || str(p['據點']) !== vid) return false;
+      const sc = str(p['適用範圍']) || '全部';
+      if (sc !== scope && sc !== '全部') return false;
+      return (!day(p['生效日期']) || day(p['生效日期']) <= d) && (!day(p['失效日期']) || day(p['失效日期']) >= d);
+    });
+    if (!cand.length) return false;
+    cand.sort((x, y) => ((str(x['適用範圍']) || '全部') === scope ? 0 : 1) - ((str(y['適用範圍']) || '全部') === scope ? 0 : 1) || byKey(day(y['生效日期']), day(x['生效日期'])));
+    return str(cand[0]['合作模式']) === LEASE_MODE;
+  }
+  /**
+   * 閒置場地成本：包場租約的據點，取消的球敘／取消或改期的上課場次空下來的球面（場租已整筆付掉）。
+   * 以「日期＋球面＋時段」計：同球面同時段有實際進行的球敘或課程（含場地保留至）不算；重複取消只算一次。
+   * 回傳 據點ID → { cost, items: [{ date, time, court, cost, what }] }；只算到今天為止
+   */
+  function idleCalc(mon) {
+    const inM = (v) => day(v).slice(0, 7) === mon && day(v) <= today();
+    const used = [];
+    const cand = [];
+    const push = (list, d, vid, courts, sp, extra) => courts.forEach((c) => list.push(Object.assign({ d: d, vid: vid, court: c, a: sp[0], b: sp[1] }, extra || {})));
+    PB.rows('2_球敘場次').forEach((g) => {
+      const d = day(g['日期']);
+      if (!inM(d)) return;
+      const sp = spanOf(g['開始時間'], g['結束時間']);
+      const courts = split(g['使用場地']);
+      if (!sp || !courts.length) return;
+      const st = str(g['狀態']);
+      const vid = str(g['據點']);
+      if (st !== '取消' && st !== '草稿') { push(used, d, vid, courts, sp); return; }
+      const cost = num(g['場地成本']);
+      if (st !== '取消' || !(cost > 0) || !isLeaseDay(vid, '球敘', d)) return;
+      push(cand, d, vid, courts, sp, { cost: cost / courts.length, what: m.gameLabel(g) });
+    });
+    PB.rows('2_上課場次').forEach((s) => {
+      const d = day(s['日期']);
+      if (!inM(d)) return;
+      const courts = split(s['使用場地']);
+      if (!courts.length) return;
+      const st = str(s['場次狀態']);
+      const c = PB.get('2_課程班級', s['班級']);
+      const vid = str(s['據點']) || str((c || {})['據點']);
+      if (st === '預定' || st === '已完成') {
+        const sp = (hmMin(s['場地保留至']) !== null && spanOf(s['開始時間'], s['場地保留至'])) || spanOf(s['開始時間'], s['結束時間']);
+        if (sp) push(used, d, vid, courts, sp);
+        return;
+      }
+      if (st !== '取消' && st !== '改期') return;
+      const sp = spanOf(s['開始時間'], s['結束時間']);
+      const cost = num(s['場地成本']);
+      if (!sp || !(cost > 0) || !isLeaseDay(vid, '課程', d)) return;
+      push(cand, d, vid, courts, sp, { cost: cost / courts.length, what: m.classLabel(c) || '課程' });
+    });
+    const best = {};
+    cand.forEach((c) => {
+      if (used.some((u) => u.d === c.d && u.court === c.court && u.a < c.b && c.a < u.b)) return;
+      const k = c.d + '|' + c.court + '|' + c.a;
+      if (!best[k] || c.cost > best[k].cost) best[k] = c;
+    });
+    const out = {};
+    Object.keys(best).sort().forEach((k) => {
+      const c = best[k];
+      const v = (out[c.vid] = out[c.vid] || { cost: 0, items: [] });
+      v.cost += c.cost;
+      v.items.push({ date: c.d, time: minHm(c.a) + '–' + minHm(c.b), court: m.courtName(c.court) || c.court, cost: Math.round(c.cost), what: c.what });
+    });
+    Object.keys(out).forEach((k) => { out[k].cost = Math.round(out[k].cost); });
+    return out;
+  }
+
   function stats(mon) {
     if (memo[mon]) return memo[mon];
     const inM = (v) => day(v).slice(0, 7) === mon;
     const V = {};
-    const v = (id) => (V[id || '—'] = V[id || '—'] || { id: id, gN: 0, gHeads: 0, gIn: 0, gRev: 0, rkRev: 0, rkN: 0, sN: 0, sAtt: 0, cRev: 0, spRev: 0, spN: 0, venue: 0, coach: 0, host: 0, other: 0 });
+    const v = (id) => (V[id || '—'] = V[id || '—'] || { id: id, gN: 0, gHeads: 0, gIn: 0, gRev: 0, rkRev: 0, rkN: 0, sN: 0, sAtt: 0, cRev: 0, spRev: 0, spN: 0, venue: 0, idle: 0, idleN: 0, gOut: 0, coach: 0, host: 0, other: 0 });
     const types = {};
     const games = PB.rows('2_球敘場次').filter((g) => inM(g['日期']) && ['取消', '草稿'].indexOf(str(g['狀態'])) < 0);
     games.forEach((g) => {
@@ -62,12 +163,13 @@
       const sigs = PB.ix.sigByGame[str(g['球敘ID'])] || [];
       const act = sigs.filter((r) => str(r['報名狀態']) === '已報名');
       const rk = sum(sigs, (r) => m.sigRacket(r['報名ID'])); // v3.0：球拍租借另列
-      const rev = sum(sigs, (r) => m.sigPay(r['報名ID']).net) - rk;
-      x.gN += 1; x.gHeads += act.length; x.gIn += act.filter((r) => str(r['簽到時間'])).length; x.gRev += rev; x.venue += num(g['場地成本']);
-      x.rkRev += rk; x.rkN += sum(act, (r) => num(r['租拍數']));
+      const o = outsideOf(str(g['球敘ID'])); // v4.19：名單外
+      const rev = sum(sigs, (r) => m.sigPay(r['報名ID']).net) - rk + o.rev;
+      x.gN += 1; x.gHeads += act.length + o.heads; x.gOut += o.heads; x.gIn += act.filter((r) => str(r['簽到時間'])).length; x.gRev += rev; x.venue += num(g['場地成本']);
+      x.rkRev += rk + o.rk; x.rkN += sum(act, (r) => num(r['租拍數']));
       const tk = m.gameTypeName(g['球敘類型']); // v3.6：依類型名稱（舊值「不限」＝一般球敘）
       const t = (types[tk] = types[tk] || { n: 0, heads: 0, rev: 0 });
-      t.n += 1; t.heads += act.length; t.rev += rev;
+      t.n += 1; t.heads += act.length + o.heads; t.rev += rev;
       (PB.ix.dutyByGame[str(g['球敘ID'])] || []).forEach((d) => { if (str(d['簽到時間'])) x.host += num(d['場主費']); });
     });
     const ses = PB.rows('2_上課場次').filter((s) => inM(s['日期']) && ['取消', '改期'].indexOf(str(s['場次狀態'])) < 0);
@@ -92,11 +194,13 @@
       v(c ? str(c['據點']) : '').cRev += Math.abs(num(l['堂數'])) * unitPrice(c);
     });
     PB.rows('3_支出').filter((e) => inM(e['日期']) && NOT_OTHER.indexOf(str(e['細目'])) < 0).forEach((e) => { v(str(e['據點'])).other += num(e['金額']); });
+    const idle = idleCalc(mon); // v4.19
+    Object.keys(idle).forEach((vid) => { const x = v(vid); x.idle += idle[vid].cost; x.idleN += idle[vid].items.length; });
     const pays = PB.rows('3_收款明細').filter((p) => inM(p['收款日期']) && (PB.cfg.payIgnore || []).indexOf(str(p['對帳狀態'])) < 0);
     const venues = Object.keys(V).map((k) => {
       const x = V[k];
       x.rev = x.gRev + x.cRev + x.rkRev;
-      x.cost = x.venue + x.coach + x.host + x.other;
+      x.cost = x.venue + x.idle + x.coach + x.host + x.other;
       x.pl = x.rev - x.cost;
       return x;
     }).sort((a, b) => b.rev - a.rev);
@@ -109,7 +213,7 @@
       cashIn: sum(pays.filter((p) => num(p['金額']) > 0), (p) => p['金額']),
       cashOut: sum(pays.filter((p) => num(p['金額']) < 0), (p) => p['金額']),
       pending: sum(pays.filter((p) => str(p['對帳狀態']) === '待確認'), (p) => p['金額']),
-      newStu: newStu.length, conv: conv.length, rent: rent,
+      newStu: newStu.length, conv: conv.length, rent: rent, idle: idle,
       cancels: cancelStats(mon),
     });
   }
@@ -152,6 +256,8 @@
     return '<div class="chart"><svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="近 6 個月收入與成本">' + g + '</svg><div class="legend"><span><i style="background:var(--brand)"></i>營運收入</span><span><i style="background:var(--warn);opacity:.75"></i>營運成本</span><span>數字＝損益（千元）</span></div></div>';
   }
 
+  PB.dashCalc = { stats: stats, idleCalc: idleCalc, outsideMap: outsideMap };
+
   const Dash = {
     id: 'dash', label: '總覽', icon: 'chart',
     render(p) {
@@ -160,15 +266,15 @@
       const T = S.T;
       const tile = (l, v, d, cls) => '<div class="kpi ' + (cls || '') + '"><div class="l">' + esc(l) + '</div><div class="v">' + v + '</div>' + (d ? '<div class="d">' + d + '</div>' : '') + '</div>';
       const trend = months(6).reverse().map((x) => { const s = stats(x); return { mon: x, rev: s.T.rev || 0, cost: s.T.cost || 0 }; });
-      const vrows = S.venues.map((x) => '<tr class="click" data-act="venueDrill" data-id="' + esc(x.id) + '" data-m="' + mon + '"><td>' + esc(x.id ? m.venueName(x.id) : '（未指定據點）') + '</td><td class="num">' + x.gN + '</td><td class="num">' + x.gHeads + '</td><td class="num">' + money(x.gRev) + '</td><td class="num">' + money(x.rkRev) + '</td><td class="num">' + x.sN + '</td><td class="num">' + money(x.cRev) + '</td><td class="num">' + money(x.venue) + '</td><td class="num">' + money(x.coach) + '</td><td class="num">' + money(x.host) + '</td><td class="num">' + money(x.other) + '</td><td class="num" style="color:' + (x.pl < 0 ? 'var(--bad)' : 'var(--ok)') + '"><b>' + money(x.pl) + '</b></td></tr>').join('');
+      const vrows = S.venues.map((x) => '<tr class="click" data-act="venueDrill" data-id="' + esc(x.id) + '" data-m="' + mon + '"><td>' + esc(x.id ? m.venueName(x.id) : '（未指定據點）') + '</td><td class="num">' + x.gN + '</td><td class="num">' + x.gHeads + '</td><td class="num">' + money(x.gRev) + '</td><td class="num">' + money(x.rkRev) + '</td><td class="num">' + x.sN + '</td><td class="num">' + money(x.cRev) + '</td><td class="num">' + money(x.venue) + '</td><td class="num">' + (x.idle ? money(x.idle) : '—') + '</td><td class="num">' + money(x.coach) + '</td><td class="num">' + money(x.host) + '</td><td class="num">' + money(x.other) + '</td><td class="num" style="color:' + (x.pl < 0 ? 'var(--bad)' : 'var(--ok)') + '"><b>' + money(x.pl) + '</b></td></tr>').join('');
       const types = Object.keys(S.types).map((k) => { const t = S.types[k]; return '<tr><td>' + esc(k) + '</td><td class="num">' + t.n + '</td><td class="num">' + t.heads + '</td><td class="num">' + (t.n ? (t.heads / t.n).toFixed(1) : '—') + '</td><td class="num">' + money(t.rev) + '</td></tr>'; }).join('');
       return '<div class="ptop"><h1>營運總覽</h1><span class="sp"></span>' + monthSelect(mon, 'dashMonth') + (PB.cfg.legacyDashUrl ? '<a class="btn sm ghost" href="' + esc(PB.cfg.legacyDashUrl) + '" target="_blank" rel="noopener">' + PB.icon('ext') + '10 月整理 Dashboard</a>' : '') + '</div>' +
         '<div class="kpis">' +
         tile('營運收入', money(T.rev), '球敘 ' + money(T.gRev) + '・課程 ' + money(T.cRev) + (T.rkRev ? '・租拍 ' + money(T.rkRev) : '')) +
-        tile('營運成本', money(T.cost), '場地 ' + money(T.venue) + '・教練 ' + money(T.coach) + '・場主 ' + money(T.host) + (T.other ? '・其他 ' + money(T.other) : '')) +
+        tile('營運成本', money(T.cost), '場地 ' + money(T.venue) + (T.idle ? '・閒置場地 ' + money(T.idle) : '') + '・教練 ' + money(T.coach) + '・場主 ' + money(T.host) + (T.other ? '・其他 ' + money(T.other) : '')) +
         tile('營運損益', money(T.pl), '收入 − 成本（場次口徑）', T.pl < 0 ? 'neg' : 'pos') +
         tile('本月實收', money(S.cashIn + S.cashOut), (S.cashOut ? '退款 ' + money(S.cashOut) + '・' : '') + (S.pending ? '待對帳 ' + money(S.pending) : '全部已對帳')) +
-        tile('球敘', (T.gN || 0) + ' 場', '報名 ' + (T.gHeads || 0) + ' 人次・平均 ' + (T.gN ? (T.gHeads / T.gN).toFixed(1) : '—') + '・簽到 ' + pct(T.gIn || 0, T.gHeads || 0)) +
+        tile('球敘', (T.gN || 0) + ' 場', '報名 ' + (T.gHeads || 0) + ' 人次' + (T.gOut ? '（含名單外 ' + T.gOut + '）' : '') + '・平均 ' + (T.gN ? (T.gHeads / T.gN).toFixed(1) : '—') + '・簽到 ' + pct(T.gIn || 0, T.gHeads || 0)) +
         tile('課程', (T.sN || 0) + ' 堂', '出席 ' + (T.sAtt || 0) + ' 人次（已點名）' + (T.spN ? '・專項 ' + T.spN + ' 堂 ' + money(T.spRev) : '')) +
         (T.rkRev || T.rkN ? tile('球拍租借', money(T.rkRev), (T.rkN || 0) + ' 支次・全歸公司，不進分潤') : '') +
         tile('新學員', S.newStu + ' 位', '報名課程 ' + S.conv + ' 位（' + pct(S.conv, S.newStu) + '）') +
@@ -176,11 +282,11 @@
         (PB.has('3_抵用金流水') ? tile('抵用金（預收）', money(creditTotal()), '學員還沒用掉的抵用金；折抵時才算收入') : '') +
         '</div>' +
         sec('近 6 個月', '') + barChart(trend) +
-        sec('各據點', mon) + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>據點</th><th class="num">球敘</th><th class="num">人次</th><th class="num">球敘收入</th><th class="num">租拍</th><th class="num">上課</th><th class="num">課程收入</th><th class="num">場地成本</th><th class="num">教練費</th><th class="num">場主費</th><th class="num">其他</th><th class="num">損益</th></tr></thead><tbody>' + (vrows || '<tr><td colspan="12" class="mut">這個月沒有資料</td></tr>') +
-        '</tbody><tfoot><tr><td>合計</td><td class="num">' + (T.gN || 0) + '</td><td class="num">' + (T.gHeads || 0) + '</td><td class="num">' + money(T.gRev) + '</td><td class="num">' + money(T.rkRev) + '</td><td class="num">' + (T.sN || 0) + '</td><td class="num">' + money(T.cRev) + '</td><td class="num">' + money(T.venue) + '</td><td class="num">' + money(T.coach) + '</td><td class="num">' + money(T.host) + '</td><td class="num">' + money(T.other) + '</td><td class="num">' + money(T.pl) + '</td></tr></tfoot></table></div>' +
+        sec('各據點', mon) + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>據點</th><th class="num">球敘</th><th class="num">人次</th><th class="num">球敘收入</th><th class="num">租拍</th><th class="num">上課</th><th class="num">課程收入</th><th class="num">場地成本</th><th class="num">閒置場地</th><th class="num">教練費</th><th class="num">場主費</th><th class="num">其他</th><th class="num">損益</th></tr></thead><tbody>' + (vrows || '<tr><td colspan="13" class="mut">這個月沒有資料</td></tr>') +
+        '</tbody><tfoot><tr><td>合計</td><td class="num">' + (T.gN || 0) + '</td><td class="num">' + (T.gHeads || 0) + '</td><td class="num">' + money(T.gRev) + '</td><td class="num">' + money(T.rkRev) + '</td><td class="num">' + (T.sN || 0) + '</td><td class="num">' + money(T.cRev) + '</td><td class="num">' + money(T.venue) + '</td><td class="num">' + money(T.idle) + '</td><td class="num">' + money(T.coach) + '</td><td class="num">' + money(T.host) + '</td><td class="num">' + money(T.other) + '</td><td class="num">' + money(T.pl) + '</td></tr></tfoot></table></div>' +
         '<div class="grid2" style="margin-top:12px"><div>' + sec('球敘類型', '') + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>類型</th><th class="num">場次</th><th class="num">人次</th><th class="num">平均</th><th class="num">收入</th></tr></thead><tbody>' + (types || '<tr><td colspan="5" class="mut">—</td></tr>') + '</tbody></table></div></div>' +
         '<div>' + sec('口徑說明', '') + '<div class="card" style="padding:10px 14px;font-size:.84rem;color:var(--mut)"><ul style="margin:0;padding-left:18px">' +
-        '<li>球敘收入：當月球敘的報名實收（含待對帳、扣除退款），依球敘日期；不含球拍租借</li><li>租拍：線上＋現場的球拍租借實收，全歸公司、不進分潤（線上租拍費含在報名費裡，收款先算報名費）</li><li>課程收入：期制班＝當月教練確認上課扣的堂數 × 每堂單價（班級費用 ÷ 總堂數），與分潤試算相同；專項課＝當月已上完的場次的報名實收</li><li>抵用金是預收：轉入時從原課程收入扣掉，折抵時才算進新課程</li><li>場地成本為場次分攤（換算單價 × 面時數）；本月實際場租應付 ' + money(S.rent) + '（支出，F03）</li><li>教練費只算已完成場次；場主費只算有簽到的排班</li><li>其他支出不含場租、教練費、場主費細目，避免重複</li></ul></div></div></div>' +
+        '<li>球敘收入：當月球敘的報名實收（含待對帳、扣除退款），依球敘日期；不含球拍租借</li><li>租拍：線上＋現場的球拍租借實收，全歸公司、不進分潤（線上租拍費含在報名費裡，收款先算報名費）</li><li>課程收入：期制班＝當月教練確認上課扣的堂數 × 每堂單價（班級費用 ÷ 總堂數），與分潤試算相同；專項課＝當月已上完的場次的報名實收</li><li>抵用金是預收：轉入時從原課程收入扣掉，折抵時才算進新課程</li><li>場地成本為場次分攤（換算單價 × 面時數）；本月實際場租應付 ' + money(S.rent) + '（支出，F03）</li><li>閒置場地：包場租約的據點，取消的球敘／取消或改期的課程空下來的球面成本（場租已整筆付掉）；同球面同時段後來有實際進行的不算。算進營運成本、由公司吸收，不進分潤</li><li>名單外（匹客城／IG／其他，場主收班回報）：人數算進人次、實收算進球敘收入，臨時租拍算進租拍</li><li>教練費只算已完成場次；場主費只算有簽到的排班</li><li>其他支出不含場租、教練費、場主費細目，避免重複</li></ul></div></div></div>' +
         cancelCard(S.cancels, mon);
     },
   };
@@ -200,14 +306,18 @@
       const ss = PB.rows('2_上課場次').filter((s) => str(s['據點']) === d.id && inM(s['日期']) && ['取消', '改期'].indexOf(str(s['場次狀態'])) < 0).sort((a, b) => byKey(day(a['日期']), day(b['日期'])));
       const gRows = gs.map((g) => {
         const x = m.game(g);
-        const rk = sum(x.sigs, (r) => m.sigRacket(r['報名ID'])); // v3.0
-        const rev = sum(x.sigs, (r) => m.sigPay(r['報名ID']).net) - rk;
+        const o = outsideOf(str(g['球敘ID'])); // v4.19：名單外
+        const rk = sum(x.sigs, (r) => m.sigRacket(r['報名ID'])) + o.rk; // v3.0
+        const rev = sum(x.sigs, (r) => m.sigPay(r['報名ID']).net) - (rk - o.rk) + o.rev;
         const host = sum(PB.ix.dutyByGame[str(g['球敘ID'])] || [], (dd) => (str(dd['簽到時間']) ? dd['場主費'] : 0));
-        return '<tr><td>' + esc(fmtD(g['日期']) + ' ' + m.hm(g['開始時間'])) + '</td><td>' + esc(m.gameLabel(g)) + '</td><td class="num">' + x.active.length + '</td><td class="num">' + money(rev) + '</td><td class="num">' + money(rk) + '</td><td class="num">' + money(g['場地成本']) + '</td><td class="num">' + money(host) + '</td><td class="num">' + money(rev + rk - num(g['場地成本']) - host) + '</td></tr>';
+        return '<tr><td>' + esc(fmtD(g['日期']) + ' ' + m.hm(g['開始時間'])) + '</td><td>' + esc(m.gameLabel(g)) + '</td><td class="num">' + (x.active.length + o.heads) + (o.heads ? ' <span class="mut">（名單外 ' + o.heads + '）</span>' : '') + '</td><td class="num">' + money(rev) + '</td><td class="num">' + money(rk) + '</td><td class="num">' + money(g['場地成本']) + '</td><td class="num">' + money(host) + '</td><td class="num">' + money(rev + rk - num(g['場地成本']) - host) + '</td></tr>';
       }).join('');
       const sRows = ss.map((s) => '<tr><td>' + esc(fmtD(s['日期']) + ' ' + m.hm(s['開始時間'])) + '</td><td>' + esc(m.classLabel(PB.get('2_課程班級', s['班級'])) + ' 第' + str(s['第幾堂']) + '堂') + '</td><td>' + esc(str(s['場次狀態'])) + '</td><td>' + esc(m.staffName(s['授課教練'])) + '</td><td class="num">' + money(s['教練費']) + '</td><td class="num">' + money(s['場地成本']) + '</td></tr>').join('');
+      const idle = (idleCalc(mon)[d.id] || { cost: 0, items: [] }); // v4.19
+      const idleSec = idle.items.length ? sec('閒置場地', idle.items.length + ' 個球面時段・' + money(idle.cost)) + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th>時段</th><th>球面</th><th>原本排的場次</th><th class="num">成本</th></tr></thead><tbody>' +
+        idle.items.map((it) => '<tr><td>' + esc(fmtD(it.date)) + '</td><td>' + esc(it.time) + '</td><td>' + esc(it.court) + '</td><td>' + esc(it.what) + '</td><td class="num">' + money(it.cost) + '</td></tr>').join('') + '</tbody></table></div>' : '';
       return sec('球敘', gs.length + ' 場') + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th>類型</th><th class="num">人數</th><th class="num">實收</th><th class="num">租拍</th><th class="num">場地</th><th class="num">場主費</th><th class="num">損益</th></tr></thead><tbody>' + (gRows || '<tr><td colspan="8" class="mut">—</td></tr>') + '</tbody></table></div>' +
-        sec('上課場次', ss.length + ' 堂') + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th>班級</th><th>狀態</th><th>教練</th><th class="num">教練費</th><th class="num">場地</th></tr></thead><tbody>' + (sRows || '<tr><td colspan="6" class="mut">—</td></tr>') + '</tbody></table></div>';
+        sec('上課場次', ss.length + ' 堂') + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th>班級</th><th>狀態</th><th>教練</th><th class="num">教練費</th><th class="num">場地</th></tr></thead><tbody>' + (sRows || '<tr><td colspan="6" class="mut">—</td></tr>') + '</tbody></table></div>' + idleSec;
     }, 'venue');
   };
 
