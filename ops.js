@@ -318,11 +318,6 @@
     row: (l) => row({ act: 'leadEdit', id: l['跟進ID'], t: esc(m.stuName(l['學員'])) + ' <span class="badge">' + esc(l['跟進狀態']) + '</span>', s: esc((day(l['下次跟進日期']) ? '跟進日 ' + fmtD(l['下次跟進日期']) : '未排下次跟進') + (str(l['需求']) ? '・' + str(l['需求']).slice(0, 40) : '')), r: ui.tel(m.phone(PB.get('1_學員', l['學員']))) }),
   });
   q({
-    id: 'merge', title: '疑似重複的學員', hint: '確認是同一人後按「合併至」，系統會搬移報名與帳務',
-    items: () => PB.rows('1_學員').filter((s) => s['待合併'] === true && !str(s['合併至'])),
-    row: (s) => row({ act: 'openStu', id: s['學員ID'], t: esc(m.label('1_學員', s)), s: esc('LINE：' + (str(s['LINE顯示名稱']) || '—') + '・建立 ' + fmtDT(s['建立時間'])), r: btn('合併至…', 'merge', { id: s['學員ID'] }, 'pri') }),
-  });
-  q({
     id: 'incident', title: '處理中的異常事件', hint: '補齊紀錄、追後續；結案由管理層處理',
     items: () => PB.rows('4_異常事件').filter((x) => str(x['狀態']) !== '已結案'),
     row: (x) => row({ act: 'incEdit', id: x['事件ID'], t: esc(x['標題']) + ' <span class="badge ' + (/受傷|金流/.test(str(x['類型'])) ? 'bad' : 'warn') + '">' + esc(x['類型']) + '</span>', s: esc(fmtDT(x['發生時間']) + '・' + m.venueName(x['據點']) + '・負責 ' + m.staffName(x['負責人'])) }),
@@ -2084,7 +2079,8 @@
   // ================================================================
   // 學員
   // ================================================================
-  const STU_FILTERS = { 全部: () => true, 課程學員: (s) => str(s['身分']) === '課程學員', 有未收: (s) => m.stu(s).owed > 0, 剩堂1以下: (s) => str(s['身分']) === '課程學員' && m.stu(s).lessons <= 1, 待合併: (s) => s['待合併'] === true && !str(s['合併至']), 跟進中: (s) => openLeads(s).length > 0 };
+  const STU_FILTERS = { 全部: () => true, 課程學員: (s) => str(s['身分']) === '課程學員', 有未收: (s) => m.stu(s).owed > 0, 剩堂1以下: (s) => str(s['身分']) === '課程學員' && m.stu(s).lessons <= 1, 跟進中: (s) => openLeads(s).length > 0, 已流失: (s) => str(s['目前狀態']) === '流失' };
+  // v4.21：已流失的學員只在「已流失」分類出現（其他分類、搜尋都不列）；拿掉「待合併」分類
   // v2.6：招生跟進還沒結束的（含下次跟進日在未來的）；待處理只列「今天該跟進」的
   const openLeads = (s) => (PB.ix.leadByStu[str(s['學員ID'])] || []).filter((l) => ['已報名', '未成交'].indexOf(str(l['跟進狀態'])) < 0);
   const Students = {
@@ -2092,7 +2088,7 @@
     render(p) {
       const f = p.f || '全部';
       const kw = str(p.q).toLowerCase();
-      let list = PB.rows('1_學員').filter((s) => str(s['目前狀態']) !== '流失' || f === '全部');
+      let list = PB.rows('1_學員').filter((s) => (str(s['目前狀態']) === '流失') === (f === '已流失'));
       list = list.filter(STU_FILTERS[f] || (() => true));
       if (kw) list = list.filter((s) => (str(s['姓名']) + str(s['電話']).replace(/\D/g, '') + str(s['電話']) + str(s['LINE顯示名稱'])).toLowerCase().indexOf(kw.replace(/-/g, '')) >= 0);
       list.sort((a, b) => byKey(str(b['建立時間']), str(a['建立時間'])));
