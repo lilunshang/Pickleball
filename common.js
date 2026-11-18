@@ -1419,9 +1419,20 @@
       e.stopPropagation();
       Promise.resolve(fn(el.dataset, el, e)).catch((err) => { console.error(err); ui.toast(err.message || String(err), 'bad'); });
     });
-    document.addEventListener('input', (e) => {
-      const el = e.target.closest('[data-input]');
+    // v4.23：注音／倉頡等輸入法「組字中」不觸發搜尋，也不重畫畫面（iPhone 會把組字打斷，變成一直出現注音）；選完字（compositionend）才送出
+    const fireInput = (e) => {
+      const el = e.target && e.target.closest && e.target.closest('[data-input]');
       if (el && PB.inputs[el.dataset.input]) PB.inputs[el.dataset.input](el.value, el, e);
+    };
+    document.addEventListener('compositionstart', () => { PB.composing = true; }, true);
+    document.addEventListener('compositionend', (e) => {
+      PB.composing = false;
+      fireInput(e);
+      if (pendingMain) { pendingMain = false; setTimeout(() => { if (!PB.composing) renderMain(); }, 0); }
+    }, true);
+    document.addEventListener('input', (e) => {
+      if (e.isComposing || PB.composing) return;
+      fireInput(e);
     });
     window.addEventListener('hashchange', () => { closeSheetNow(); readHash(); renderMain(); document.getElementById('main') && (document.getElementById('main').scrollTop = 0); });
     document.addEventListener('visibilitychange', () => {
@@ -1482,8 +1493,13 @@
     }).join('') + '<hr>' + (APPDEF.links ? APPDEF.links().map((l) => '<a class="ext' + (l.mobile ? '' : ' desk') + '" href="' + esc(l.url) + '" target="_blank" rel="noopener">' + PB.icon(l.icon || 'ext') + '<span>' + esc(l.label) + '</span></a>').join('') : '') +
       (APPDEF.otherLink ? '<a class="ext desk" href="' + esc(APPDEF.otherLink.url) + '">' + PB.icon('swap') + '<span>' + esc(APPDEF.otherLink.label) + '</span></a>' : '');
   }
+  // v4.23：正在畫面裡的輸入框組字時先不重畫，等選完字再畫（搜尋的延遲重畫、背景同步都可能剛好碰上）
+  let pendingMain = false;
   function renderMain() {
     if (!PB.boot) return;
+    const ae = document.activeElement, pg = document.getElementById('page');
+    if (PB.composing && ae && pg && pg.contains(ae)) { pendingMain = true; return; }
+    pendingMain = false;
     const list = screens();
     let s = list.find((x) => x.id === current.id);
     if (!s && !list.length) { renderNav(); document.getElementById('page').innerHTML = ui.empty('沒有可用的畫面', '管理層在「系統設定 → 介面」關閉了你能用的畫面'); return; } // v4.7
