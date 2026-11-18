@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -263,9 +263,37 @@
     },
     bulk: { label: '勾選的都可用', act: 'availConfirmChecked' },
   });
+  /**
+   * v4.23（11/18 Imperfect）：專項課開放報名到開課時間（學員 OA v4.41）→ 開課前 1 小時內才報名的人付款期限＝開課、
+   * 系統開課後不自動取消 → 這裡列「已開課仍未付」給客服追款（開課後 60 天內；付清或取消就消失）
+   */
+  const sesStartText = (s) => { const t = str(s && s['開始時間']).match(/(\d{1,2}):(\d{2})/); return day(s && s['日期']) + ' ' + (t ? ('0' + t[1]).slice(-2) + ':' + t[2] : '00:00'); };
+  const singleStartText = (c) => {
+    const ss = (PB.ix.sesByClass[str(c['班級ID'])] || []).filter((s) => ['取消', '改期'].indexOf(str(s['場次狀態'])) < 0).map(sesStartText).sort();
+    return ss[0] || '';
+  };
+  const singleStartedOwe = (r) => {
+    if (str(r['報名類型']) !== '課程' || str(r['報名狀態']) !== '已報名') return false;
+    const c = PB.get('2_課程班級', r['班級']);
+    if (!c || !m.isSingle(c) || ['確定開課', '進行中', '已結束'].indexOf(str(c['課程狀態'])) < 0) return false;
+    const st = singleStartText(c);
+    if (!st || st > PB.nowText() || st.slice(0, 10) < addDays(today(), -60)) return false;
+    const p = m.sigPay(r['報名ID']);
+    return p.recs.length > 0 && p.left > 0;
+  };
   q({
-    id: 'owe', title: '超過付款期限仍未付', hint: '系統已自動提醒；球敘開始前 6 小時仍未付會取消名額（尾款只提醒）',
-    items: () => PB.rows('2_報名').filter((r) => str(r['報名狀態']) === '已報名' && str(r['付款期限']) && str(r['付款期限']) < PB.nowText() && m.sigPay(r['報名ID']).left > 0 && targetOpen(r)),
+    id: 'singleOwe', title: '專項課已開課仍未付（客服追款）', hint: '開課前 1 小時內才報名的人，付款期限就是開課時間，系統不會自動取消：請聯絡學員付款，收到後按「收款」；確定不收就從學員頁處理報名',
+    items: () => PB.rows('2_報名').filter(singleStartedOwe).sort((a, b) => byKey(str(b['報名時間']), str(a['報名時間']))),
+    row: (r) => {
+      const p = m.sigPay(r['報名ID']);
+      const s = PB.get('1_學員', r['學員']);
+      const c = PB.get('2_課程班級', r['班級']);
+      return row({ t: esc(m.stuName(r['學員'])) + ' <span class="num">未付 ' + money(p.left) + '</span>' + (p.net > 0 ? ' <span class="badge warn">部分付款</span>' : ''), s: esc(m.sigTarget(r) + '・開課 ' + singleStartText(c).slice(5) + '・報名 ' + fmtDT(r['報名時間'])), r: ui.tel(m.phone(s)) + btn('提醒', 'payRemind', { ids: p.recs.map((x) => x['應收ID']).join(',') }) + btn('收款', 'payAdd', { id: (p.recs.find((x) => m.rec(x['應收ID']).left > 0) || {})['應收ID'] || '' }, 'pri') + btn('學員', 'openStu', { id: r['學員'] }, 'ghost') });
+    },
+  });
+  q({
+    id: 'owe', title: '超過付款期限仍未付', hint: '系統已自動提醒；球敘開始前 6 小時仍未付會取消名額（尾款只提醒）；已開課的專項課列在「專項課已開課仍未付」',
+    items: () => PB.rows('2_報名').filter((r) => str(r['報名狀態']) === '已報名' && str(r['付款期限']) && str(r['付款期限']) < PB.nowText() && m.sigPay(r['報名ID']).left > 0 && targetOpen(r) && !singleStartedOwe(r)),
     row: (r) => {
       const p = m.sigPay(r['報名ID']);
       const s = PB.get('1_學員', r['學員']);
