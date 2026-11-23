@@ -1142,7 +1142,7 @@
     });
     return v;
   }
-  function bindForm(el, fields, before) {
+  function bindForm(el, fields, before, table) {
     const refresh = () => {
       const vals = Object.assign({}, before || {}, readFieldsLoose(el, fields));
       fields.forEach((f) => {
@@ -1187,7 +1187,60 @@
       const sum = box.querySelector('.slot-sum');
       if (sum) sum.innerHTML = slotSummary(Array.from(box.querySelectorAll('input:checked')).map((i) => i.value));
     };
-    el.addEventListener('change', (e) => { slotChange(e); fillFrom(e); refresh(); });
+    // v4.27（11/24）選了就帶入：選據點／類型／專項／模板 → 相關欄位當場帶入（PB.DERIVE）
+    //   帶入的值記在 data-auto；欄位是空的、或還是上次帶入的值 → 換成新的；手動改過的不動
+    const DV = table && PB.DERIVE[table];
+    const fbox = (k) => el.querySelector('.fld[data-k="' + CSS.escape(k) + '"]');
+    const curVals = () => Object.assign({}, before || {}, readFieldsLoose(el, fields));
+    const same = (a, b) => (Array.isArray(a) ? a.join(',') : str(a)) === (Array.isArray(b) ? b.join(',') : str(b));
+    const setAuto = (k, v, vals) => {
+      const f = fields.find((x) => x.k === k);
+      const box = fbox(k);
+      if (!f || !box || box.querySelector('.ro')) return;
+      const cur = vals[k];
+      const empty = cur === undefined || cur === null || cur === '' || (Array.isArray(cur) && !cur.length);
+      if (!empty && !(box.dataset.auto !== undefined && same(cur, box.dataset.auto))) return;
+      if (same(cur, v)) { box.dataset.auto = Array.isArray(v) ? v.join(',') : str(v); return; }
+      const inp = box.querySelector('input:not([type=checkbox]):not([type=radio]), textarea');
+      if (inp && ['text', 'num', 'money', 'long', 'phone'].indexOf(f.t) >= 0) inp.value = str(v);
+      else {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = fieldHtml(f, v, Object.assign({}, vals, { [k]: v }), before);
+        const nb = tmp.firstChild;
+        if (box.dataset.depv !== undefined) nb.dataset.depv = box.dataset.depv;
+        box.replaceWith(nb);
+      }
+      const nb2 = fbox(k);
+      nb2.dataset.auto = Array.isArray(v) ? v.join(',') : str(v);
+      let tag = nb2.querySelector('.auto-tag');
+      if (!tag) { tag = document.createElement('span'); tag.className = 'auto-tag hint'; tag.style.color = 'var(--pri,#2a7)'; nb2.appendChild(tag); }
+      tag.textContent = '已帶入，可以改';
+    };
+    const derive = (e) => {
+      if (!DV) return;
+      const box = e.target.closest && e.target.closest('.fld[data-k]');
+      if (!box) return;
+      const k = box.dataset.k;
+      const tag = box.querySelector('.auto-tag');
+      if (tag && !same(curVals()[k], box.dataset.auto)) tag.remove(); // 手動改過 → 拿掉標示
+      const vals = curVals();
+      const out = DV(vals, k) || {};
+      Object.keys(out).filter((x) => x.charAt(0) !== '_').forEach((x) => setAuto(x, out[x], curVals()));
+      let note = el.querySelector('.derive-note');
+      if (out._note) {
+        if (!note) { note = document.createElement('div'); note.className = 'derive-note note'; note.style.margin = '8px 0'; el.insertBefore(note, el.firstChild); }
+        note.textContent = out._note;
+      } else if (note && out._note === '') note.remove();
+    };
+    // 開啟時：現有的值如果就是「會帶入的值」→ 視為帶入的（之後換類型會跟著換）
+    if (DV) {
+      const v0 = curVals();
+      fields.forEach((f) => {
+        const out = DV(v0, f.k) || {};
+        Object.keys(out).filter((x) => x.charAt(0) !== '_').forEach((x) => { const b = fbox(x); if (b && same(v0[x], out[x])) b.dataset.auto = Array.isArray(out[x]) ? out[x].join(',') : str(out[x]); });
+      });
+    }
+    el.addEventListener('change', (e) => { slotChange(e); fillFrom(e); derive(e); refresh(); });
     el.addEventListener('input', (e) => { if (e.target.tagName === 'SELECT') refresh(); });
     refresh();
   }
@@ -1262,6 +1315,7 @@
     const body = formBody(table, fields, init, before); // v4.12：分區塊
     let savedId = null;
     let slotPending = null;
+    let changedKeys = [];
     const ok = await ui.modal({
       title: o.title || (before ? '編輯' : '新增') + spec.title,
       body: body,
@@ -1273,6 +1327,8 @@
           const bad = Object.keys(vals).filter((k) => str(vals[k]).charAt(0) === '?');
           if (bad.length) { ui.toast(bad.join('、') + ' 找不到符合的選項，請從清單選', 'bad'); return false; }
           const merged = Object.assign({}, init, vals);
+          const flat = (v) => (Array.isArray(v) ? v.join(',') : str(v)).replace(/\s*,\s*/g, ',');
+          changedKeys = Object.keys(vals).filter((k) => flat(vals[k]) !== flat(before ? before[k] : ''));
           const miss = fields.filter((f) => f.req && (!f.when || whenOk(f.when, merged)) && !(before && f.lock && !Object.keys(f.lock).every((c) => f.lock[c].indexOf(str(before[c])) >= 0)) && (Array.isArray(merged[f.k]) ? !merged[f.k].length : !str(merged[f.k])));
           if (miss.length) { ui.fsecReveal(el, miss[0].k); ui.toast('請填寫：' + miss.map((f) => f.label || f.k).join('、'), 'bad'); return false; }
           // v4.26（11/24）：改時段 → 後面綁著可用日／球敘／場次／班級時，先關掉表單、列出影響讓人勾選（PB.slotChange）
@@ -1286,11 +1342,12 @@
           return true;
         },
       }],
-      onOpen: (el) => bindForm(el, fields, before),
+      onOpen: (el) => bindForm(el, fields, before, table),
     });
     if (ok && slotPending) { const done = await PB.slotChange(slotPending.id, slotPending.values, slotPending.scan); if (!done) { ui.toast('時段沒有修改', 'bad'); return null; } savedId = done; }
     if (ok && o.onSaved) o.onSaved(savedId);
     if (ok && PB.RIPPLE_TABLES.indexOf(table) >= 0) await PB.ripple(); // v4.13：設定改了 → 問要不要套用到已排好的
+    if (ok && savedId && before && (PB.LINK_KEYS[table] || []).some((k) => changedKeys.indexOf(k) >= 0)) await PB.link(table, savedId); // v4.27：上層改了 → 下面還沒跟上的，勾選後一起改
     return ok ? savedId : null;
   };
   function defaultsOf(fields) {
@@ -1311,6 +1368,98 @@
    */
   // ================================================================
   // v4.13：改了價格／教練費設定 → 列出已排好、還沒開始的場次／班級，勾選後一起套用（後端 Ripple.gs）
+  // v4.27（11/24）選了就帶入的規則：(目前表單值, 剛改的欄位) → { 欄位: 值, _note: 表單上方的說明 }
+  const dvKind = (vid) => { const v = PB.get('1_據點', vid) || {}; return str(v['據點類別']) || (/國小|國中|高中|大學|科大|學校|中學/.test(str(v['據點名稱'])) ? '學校' : '球館'); };
+  const dvCourts = (v) => (Array.isArray(v) ? v : str(v).split(/\s*,\s*/)).map(str).filter(Boolean);
+  PB.DERIVE = {
+    '2_球敘場次': (v, k) => {
+      const out = {};
+      if (['據點', '球敘類型', '使用場地'].indexOf(k) < 0) return out;
+      const vid = str(v['據點']);
+      const t = str(v['球敘類型']) ? PB.m.gameType(v['球敘類型']) : null;
+      const n = dvCourts(v['使用場地']).length;
+      if (t && vid) {
+        const fee = dvKind(vid) === '學校' ? t.school : t.gym;
+        if (Number(fee) > 0) out['費用'] = Number(fee);
+        out['球敘名稱'] = str((PB.get('1_據點', vid) || {})['據點名稱']) + '・' + t.name;
+      }
+      if (t && n) {
+        if (Number(t.max) > 0) out['人數上限'] = Number(t.max) * n;
+        else { const cap = dvCourts(v['使用場地']).reduce((a, c) => a + (Number((PB.get('1_據點_場地', c) || {})['人數上限']) || 0), 0); if (cap) out['人數上限'] = cap; }
+        if (Number(t.min) > 0) out['人數下限'] = Number(t.min) * n;
+      }
+      if (vid) {
+        const h = str((PB.get('1_據點', vid) || {})['場主']).split(/\s*,\s*/)[0];
+        const needs = !t || t.host !== false;
+        out._note = !needs ? '這個類型沒有場主（自由球敘）' : h ? '場主：' + PB.m.staffName(h) + '（據點預設；開放報名時系統自動排班，之後可在球敘明細換人）' : '這個據點還沒設定場主：開放報名後請到球敘明細指定';
+      }
+      return out;
+    },
+    '2_課程班級': (v, k) => {
+      const out = {};
+      if (k === '專項' || (k === '據點' && str(v['專項']))) {
+        const sp = PB.get('0_專項', v['專項']);
+        if (!sp) return out;
+        const name = str(sp['專項名稱']) || str(sp['名稱']);
+        if (name) out['課程名稱'] = name;
+        if (str(sp['程度'])) out['程度'] = str(sp['程度']);
+        if (Number(sp['人數下限']) > 0) out['人數下限'] = Number(sp['人數下限']);
+        if (Number(sp['人數上限']) > 0) out['人數上限'] = Number(sp['人數上限']);
+        out['總堂數'] = 1;
+        const own = Number(sp['費用']);
+        const p = PB.cfg.specPrice || { 學校: 1000, 球館: 1200 };
+        if (own > 0) out['費用'] = own; else if (str(v['據點'])) out['費用'] = Number(p[dvKind(v['據點'])]) || 1000;
+      }
+      if (k === '課程模板') {
+        const t = PB.get('0_課程模板', v['課程模板']);
+        if (!t) return out;
+        const map = { 課程名稱: '模板名稱', 課程類型: '課程類型', 人數下限: '人數下限', 人數上限: '人數上限', 費用: '費用', 計費方式: '計費方式', 總堂數: '總堂數' };
+        Object.keys(map).forEach((x) => { if (str(t[map[x]]) !== '') out[x] = ['人數下限', '人數上限', '費用', '總堂數'].indexOf(x) >= 0 ? Number(t[map[x]]) : str(t[map[x]]); });
+      }
+      if (k === '據點' || k === '上課時段') {
+        const cs = (PB.ix.courtByVenue[str(v['據點'])] || []).filter((c) => str(c['狀態']) !== '暫停使用' && str(c['類型']).indexOf('課程') >= 0);
+        if (cs.length === 1) out['使用場地'] = str(cs[0]['場地ID']);
+      }
+      return out;
+    },
+  };
+
+  // v4.27（11/24）：球敘類型、據點（場主）、課程模板、班級（主教練）存檔後 → 列出下面還沒跟上的，勾選套用（後端 LinkRipple.gs）
+  PB.LINK_KEYS = { '0_球敘類型': ['學校費用', '球館費用'], '1_據點': ['場主', '據點類別'], '0_課程模板': ['費用', '人數下限', '人數上限', '總堂數'], '2_課程班級': ['主教練'] }; // 改到這些欄位才問
+  PB.link = async (table, id) => {
+    const r = await PB.run('linkScan', { table: table, id: id }, { quiet: true });
+    if (!r || !r.data || !r.data.groups.length) return;
+    const fmt = (v) => (typeof v === 'number' ? money(v) : str(v));
+    const body = '<p style="margin-top:0">剛才改的資料，下面這些已經排好的還是舊的。要跟著改的請勾起來，沒勾的不動。</p>' + r.data.groups.map((g) =>
+      '<div style="margin:14px 0 6px;font-weight:600">' + esc(g.title) + '（' + g.items.length + '）<a href="#" data-lk-all="' + esc(g.k) + '" style="font-size:.84rem;font-weight:400;margin-left:8px">全選／全不選</a></div>' +
+      '<div class="mut" style="font-size:.84rem;margin-bottom:6px">' + esc(g.note) + '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto;padding:2px">' + g.items.map((x) =>
+        '<label style="display:flex;gap:8px;align-items:flex-start;font-size:.9rem"><input type="checkbox" data-lk="' + esc(g.k) + '" value="' + esc(x.id) + '"' + (x.on ? ' checked' : '') + ' style="margin-top:3px"><span>' + esc(x.label) + '<br><b>' + esc(fmt(x.from)) + ' → ' + esc(fmt(x.to)) + '</b>' + (x.why ? '<br><span class="mut">' + esc(x.why) + '</span>' : '') + '</span></label>').join('') + '</div>').join('');
+    await ui.modal({
+      title: '已排好的要不要一起改？',
+      body: body,
+      sticky: true,
+      onOpen: (el) => {
+        el.querySelectorAll('[data-lk-all]').forEach((a) => a.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          const list = Array.prototype.slice.call(el.querySelectorAll('input[data-lk="' + a.dataset.lkAll + '"]'));
+          const to = !list.every((i) => i.checked);
+          list.forEach((i) => { i.checked = to; });
+        }));
+      },
+      actions: [{ label: '都不改' }, {
+        label: '套用勾選的', kind: 'pri',
+        click: async (el) => {
+          const pick = {};
+          Array.prototype.slice.call(el.querySelectorAll('input[data-lk]:checked')).forEach((i) => { (pick[i.dataset.lk] = pick[i.dataset.lk] || []).push(i.value); });
+          if (!Object.keys(pick).length) { ui.toast('沒有勾選任何項目', 'bad'); return false; }
+          const x = await PB.run('linkApply', { table: table, id: id, pick: pick });
+          return !!x;
+        },
+      }],
+    });
+  };
+
   PB.RIPPLE_TABLES = ['0_專項', '0_課程類型', '0_教練費率'];
   PB.ripple = async () => {
     if ((PB.ws || []).indexOf('管理層') < 0) return;

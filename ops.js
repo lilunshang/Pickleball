@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.27（2026/11/24：學員搜尋含家人、全家總覽、由家人付款的帳）；v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -2203,7 +2203,10 @@
       const kw = str(p.q).toLowerCase();
       let list = PB.rows('1_學員').filter((s) => (str(s['目前狀態']) === '流失') === (f === '已流失'));
       list = list.filter(STU_FILTERS[f] || (() => true));
-      if (kw) list = list.filter((s) => (str(s['姓名']) + str(s['電話']).replace(/\D/g, '') + str(s['電話']) + str(s['LINE顯示名稱'])).toLowerCase().indexOf(kw.replace(/-/g, '')) >= 0);
+      // v4.27（11/24）：搜尋含家人關係 —— 打任何一位的姓名／電話，管理人與家人都列出來
+      const hay = (s) => (str(s['姓名']) + str(s['電話']).replace(/\D/g, '') + str(s['電話']) + str(s['LINE顯示名稱'])).toLowerCase();
+      const kin = (s) => { const g = str(s['管理人']) ? PB.get('1_學員', s['管理人']) : null; return (g ? [g].concat(PB.ix.stuByGuardian[str(g['學員ID'])] || []) : []).concat(PB.ix.stuByGuardian[str(s['學員ID'])] || []).filter((x) => x && x !== s); };
+      if (kw) { const k2 = kw.replace(/-/g, ''); list = list.filter((s) => hay(s).indexOf(k2) >= 0 || kin(s).some((x) => hay(x).indexOf(k2) >= 0)); }
       list.sort((a, b) => byKey(str(b['建立時間']), str(a['建立時間'])));
       const total = list.length;
       const top = '<div class="ptop"><h1>學員</h1><span class="cnt mut">' + total + ' 位</span><span class="sp"></span>' + ui.btn('新增學員', 'stuNew', {}, 'pri', 'plus') + '</div>' +
@@ -2211,7 +2214,7 @@
         '<label class="search">' + PB.icon('search') + '<input placeholder="姓名、電話、LINE 名稱" value="' + esc(p.q || '') + '" data-input="stuSearch"></label></div>';
       const rows = list.slice(0, num(p.n) || 80).map((s) => {
         const x = m.stu(s);
-        return row({ act: 'openStu', id: s['學員ID'], t: esc(str(s['姓名']) || str(s['LINE顯示名稱']) || '（未填姓名）') + (str(s['身分']) ? ' <span class="badge">' + esc(s['身分']) + '</span>' : '') + (x.guardian ? ' <span class="badge info">' + esc(m.stuName(s['管理人']) + '的' + (str(s['與管理人關係']) || '家人')) + '</span>' : '') + (f === '跟進中' ? (() => { const L = openLeads(s).map((l) => day(l['下次跟進日期'])).filter(Boolean).sort(); return ' <span class="badge ' + (L[0] && L[0] <= today() ? 'warn' : 'info') + '">' + (L[0] ? '下次跟進 ' + esc(fmtD(L[0])) : '跟進中') + '</span>'; })() : ''), s: esc([str(s['電話']), str(s['LINE顯示名稱']) ? 'LINE ' + s['LINE顯示名稱'] : '', m.levelName(s['程度'])].filter(Boolean).join('・')), r: (x.owed > 0 ? '<span class="badge bad">未收 ' + money(x.owed) + '</span>' : '') + (x.lessons ? '<span class="badge">剩 ' + x.lessons + ' 堂</span>' : '') });
+        return row({ act: 'openStu', id: s['學員ID'], t: esc(str(s['姓名']) || str(s['LINE顯示名稱']) || '（未填姓名）') + (str(s['身分']) ? ' <span class="badge">' + esc(s['身分']) + '</span>' : '') + (x.guardian ? ' <span class="badge info">' + esc(m.stuName(s['管理人']) + '的' + (str(s['與管理人關係']) || '家人')) + '</span>' : '') + (x.family.length ? ' <span class="badge info">家人 ' + x.family.length + ' 位</span>' : '') + (f === '跟進中' ? (() => { const L = openLeads(s).map((l) => day(l['下次跟進日期'])).filter(Boolean).sort(); return ' <span class="badge ' + (L[0] && L[0] <= today() ? 'warn' : 'info') + '">' + (L[0] ? '下次跟進 ' + esc(fmtD(L[0])) : '跟進中') + '</span>'; })() : ''), s: esc([str(s['電話']), str(s['LINE顯示名稱']) ? 'LINE ' + s['LINE顯示名稱'] : '', m.levelName(s['程度'])].filter(Boolean).join('・')), r: (x.owed > 0 ? '<span class="badge bad">未收 ' + money(x.owed) + '</span>' : '') + (x.lessons ? '<span class="badge">剩 ' + x.lessons + ' 堂</span>' : '') });
       }).join('');
       return top + card((rows || ui.empty('找不到學員', '可以用電話或 LINE 名稱搜尋')) + (total > (num(p.n) || 80) ? '<div class="empty">' + ui.btn('顯示更多', 'param', { k: 'n', v: (num(p.n) || 80) + 200 }) + '</div>' : ''));
     },
@@ -2251,6 +2254,22 @@
     }).join('');
     const leads = (PB.ix.leadByStu[id] || []).slice().sort((a, b) => byKey(day(b['跟進日期']), day(a['跟進日期'])));
     const fam = x.family.map((f) => '<a href="#" data-act="openStu" data-id="' + esc(f['學員ID']) + '">' + esc(m.stuName(f['學員ID'])) + '</a>（' + esc(str(f['與管理人關係']) || '家人') + '）').join('、');
+    // v4.27（11/24）：全家總覽（管理人看家人；家人看管理人與其他家人）＋家人頁顯示「由家人付款的帳」
+    const kinIds = (x.guardian ? [str(s['管理人'])].concat((PB.ix.stuByGuardian[str(s['管理人'])] || []).map((f) => str(f['學員ID']))) : x.family.map((f) => str(f['學員ID']))).filter((k) => k && k !== id);
+    const famSec = kinIds.length ? sec('全家', kinIds.length + ' 位') + card(kinIds.map((k) => {
+      const y = m.stu(k);
+      if (!y) return '';
+      const act = y.sigs.filter((r) => ['已報名', '候補', '保留中', '現場待確認'].indexOf(str(r['報名狀態'])) >= 0);
+      const lv = y.att.filter((a) => str(a['狀態']) === '請假' && !(PB.ix.attBySrc[str(a['出缺勤ID'])] || []).length).length;
+      return row({ act: 'openStu', id: k, t: esc(m.stuName(k)) + ' <span class="badge info">' + esc(k === str(s['管理人']) ? '管理人' : str(y.s['與管理人關係']) || '家人') + '</span>',
+        s: esc(['目前報名 ' + act.length, '剩餘堂數 ' + y.lessons, lv ? '待補課 ' + lv : '', str(y.s['電話'])].filter(Boolean).join('・')) + (act.length ? '<br><span class="mut">' + esc(act.slice(0, 4).map((r) => m.sigTarget(r)).join('；')) + '</span>' : ''),
+        r: y.owed > 0 ? '<span class="badge bad">未收 ' + money(y.owed) + '</span>' : '' });
+    }).join('')) : '';
+    const paidBy = (PB.ix.recByStu[id] || []).filter((r) => str(r['付款人']) && str(r['付款人']) !== id && r['作廢'] !== true);
+    const kidRecSec = paidBy.length ? sec('由家人付款的帳', paidBy.length + ' 筆') + card(paidBy.map((r) => {
+      const y = m.rec(r['應收ID']);
+      return row({ act: 'openStu', id: str(r['付款人']), t: esc(str(r['項目說明'])) + ' <span class="num">' + money(r['應收金額']) + '</span>', s: esc('付款人 ' + m.stuName(r['付款人'])), r: y.left > 0 ? '<span class="badge bad">未收 ' + money(y.left) + '</span>' : '<span class="badge ok">已付</span>' });
+    }).join('')) : '';
     const friend = !str(s['LINE_userId']) ? '<span class="badge">未綁 LINE</span>' : s['好友狀態'] === false ? '<span class="badge bad">未加好友（收不到通知）</span>' : '<span class="badge ok">已加好友</span>';
     return '<div class="acts">' + acts.join('') + '</div>' +
       '<div class="kpis" style="margin-bottom:12px"><div class="kpi"><div class="l">剩餘堂數</div><div class="v">' + x.lessons + '</div></div><div class="kpi' + (x.owed > 0 ? ' neg' : '') + '"><div class="l">未收金額</div><div class="v">' + money(x.owed) + '</div><div class="d">以付款人計</div></div><div class="kpi"><div class="l">報名</div><div class="v">' + x.sigs.filter((r) => str(r['報名狀態']) !== '已取消').length + '</div></div>' +
@@ -2267,6 +2286,7 @@
         ['狀態', esc(str(s['目前狀態']))],
         ['備註', esc(s['備註'])],
       ]) +
+      famSec + kidRecSec +
       sec('目前報名', active.length) + card(active.map((r) => row({ act: str(r['報名類型']) === '課程' ? 'openClass' : 'openGame', id: r[str(r['報名類型']) === '課程' ? '班級' : '球敘'], t: esc(m.sigTarget(r)) + ' ' + m.sigBadge(str(r['報名狀態'])) + ' ' + m.payBadge(m.sigPay(r['報名ID']).status), s: esc(str(r['報名類型']) + '・報名 ' + fmtDT(r['報名時間']) + (str(r['代報名人']) ? '・' + m.stuName(r['代報名人']) + ' 代報' : '')) })).join('') || ui.empty('沒有進行中的報名')) +
       sec('帳務', recs.length + ' 筆') + card(recRows || ui.empty('沒有應收')) +
       couponSec(id, x) +
