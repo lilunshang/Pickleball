@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.27（2026/11/24：學員搜尋含家人、全家總覽、由家人付款的帳）；v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.28（2026/11/24：補償抵用金）；v4.27（2026/11/24：學員搜尋含家人、全家總覽、由家人付款的帳）；v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -254,7 +254,7 @@
       const tag = isGame ? '<span class="badge">球敘取消・尚未選擇（3 天未回覆系統轉抵用金）</span>' : st === '保留中' ? '<span class="badge info">保留中（順延）</span>' : ch === '轉班' || ch === '改報' ? '<span class="badge warn">選' + esc(ch) + '：請移到新的一堂</span>' : ch === '退款' ? '<span class="badge bad">選退款</span>' : ch === '抵用金' ? '<span class="badge info">選抵用金</span>' : '<span class="badge">尚未選擇' + (single ? '（3 天未回覆系統轉抵用金）' : '') + '</span>';
       const p = m.sigPay(r['報名ID']);
       const rec = p.recs.find((x) => m.rec(x['應收ID']).net > 0);
-      return row({ t: esc(m.stuName(r['學員'])) + ' ' + tag, s: esc(m.sigTarget(r) + (p.net > 0 ? '・已付 ' + money(p.net) : '')), r: (isGame ? '' : btn(single ? '改報' : '移班', 'sigMove', { id: r['報名ID'] })) + (rec && PB.has('3_抵用金流水') ? btn('轉抵用金', 'creditIn', { id: rec['應收ID'] }) : '') + btn('學員', 'openStu', { id: r['學員'] }, 'ghost') });
+      return row({ t: esc(m.stuName(r['學員'])) + ' ' + tag, s: esc(m.sigTarget(r) + (p.net > 0 ? '・已付 ' + money(p.net) : '')), r: (isGame ? '' : btn(single ? '改報' : '移班', 'sigMove', { id: r['報名ID'] })) + (rec && PB.has('3_抵用金流水') ? btn('轉抵用金', 'creditIn', { id: rec['應收ID'] }) : '') + (rec ? btn('退款', 'refund', { id: rec['應收ID'] }) : '') + btn('學員', 'openStu', { id: r['學員'] }, 'ghost') }); // v4.28（11/24）：加「退款」（登記退款＋同時取消報名）
     },
   });
   q({
@@ -377,7 +377,8 @@
   });
   q({
     id: 'journal', title: '教練未寫課程日誌（30 天內）', hint: '提醒教練填寫；不要代填',
-    items: () => PB.rows('2_上課場次').filter((s) => str(s['場次狀態']) === '已完成' && day(s['日期']) >= addDays(today(), -30) && !(PB.ix.journalBySes[str(s['場次ID'])] || []).length),
+    // v4.28（11/24 Imperfect）：只有期制班需要填寫課程日誌 → 專項課、私人課程（個人課／包班）不列
+    items: () => PB.rows('2_上課場次').filter((s) => { const c = PB.get('2_課程班級', s['班級']); return c && !m.isSingle(c) && !m.isPrivate(c) && str(s['場次狀態']) === '已完成' && day(s['日期']) >= addDays(today(), -30) && !(PB.ix.journalBySes[str(s['場次ID'])] || []).length; }),
     row: (s) => row({ act: 'openSes', id: s['場次ID'], t: esc(m.sesLabel(s)), s: esc('教練 ' + m.staffName(s['授課教練'])) }),
   });
 
@@ -524,6 +525,7 @@
     acts.push(ui.btn('報名連結', 'copyLink', { type: '課程', id: id }, 'ghost', 'link'));
     if (PB.forms['2_課程班級']) acts.push(ui.btn('編輯', 'classEdit', { id: id }, 'ghost'));
     if (PB.ksOk('class', id)) acts.push(ui.btn('更換種類', 'kindSwap', { t: 'class', id: id }, 'ghost')); // v4.12
+    if (PB.has('3_抵用金流水')) acts.push(ui.btn('補償抵用金', 'compGroup', { type: '課程', id: id }, 'ghost')); // v4.28
     if (canDeleteClass(x)) acts.push(ui.btn('刪除班級', 'classDelete', { id: id }, 'bad'));
     const info = kv([
       ['狀態', m.classBadge(x.st) + (x.pending ? ' <span class="badge info">「' + esc(c['開班動作']) + '」排程處理中</span>' : '')],
@@ -588,6 +590,7 @@
     if (ses) acts.push(ui.btn('場次', 'openSes', { id: ses['場次ID'] }, 'ghost'));
     if (can) acts.push(ui.btn('編輯', 'classEdit', { id: id }, 'ghost'));
     if (PB.ksOk('class', id)) acts.push(ui.btn('更換種類', 'kindSwap', { t: 'class', id: id }, 'ghost')); // v4.12
+    if (PB.has('3_抵用金流水')) acts.push(ui.btn('補償抵用金', 'compGroup', { type: '課程', id: id }, 'ghost')); // v4.28
     if (canDeleteClass(x)) acts.push(ui.btn('刪除班級', 'classDelete', { id: id }, 'bad'));
     const spec = PB.get('0_專項', c['專項']);
     const decideTxt = isPre ? (x.late ? '<span class="badge bad">已過 ' + esc(fmtDT(x.decideAt)) + '，排程還沒處理</span>' : esc(fmtDT(x.decideAt)) + ' 系統自動判斷（已付達 ' + x.min + ' 人成班）') : '';
@@ -1835,6 +1838,7 @@
     if (can && x.st === '草稿' && !x.sigs.length) acts.push(ui.btn('刪除草稿', 'gameDelete', { id: id }, 'ghost'));
     if (can && ['草稿', '開放報名', '已額滿'].indexOf(x.st) >= 0) acts.push(ui.btn('編輯', 'gameEdit', { id: id }, 'ghost'));
     if (PB.ksOk('game', id)) acts.push(ui.btn('更換種類', 'kindSwap', { t: 'game', id: id }, 'ghost')); // v4.12
+    if (PB.has('3_抵用金流水') && x.st !== '草稿') acts.push(ui.btn('補償抵用金', 'compGroup', { type: '球敘', id: id }, 'ghost')); // v4.28
     const lv = split(g['程度']).map(m.levelName).join('、');
     const courts = x.courts.map((c) => sec(c.name, c.list.length + '／' + c.cap + ' 人') + card(c.list.map((r) => sigRow(r, 'game')).join('') || ui.empty('還沒有人'))).join('');
     const noCourt = x.active.filter((r) => !split(g['使用場地']).some((c) => c === str(r['場地'])));
@@ -2230,12 +2234,13 @@
     const acts = [ui.btn('後台報名', 'sigNew', { stu: id }, 'pri', 'plus'), ui.btn('新增跟進', 'leadNew', { stu: id }), ui.btn('編輯', 'stuEdit', { id: id }, 'ghost')];
     if (!x.guardian) acts.push(ui.btn('新增家人', 'stuFamily', { id: id }, 'ghost'));
     acts.push(ui.btn('通知紀錄', 'notifyOf', { id: id }, 'ghost'));
+    if (PB.has('3_抵用金流水')) acts.push(ui.btn('補償抵用金', 'compStu', { id: id }, 'ghost')); // v4.28
     // v4.26（11/24 Imperfect）：學員合併的資訊（待合併、已合併、合併按鈕）全部不顯示
     const active = x.sigs.filter((r) => ['已報名', '候補', '保留中', '現場待確認'].indexOf(str(r['報名狀態'])) >= 0 && (str(r['報名類型']) === '課程' ? !!PB.get('2_課程班級', r['班級']) && ['已結束', '取消'].indexOf(str(PB.get('2_課程班級', r['班級'])['課程狀態'])) < 0 : day((PB.get('2_球敘場次', r['球敘']) || {})['日期']) >= t));
     const past = x.sigs.filter((r) => active.indexOf(r) < 0);
     const recs = x.payRecs.slice().sort((a, b) => byKey(day(b['建立日期']), day(a['建立日期'])));
     const creditOn = PB.has('3_抵用金流水');
-    const CT = { 轉入: 'ok', 折抵: 'info', 退現: 'warn', 調整: '' };
+    const CT = { 轉入: 'ok', 折抵: 'info', 退現: 'warn', 調整: '', 補償: 'ok' };
     const creditRows = x.credits.slice(0, 30).map((c) => row({ t: '<span class="badge ' + (CT[str(c['類型'])] || '') + '">' + esc(c['類型']) + '</span> <span class="num">' + (num(c['金額']) > 0 ? '+' : '') + money(c['金額']) + '</span>', s: esc([fmtDT(c['建立時間']), str(c['付款人']) !== id ? '記在 ' + m.stuName(c['付款人']) : '', str(c['來源報名']) && PB.get('2_報名', c['來源報名']) ? m.sigTarget(PB.get('2_報名', c['來源報名'])) : '', m.staffName(c['經手人']), str(c['備註'])].filter(Boolean).join('・')) })).join('');
     const recRows = recs.map((r) => {
       const y = m.rec(r['應收ID']);
@@ -2244,6 +2249,7 @@
       if (!y.voided && y.left > 0 && creditOn && m.stu(m.creditOwner(str(r['付款人'] || r['學員']))).credit > 0 && m.creditOwner(str(r['付款人'] || r['學員'])) === x.creditOwner) b.push(btn('用抵用金付', 'creditUse', { id: r['應收ID'] }));
       if (y.net > 0) b.push(btn('退款', 'refund', { id: r['應收ID'] }, 'ghost'));
       if (y.net > 0 && creditOn && sigEnded(PB.get('2_報名', r['報名']))) b.push(btn('轉抵用金', 'creditIn', { id: r['應收ID'] }, 'ghost'));
+      if (!y.voided && y.net > 0) b.push(btn('退款', 'refund', { id: r['應收ID'] }, 'ghost')); // v4.28（11/24）：學員頁每筆已收款的帳都能登記退款
       const pays = (PB.ix.payByRec[str(r['應收ID'])] || []).map((p) => fmtD(p['收款日期']) + ' ' + money(p['金額']) + ' ' + str(p['付款方式']) + (str(p['對帳狀態']) !== '已確認' ? '（' + str(p['對帳狀態']) + '）' : '')).join('；');
       return row({ t: esc(str(r['項目說明']) || str(r['收入來源'])) + ' ' + m.payBadge(y.status) + (str(r['學員']) !== id ? ' <span class="badge info">替 ' + esc(m.stuName(r['學員'])) + ' 付</span>' : ''), s: esc('應收 ' + money(y.due) + (y.net ? '・已付 ' + money(y.net) : '') + (y.left ? '・未收 ' + money(y.left) : '') + (pays ? '・' + pays : '')), r: b.join('') });
     }).join('');
@@ -2375,6 +2381,60 @@
     if (!v) return;
     PB.run('save', { table: '4_工作任務', values: { 工作名稱: '退款｜' + m.stuName(d.id) + ' 抵用金退現 NT$' + Math.round(num(v.amount)), 工作內容: '學員：' + m.stuName(d.id) + '\n申請金額：NT$' + Math.round(num(v.amount)) + (v.note ? '\n' + v.note : '') + '\n[CREDIT ' + d.id + ']', 負責人: PB.me.id, Deadline: addDays(today(), 3), 優先級: '中', 狀態: '待處理' } });
   };
+  // ================================================================
+  // v4.28（11/24 Imperfect）補償抵用金：客服直接給學員抵用金（後端 Compensate.gs）
+  //   球敘／班級明細 → 一次補償整場（預設每人＝已付金額，可改、可不勾）；學員頁 → 補償一位
+  // ================================================================
+  A.compGroup = async (d) => {
+    const isGame = d.type === '球敘';
+    const tgt = PB.get(isGame ? '2_球敘場次' : '2_課程班級', d.id);
+    if (!tgt) return;
+    const fee = num(tgt['費用']);
+    const sigs = PB.rows('2_報名').filter((r) => str(r[isGame ? '球敘' : '班級']) === str(d.id) && str(r['報名類型']) === d.type && ['已報名', '現場待確認', '保留中'].indexOf(str(r['報名狀態'])) >= 0);
+    if (!sigs.length) return ui.toast('這場沒有報名的人', 'bad');
+    const done = new Set(PB.rows('3_抵用金流水').filter((c) => str(c['類型']) === '補償').map((c) => str(c['來源報名'])));
+    const title = isGame ? m.label('2_球敘場次', tgt) : str(tgt['課程名稱']);
+    const list = sigs.map((r) => { const p = m.sigPay(r['報名ID']); return { sig: str(r['報名ID']), stu: str(r['學員']), paid: p.net, had: done.has(str(r['報名ID'])) }; });
+    const body = '<p style="margin-top:0">' + esc(title) + '</p>' +
+      '<div class="fld"><label>補償原因<b>*</b></label><input name="cpReason" placeholder="例：場地時間臨時更動"><span class="hint">會寫在抵用金紀錄，勾通知時也會寫在給學員的訊息裡</span></div>' +
+      '<div class="fld-row"><div class="fld"><label>每人金額</label><input type="number" name="cpAll" min="0" placeholder="空白＝各自已付的金額"></div><div class="fld" style="align-self:flex-end"><button type="button" class="btn sm" data-cp-fill>套用到勾選的人</button></div></div>' +
+      '<div style="margin:10px 0 6px;font-weight:600">補償對象（' + list.length + '）<a href="#" data-cp-all style="font-size:.84rem;font-weight:400;margin-left:8px">全選／全不選</a></div>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto;padding:2px">' + list.map((x) =>
+        '<label style="display:flex;gap:8px;align-items:center;font-size:.9rem"><input type="checkbox" data-cp="' + esc(x.sig) + '" data-stu="' + esc(x.stu) + '"' + (x.had || !(x.paid > 0) ? '' : ' checked') + '><span style="flex:1">' + esc(m.stuName(x.stu)) + '<br><span class="mut">已付 ' + money(x.paid) + (x.had ? '・已經補償過' : x.paid > 0 ? '' : '・還沒付款（預設不勾）') + '</span></span><input type="number" min="0" data-cp-amt="' + esc(x.sig) + '" data-paid="' + (x.paid || fee) + '" value="' + (x.paid || fee) + '" style="width:96px"></label>').join('') + '</div>' +
+      '<div style="margin-top:12px;display:flex;flex-direction:column;gap:6px;font-size:.9rem"><label style="display:flex;gap:8px"><input type="checkbox" name="cpNotify" checked><span>LINE 通知學員（沒有 LINE 的通知家長）</span></label>' +
+      (isMgmt() ? '<label style="display:flex;gap:8px"><input type="checkbox" name="cpAgain"><span>已補償過的再補一次（管理層）</span></label>' : '') + '</div>' +
+      '<p class="mut" style="font-size:.84rem;margin-bottom:0">補償是另外給的課程抵用金：原本的報名、收款不會動，下次報名自動折抵。家人的抵用金記在管理人名下。' + (isMgmt() ? '' : '每人上限＝已付金額或活動費用，超過請找管理層。') + '</p>';
+    await ui.modal({
+      title: '補償抵用金',
+      body: body,
+      sticky: true,
+      onOpen: (el) => {
+        el.querySelector('[data-cp-all]').addEventListener('click', (ev) => { ev.preventDefault(); const cs = Array.prototype.slice.call(el.querySelectorAll('input[data-cp]')); const to = !cs.every((i) => i.checked); cs.forEach((i) => { i.checked = to; }); });
+        el.querySelector('[data-cp-fill]').addEventListener('click', () => { const v = el.querySelector('[name=cpAll]').value; Array.prototype.slice.call(el.querySelectorAll('input[data-cp]:checked')).forEach((i) => { const inp = el.querySelector('input[data-cp-amt="' + CSS.escape(i.dataset.cp) + '"]'); inp.value = v === '' ? inp.dataset.paid : v; }); });
+      },
+      actions: [{ label: '取消' }, {
+        label: '補償', kind: 'pri',
+        click: async (el) => {
+          const reason = str(el.querySelector('[name=cpReason]').value);
+          if (!reason) { ui.toast('請寫補償原因', 'bad'); return false; }
+          const items = Array.prototype.slice.call(el.querySelectorAll('input[data-cp]:checked')).map((i) => ({ sig: i.dataset.cp, stu: i.dataset.stu, amount: num(el.querySelector('input[data-cp-amt="' + CSS.escape(i.dataset.cp) + '"]').value) })).filter((x) => x.amount > 0);
+          if (!items.length) { ui.toast('沒有勾選的人，或金額是 0', 'bad'); return false; }
+          const sum = items.reduce((n, x) => n + x.amount, 0);
+          if (!(await ui.ask('確定補償？', items.length + ' 位，共 ' + money(sum) + ' 課程抵用金。<br>原因：' + esc(reason), { ok: '確定補償' }))) return false;
+          const ag = el.querySelector('[name=cpAgain]');
+          const r = await PB.run('compensate', { reason: reason, notify: el.querySelector('[name=cpNotify]').checked, again: !!(ag && ag.checked), target: { type: d.type, id: d.id }, items: items });
+          return !!r;
+        },
+      }],
+    });
+  };
+  A.compStu = async (d) => {
+    const v = await ui.ask('補償抵用金：' + m.stuName(d.id), '直接給這位學員課程抵用金（下次報名自動折抵）。家人的抵用金記在管理人名下。' + (isMgmt() ? '' : '<br>一次上限 NT$2,000，超過請找管理層。'), {
+      fields: [{ k: 'amount', label: '金額', t: 'money', req: true }, { k: 'reason', label: '補償原因', t: 'text', req: true, hint: '例：場地時間臨時更動' }, { k: 'notify', label: 'LINE 通知學員', t: 'bool', value: true }], ok: '補償',
+    });
+    if (v) PB.run('compensate', { reason: v.reason, notify: v.notify === true, items: [{ stu: d.id, amount: v.amount }] });
+  };
+
   A.stuNew = () => ui.form('1_學員', { onSaved: (id) => id && openStu(id) });
   A.stuEdit = (d) => ui.form('1_學員', { id: d.id });
   A.stuFamily = (d) => ui.form('1_學員', { values: { 管理人: d.id, 與管理人關係: '子女', 身分: str((PB.get('1_學員', d.id) || {})['身分']) }, title: '新增家人（' + m.stuName(d.id) + ' 代管）' });
