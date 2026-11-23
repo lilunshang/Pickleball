@@ -1481,7 +1481,9 @@
     // v4.0（11/2）：原期制班取消／未成班（或報名是保留中）→ 也可以轉到籌備中的專項課，已付多少就算多少（差額不處理）
     const toSingleOk = !single && (str(r['報名狀態']) === '保留中' || ['取消', '未成班'].indexOf(str((fromC || {})['課程狀態'])) >= 0);
     const mine = new Set(PB.rows('2_報名').filter((x) => str(x['學員']) === str(r['學員']) && ['已報名', '候補', '保留中'].indexOf(str(x['報名狀態'])) >= 0).map((x) => str(x['班級'])));
-    const opts = PB.rows('2_課程班級').filter((c) => {
+    // v4.26（11/24 Imperfect）：選項只列同一個據點；同據點沒有可選的，才問要不要列出其他據點
+    const sameVenue = (c) => str(c['據點']) === str((fromC || {})['據點']);
+    let opts = PB.rows('2_課程班級').filter((c) => {
       if (str(c['課程狀態']) !== '籌備中' || str(c['班級ID']) === str(r['班級'])) return false;
       const cs = m.isSingle(c);
       if (cs && day(c['開課日期']) < today()) return false;
@@ -1489,7 +1491,9 @@
       return toSingleOk && cs && !mine.has(str(c['班級ID']));
     })
       .sort((a, b) => (m.isSingle(a) === m.isSingle(b) ? byKey(day(a['開課日期']) + str(a['開始時間']), day(b['開課日期']) + str(b['開始時間'])) : m.isSingle(a) ? 1 : -1))
-      .map((c) => ({ id: c['班級ID'], l: (m.isSingle(c) ? (single ? '' : '【專項】') + m.singleLabel(c) + '｜' + m.venueName(c['據點']) + '｜' + money(c['費用']) : m.label('2_課程班級', c)) + '（' + m.cls(c).used + '/' + m.cls(c).limit + '）' }));
+      .map((c) => ({ id: c['班級ID'], here: sameVenue(c), l: (m.isSingle(c) ? (single ? '' : '【專項】') + m.singleLabel(c) + '｜' + m.venueName(c['據點']) + '｜' + money(c['費用']) : m.label('2_課程班級', c)) + '（' + m.cls(c).used + '/' + m.cls(c).limit + '）' }));
+    if (opts.some((o) => o.here)) opts = opts.filter((o) => o.here);
+    else if (opts.length && !(await ui.ask('同據點沒有可以' + (single ? '改報' : '移班') + '的課', esc(m.venueName((fromC || {})['據點'])) + ' 目前沒有其他籌備中的' + (single ? '專項課' : '班級') + '。要列出其他據點的嗎？', { ok: '列出其他據點' }))) return;
     if (!opts.length) return ui.toast(single ? '目前沒有其他招生中的專項課' : toSingleOk ? '目前沒有籌備中的期制班或專項課' : '目前沒有其他籌備中的班級（原班沒取消／未成班，不能轉專項課；請假請用「安排補課」）', 'bad');
     const fields = [{ k: 'to', label: '移到', t: 'enum', req: true, opts: opts.map((o) => o.l) }];
     if (isMgmt()) fields.push({ k: 'force', label: '目標班額滿也移入（管理層）', t: 'bool' });
@@ -1682,9 +1686,12 @@
         if (single && n >= x.limit) return null; // 專項課額滿不列
         const same = fromCls && (single ? str(c['程度']) === str(fromCls['程度']) : str(c['課程類型']) === str(fromCls['課程類型']) && str(c['程度']) === str(fromCls['程度']));
         const tag = single ? '【專項】' + str(c['課程名稱']) + (str(c['課程狀態']) === '籌備中' ? '（待成班）' : '') + '｜' : '';
-        return { id: s['場次ID'], same: same, l: (same ? '★ ' : '') + tag + m.sesLabel(s) + '｜' + m.venueName(s['據點']) + '｜' + n + '/' + x.limit + ' 人', d: day(s['日期']) };
+        return { id: s['場次ID'], same: same, here: !fromSes || str(s['據點']) === str(fromSes['據點']), l: (same ? '★ ' : '') + tag + m.sesLabel(s) + '｜' + m.venueName(s['據點']) + '｜' + n + '/' + x.limit + ' 人', d: day(s['日期']) };
       }).filter(Boolean).sort((a, b) => (a.same === b.same ? byKey(a.d, b.d) : a.same ? -1 : 1));
     if (!opts.length) return ui.toast('補課期限內沒有可安排的場次', 'bad');
+    // v4.26（11/24）：只列同據點；同據點沒有才問要不要列其他據點
+    let list = opts.filter((o) => o.here);
+    if (!list.length) { if (!(await ui.ask('同據點沒有可以補課的場次', '補課期限內 ' + esc(m.venueName(fromSes && fromSes['據點'])) + ' 沒有可安排的場次。要列出其他據點的嗎？', { ok: '列出其他據點' }))) return; list = opts; }
     const head = '請假：' + esc(m.sesLabel(fromSes)) + (cur ? '<br>目前補課：' + esc(m.sesLabel(curSes)) + '（改排後這筆會取消）' : '') +
       '<br>★＝同課程類型、同程度（專項課看程度）。教練點名確認後才扣原班 1 堂。<br>【專項】＝單堂專項課：不另外收費；佔名額、算成班人數；未成班時補課自動取消並通知學員。';
     const v = await ui.ask((cur ? '改排補課：' : '安排補課：') + m.stuName(lv['學員']), head, { fields: [{ k: 's', label: '補課場次', t: 'enum', req: true, opts: opts.map((o) => o.l) }, { k: 'note', label: '備註', t: 'text' }], ok: cur ? '改排' : '安排' });
@@ -2204,7 +2211,7 @@
         '<label class="search">' + PB.icon('search') + '<input placeholder="姓名、電話、LINE 名稱" value="' + esc(p.q || '') + '" data-input="stuSearch"></label></div>';
       const rows = list.slice(0, num(p.n) || 80).map((s) => {
         const x = m.stu(s);
-        return row({ act: 'openStu', id: s['學員ID'], t: esc(str(s['姓名']) || str(s['LINE顯示名稱']) || '（未填姓名）') + (str(s['身分']) ? ' <span class="badge">' + esc(s['身分']) + '</span>' : '') + (x.guardian ? ' <span class="badge info">' + esc(m.stuName(s['管理人']) + '的' + (str(s['與管理人關係']) || '家人')) + '</span>' : '') + (s['待合併'] === true ? ' <span class="badge warn">待合併</span>' : '') + (f === '跟進中' ? (() => { const L = openLeads(s).map((l) => day(l['下次跟進日期'])).filter(Boolean).sort(); return ' <span class="badge ' + (L[0] && L[0] <= today() ? 'warn' : 'info') + '">' + (L[0] ? '下次跟進 ' + esc(fmtD(L[0])) : '跟進中') + '</span>'; })() : ''), s: esc([str(s['電話']), str(s['LINE顯示名稱']) ? 'LINE ' + s['LINE顯示名稱'] : '', m.levelName(s['程度'])].filter(Boolean).join('・')), r: (x.owed > 0 ? '<span class="badge bad">未收 ' + money(x.owed) + '</span>' : '') + (x.lessons ? '<span class="badge">剩 ' + x.lessons + ' 堂</span>' : '') });
+        return row({ act: 'openStu', id: s['學員ID'], t: esc(str(s['姓名']) || str(s['LINE顯示名稱']) || '（未填姓名）') + (str(s['身分']) ? ' <span class="badge">' + esc(s['身分']) + '</span>' : '') + (x.guardian ? ' <span class="badge info">' + esc(m.stuName(s['管理人']) + '的' + (str(s['與管理人關係']) || '家人')) + '</span>' : '') + (f === '跟進中' ? (() => { const L = openLeads(s).map((l) => day(l['下次跟進日期'])).filter(Boolean).sort(); return ' <span class="badge ' + (L[0] && L[0] <= today() ? 'warn' : 'info') + '">' + (L[0] ? '下次跟進 ' + esc(fmtD(L[0])) : '跟進中') + '</span>'; })() : ''), s: esc([str(s['電話']), str(s['LINE顯示名稱']) ? 'LINE ' + s['LINE顯示名稱'] : '', m.levelName(s['程度'])].filter(Boolean).join('・')), r: (x.owed > 0 ? '<span class="badge bad">未收 ' + money(x.owed) + '</span>' : '') + (x.lessons ? '<span class="badge">剩 ' + x.lessons + ' 堂</span>' : '') });
       }).join('');
       return top + card((rows || ui.empty('找不到學員', '可以用電話或 LINE 名稱搜尋')) + (total > (num(p.n) || 80) ? '<div class="empty">' + ui.btn('顯示更多', 'param', { k: 'n', v: (num(p.n) || 80) + 200 }) + '</div>' : ''));
     },
@@ -2220,7 +2227,7 @@
     const acts = [ui.btn('後台報名', 'sigNew', { stu: id }, 'pri', 'plus'), ui.btn('新增跟進', 'leadNew', { stu: id }), ui.btn('編輯', 'stuEdit', { id: id }, 'ghost')];
     if (!x.guardian) acts.push(ui.btn('新增家人', 'stuFamily', { id: id }, 'ghost'));
     acts.push(ui.btn('通知紀錄', 'notifyOf', { id: id }, 'ghost'));
-    if (s['待合併'] === true && !str(s['合併至'])) acts.push(ui.btn('合併至…', 'merge', { id: id }, 'bad'));
+    // v4.26（11/24 Imperfect）：學員合併的資訊（待合併、已合併、合併按鈕）全部不顯示
     const active = x.sigs.filter((r) => ['已報名', '候補', '保留中', '現場待確認'].indexOf(str(r['報名狀態'])) >= 0 && (str(r['報名類型']) === '課程' ? !!PB.get('2_課程班級', r['班級']) && ['已結束', '取消'].indexOf(str(PB.get('2_課程班級', r['班級'])['課程狀態'])) < 0 : day((PB.get('2_球敘場次', r['球敘']) || {})['日期']) >= t));
     const past = x.sigs.filter((r) => active.indexOf(r) < 0);
     const recs = x.payRecs.slice().sort((a, b) => byKey(day(b['建立日期']), day(a['建立日期'])));
@@ -2257,7 +2264,7 @@
         ['管理人', x.guardian ? '<a href="#" data-act="openStu" data-id="' + esc(s['管理人']) + '">' + esc(m.stuName(s['管理人'])) + '</a>（' + esc(str(s['與管理人關係'])) + '）' : ''],
         ['家人', fam],
         ['生日', esc(fmtD(s['生日']))],
-        ['狀態', esc(str(s['目前狀態']) + (str(s['合併至']) ? '・已合併至 ' + m.stuName(s['合併至']) : ''))],
+        ['狀態', esc(str(s['目前狀態']))],
         ['備註', esc(s['備註'])],
       ]) +
       sec('目前報名', active.length) + card(active.map((r) => row({ act: str(r['報名類型']) === '課程' ? 'openClass' : 'openGame', id: r[str(r['報名類型']) === '課程' ? '班級' : '球敘'], t: esc(m.sigTarget(r)) + ' ' + m.sigBadge(str(r['報名狀態'])) + ' ' + m.payBadge(m.sigPay(r['報名ID']).status), s: esc(str(r['報名類型']) + '・報名 ' + fmtDT(r['報名時間']) + (str(r['代報名人']) ? '・' + m.stuName(r['代報名人']) + ' 代報' : '')) })).join('') || ui.empty('沒有進行中的報名')) +

@@ -1261,6 +1261,7 @@
     const init = Object.assign({}, before || defaultsOf(fields), o.values || {});
     const body = formBody(table, fields, init, before); // v4.12：分區塊
     let savedId = null;
+    let slotPending = null;
     const ok = await ui.modal({
       title: o.title || (before ? '編輯' : '新增') + spec.title,
       body: body,
@@ -1274,6 +1275,11 @@
           const merged = Object.assign({}, init, vals);
           const miss = fields.filter((f) => f.req && (!f.when || whenOk(f.when, merged)) && !(before && f.lock && !Object.keys(f.lock).every((c) => f.lock[c].indexOf(str(before[c])) >= 0)) && (Array.isArray(merged[f.k]) ? !merged[f.k].length : !str(merged[f.k])));
           if (miss.length) { ui.fsecReveal(el, miss[0].k); ui.toast('請填寫：' + miss.map((f) => f.label || f.k).join('、'), 'bad'); return false; }
+          // v4.26（11/24）：改時段 → 後面綁著可用日／球敘／場次／班級時，先關掉表單、列出影響讓人勾選（PB.slotChange）
+          if (table === '1_據點_時段' && o.id) {
+            const sc = await PB.run('slotScan', { id: o.id, values: vals }, { quiet: true });
+            if (sc && sc.data && sc.data.need) { slotPending = { id: o.id, values: vals, scan: sc.data }; return true; }
+          }
           const r = await PB.run('save', { table: table, id: o.id || '', values: Object.assign({}, o.values || {}, vals) });
           if (!r) return false;
           savedId = (r.data && r.data.id) || o.id;
@@ -1282,6 +1288,7 @@
       }],
       onOpen: (el) => bindForm(el, fields, before),
     });
+    if (ok && slotPending) { const done = await PB.slotChange(slotPending.id, slotPending.values, slotPending.scan); if (!done) { ui.toast('時段沒有修改', 'bad'); return null; } savedId = done; }
     if (ok && o.onSaved) o.onSaved(savedId);
     if (ok && PB.RIPPLE_TABLES.indexOf(table) >= 0) await PB.ripple(); // v4.13：設定改了 → 問要不要套用到已排好的
     return ok ? savedId : null;
@@ -1337,6 +1344,72 @@
         },
       }] : [{ label: '知道了' }],
     });
+  };
+
+  // ================================================================
+  // v4.26（11/24）：改時段 → 列出綁著的可用日、球敘、上課場次、班級，勾選要跟著改的再一起寫入（後端 SlotRipple.gs）
+  PB.slotChange = async (id, values, scan) => {
+    let d = scan;
+    let from = d.from;
+    for (;;) {
+      const mgmt = (PB.ws || []).indexOf('管理層') >= 0;
+      const head = (t, n, note) => '<div style="margin:14px 0 6px;font-weight:600">' + esc(t) + '（' + n + '）</div>' + (note ? '<div class="mut" style="font-size:.84rem;margin-bottom:6px">' + esc(note) + '</div>' : '');
+      const item = (k, x, sub) => '<label style="display:flex;gap:8px;align-items:flex-start;font-size:.9rem"><input type="checkbox" data-sr="' + k + '" value="' + esc(x.id) + '"' + (x.clash ? '' : ' checked') + ' style="margin-top:3px"><span>' + sub +
+        (x.clash ? '<br><b style="color:var(--bad,#c0392b)">' + esc(x.clash) + '</b>' : '') + (x.warn ? '<br><span class="mut">注意：' + esc(x.warn) + '</span>' : '') + '</span></label>';
+      const box = (list) => '<div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;padding:2px">' + list.join('') + '</div>';
+      const all = (k) => '<a href="#" data-sr-all="' + k + '" style="font-size:.84rem;font-weight:400;margin-left:8px">全選／全不選</a>';
+      const timeTxt = d.ch.time ? '<b>' + esc(d.slot.from) + ' → ' + esc(d.slot.to) + '</b>' : esc(d.slot.from);
+      const body = '<p style="margin-top:0">' + esc(d.slot.venue) + '　週' + esc(d.slot.wd) + '　' + timeTxt + '</p>' +
+        (d.blocks.length ? '<div class="note bad" style="white-space:pre-wrap;margin-bottom:10px">' + esc(d.blocks.join('\n')) + '</div>' : '') +
+        '<div class="fld"><label>從哪一天開始用新的設定</label><input type="date" name="srFrom" value="' + esc(from) + '" min="' + esc(today()) + '"><span class="hint">這一天之前的維持原樣；改了日期請按「重新計算」</span></div>' +
+        (d.split ? '<div class="note" style="margin:8px 0">這一天之前還有 ' + d.availBefore + ' 個可用日 → 會拆成兩個時段：舊時段收在前一天，新時段從這天開始（之前的場地成本、租約時數不受影響）。</div>' : '') +
+        head('可用日', d.avail + ' 天', '可用日沒有自己的時間，一律跟著時段') +
+        (d.games.length ? '<div style="margin:14px 0 6px;font-weight:600">球敘（' + d.games.length + ' 場，已報名共 ' + d.people + ' 人）' + all('games') + '</div>' +
+          box(d.games.map((g) => item('games', g, esc(fmtD(g.day)) + '｜' + esc(g.name) + '｜' + esc(g.status) + '・' + g.heads + ' 人報名' + (g.hosts.length ? '・場主 ' + esc(g.hosts.join('、')) : '') + (d.ch.time ? '<br><b>' + esc(g.from) + ' → ' + esc(g.to) + '</b>' : '')))) : '') +
+        (d.sessions.length ? '<div style="margin:14px 0 6px;font-weight:600">上課場次（' + d.sessions.length + ' 堂）' + all('sessions') + '</div>' +
+          box(d.sessions.map((x) => item('sessions', x, esc(fmtD(x.day)) + '｜' + esc(x.name) + '・' + x.heads + ' 人' + (x.coach ? '・教練 ' + esc(x.coach) : '') + (d.ch.time ? '<br><b>' + esc(x.from) + ' → ' + esc(x.to) + '</b>' : '')))) : '') +
+        (d.classes.length ? '<div style="margin:14px 0 6px;font-weight:600">班級上的上課時間（' + d.classes.length + ' 班）' + all('classes') + '</div>' +
+          box(d.classes.map((c) => item('classes', c, esc(c.name) + '｜' + esc(c.status) + '・' + c.heads + ' 人'))) : '') +
+        (d.warns.length ? head('注意', d.warns.length) + '<div class="mut" style="font-size:.86rem">' + d.warns.map(esc).join('<br>') + '</div>' : '') +
+        '<div style="margin-top:14px;display:flex;flex-direction:column;gap:6px;font-size:.9rem">' +
+        (d.games.length && d.ch.time ? '<label style="display:flex;gap:8px"><input type="checkbox" name="srNotify"' + (d.canNotify ? ' checked' : ' disabled') + '><span>球敘：LINE 通知已報名的人與場主' + (d.canNotify ? '' : '（還不能用：2_球敘場次 沒有「時間異動通知」欄）') + '</span></label>' : '') +
+        (d.sessions.length && d.ch.time ? '<div class="mut">上課場次：改了時間，系統會自動通知學員與教練</div>' : '') +
+        (mgmt && d.ch.time ? '<label style="display:flex;gap:8px"><input type="checkbox" name="srForce"><span>略過場地衝突（管理層）</span></label>' : '') + '</div>' +
+        '<p class="mut" style="font-size:.84rem;margin-bottom:0">沒勾的維持原本的時間。已結束、已取消、已點名的不會動。</p>';
+      const r = await ui.modal({
+        title: '時段要改：後面這些要不要一起改？',
+        body: body,
+        sticky: true,
+        onOpen: (el) => {
+          el.querySelectorAll('[data-sr-all]').forEach((a) => a.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            const list = Array.prototype.slice.call(el.querySelectorAll('input[data-sr="' + a.dataset.srAll + '"]'));
+            const to = !list.every((i) => i.checked);
+            list.forEach((i) => { i.checked = to; });
+          }));
+        },
+        actions: [{ label: '不改了' }, { label: '重新計算', click: (el) => ({ act: 'rescan', from: el.querySelector('[name=srFrom]').value }) }].concat(d.blocks.length ? [] : [{
+          label: '套用', kind: 'pri',
+          click: async (el) => {
+            const pick = (k) => Array.prototype.slice.call(el.querySelectorAll('input[data-sr="' + k + '"]:checked')).map((i) => i.value);
+            const f = el.querySelector('[name=srFrom]').value;
+            if (f !== from) { ui.toast('日期改了，請先按「重新計算」', 'bad'); return false; }
+            const n = el.querySelector('[name=srNotify]');
+            const fc = el.querySelector('[name=srForce]');
+            const x = await PB.run('slotApply', { id: id, values: values, from: from, notify: !!(n && n.checked), force: !!(fc && fc.checked), pick: { games: pick('games'), sessions: pick('sessions'), classes: pick('classes') } });
+            return x ? { act: 'done', id: (x.data && x.data.id) || id } : false;
+          },
+        }]),
+      });
+      if (!r || r === true) return null;
+      if (r.act === 'done') return r.id;
+      if (r.act === 'rescan') {
+        const sc = await PB.run('slotScan', { id: id, values: values, from: r.from }, { quiet: true });
+        if (!sc || !sc.data) return null;
+        d = sc.data;
+        from = d.from;
+      }
+    }
   };
 
   PB.run = async (op, args, o) => {
