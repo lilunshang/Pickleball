@@ -293,6 +293,10 @@
     if (hostSetKey !== rows) { hostSetKey = rows; hostSet = new Set(rows.map((r) => str(r['人員'])).filter(Boolean)); }
     return hostSet.has(str(p['經手人']));
   };
+  // v4.24：收款分類 — 待退款＝負數（非轉抵用金）還沒確認匯出；查無入帳＝主理人在 LINE 按「有問題」（場主 OA 在備註加註記，狀態維持待確認）
+  m.NO_BANK_MARK = '主理人回報查無入帳';
+  m.payRefundTodo = (p) => str(p['對帳狀態']) === '待確認' && num(p['金額']) < 0 && str(p['付款方式']) !== '轉抵用金';
+  m.payNoBank = (p) => str(p['對帳狀態']) === '待確認' && num(p['金額']) > 0 && str(p['備註']).indexOf(m.NO_BANK_MARK) >= 0;
   m.stuName = (id) => { const s = PB.get('1_學員', id); return s ? str(s['姓名']) || str(s['LINE顯示名稱']) || '（未填姓名）' : str(id); };
   m.staffName = nameOf('1_人員', '姓名');
   m.venueName = nameOf('1_據點', '據點名稱');
@@ -459,15 +463,19 @@
     const due = num(r['應收金額']);
     const net = confirmed + pending + refund + credit;
     const voided = r['作廢'] === true;
-    const left = voided ? 0 : Math.max(0, due - net);
+    // v4.24（11/23 Imperfect：學員取消後已退款，不該再顯示未付款）：報名已取消的應收一律不算未收
+    const sg = str(r['報名']) ? PB.get('2_報名', r['報名']) : null;
+    const gone = !!sg && str(sg['報名狀態']) === '已取消';
+    const left = voided || gone ? 0 : Math.max(0, due - net);
     let status = '未收';
-    if (voided) status = '作廢';
+    if (voided) status = refund < 0 && net <= 0 ? '已退款' : credit < 0 && net <= 0 ? '已轉抵用金' : '作廢';
     else if (credit < 0 && net <= 0) status = '已轉抵用金';
     else if (refund < 0 && net <= 0) status = '已退款';
+    else if (gone) status = net > 0 ? '已取消・已付未退' : '已取消';
     else if (due > 0 && net >= due) status = pending > 0 ? '已付（待對帳）' : '已收';
     else if (net > 0) status = '部分付款';
     else if (due === 0) status = '免付';
-    return (ix.recCache[rid] = { due, confirmed, pending, refund, credit, wrong, net, left, status, voided });
+    return (ix.recCache[rid] = { due, confirmed, pending, refund, credit, wrong, net, left, status, voided, gone });
   };
   /** 一筆報名的帳務合計（不含作廢）；firstPaid＝首堂／全額已付清（待確認算已付） */
   m.sigPay = (sid) => {
@@ -481,6 +489,13 @@
     const first = recs.filter((r) => ['首堂', '全額', ''].indexOf(str(r['款項類別'])) >= 0);
     o.firstPaid = first.length > 0 && first.every((r) => m.rec(r['應收ID']).left <= 0);
     o.status = !recs.length ? '尚無應收' : o.left <= 0 ? (o.pending > 0 ? '已付（待對帳）' : '已付清') : o.net > 0 ? '部分付款' : '未付';
+    // v4.24：已取消的報名 → 顯示怎麼收尾的（含已作廢的應收），不顯示未付
+    const sg = PB.get('2_報名', sid);
+    if (sg && str(sg['報名狀態']) === '已取消') {
+      const all = (ix.recBySig[str(sid)] || []).map((r) => m.rec(r['應收ID']));
+      o.left = 0;
+      o.status = all.some((x) => x.refund < 0) ? '已退款' : all.some((x) => x.credit < 0) ? '已轉抵用金' : o.net > 0 ? '已取消・已付未退' : '已取消';
+    }
     return (ix.sigCache[sid] = o);
   };
   /**
@@ -497,7 +512,7 @@
     });
   };
   m.payBadge = (st) => {
-    const k = { 已收: 'ok', 已付清: 'ok', '已付（待對帳）': 'info', 部分付款: 'warn', 未收: 'bad', 未付: 'bad', 已退款: '', 已轉抵用金: 'info', 作廢: '', 免付: 'ok', 尚無應收: '' }[st];
+    const k = { 已收: 'ok', 已付清: 'ok', '已付（待對帳）': 'info', 部分付款: 'warn', 未收: 'bad', 未付: 'bad', 已退款: '', 已轉抵用金: 'info', 作廢: '', 免付: 'ok', 尚無應收: '', 已取消: '', '已取消・已付未退': 'warn', 待退款: 'warn', 查無入帳: 'bad', 待對帳: 'info' }[st];
     return '<span class="badge ' + (k || '') + '">' + esc(st) + '</span>';
   };
 

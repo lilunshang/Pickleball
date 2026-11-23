@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -135,13 +135,37 @@
   });
   q({
     id: 'pay', title: '轉帳／現金待對帳', hint: '對照銀行入帳明細；截圖不算入帳。場主經手的現金、匹客城不在這裡：場主繳回（下方「場主交付」）確認後自動確認',
-    items: () => PB.rows('3_收款明細').filter((p) => str(p['對帳狀態']) === '待確認' && !m.hostHeld(p)).sort((a, b) => byKey(day(a['收款日期']), day(b['收款日期']))),
+    items: () => PB.rows('3_收款明細').filter((p) => str(p['對帳狀態']) === '待確認' && !m.hostHeld(p) && !m.payRefundTodo(p) && !m.payNoBank(p)).sort((a, b) => byKey(day(a['收款日期']), day(b['收款日期']))), // v4.24：待退款、查無入帳各自一區
     row: (p) => {
       const rec = PB.get('3_應收帳款', p['應收款項']) || {};
       const payer = str(rec['付款人']) || str(rec['學員']);
       return row({ check: 'pay', id: p['收款ID'], t: esc(payer ? m.stuName(payer) : '名單外') + ' <span class="num">' + money(p['金額']) + '</span>', s: esc([fmtD(p['收款日期']), str(p['付款方式']), str(p['帳號末五碼']) ? '末五碼 ' + p['帳號末五碼'] : '', /^學員回報/.test(str(p['備註'])) ? str(p['備註']) : '經手 ' + m.staffName(p['經手人']), str(rec['項目說明'])].filter(Boolean).join('・')), r: btn('確認入帳', 'payConfirm', { id: p['收款ID'] }, 'pri') + btn('有誤', 'payWrong', { id: p['收款ID'] }, 'bad') });
     },
     bulk: { label: '確認勾選的入帳', act: 'payConfirmChecked' },
+  });
+  // v4.24（11/23）：查無入帳 — 主理人在 LINE 按「有問題」的收款，原本只在備註加一句、還混在待對帳裡沒人追
+  const payWho = (p) => { const rec = PB.get('3_應收帳款', p['應收款項']) || {}; return { rec: rec, payer: str(rec['付款人']) || str(rec['學員']) }; };
+  q({
+    id: 'payMiss', title: '查無入帳（要追）', hint: '主理人回報銀行沒看到這筆：請聯絡學員確認（轉錯帳號、還沒轉、末五碼填錯）。確認有入帳按「已入帳」；確定沒付按「沒付款」，這筆就不再算已付',
+    items: () => PB.rows('3_收款明細').filter((p) => m.payNoBank(p) && !m.hostHeld(p)).sort((a, b) => byKey(day(a['收款日期']), day(b['收款日期']))),
+    row: (p) => {
+      const w = payWho(p);
+      const stu = w.payer ? PB.get('1_學員', w.payer) : null;
+      return row({ act: w.payer ? 'openStu' : '', id: w.payer, t: esc(w.payer ? m.stuName(w.payer) : '名單外（經手 ' + m.staffName(p['經手人']) + '）') + ' <span class="num">' + money(p['金額']) + '</span> <span class="badge bad">查無入帳</span>',
+        s: esc([fmtD(p['收款日期']), str(p['付款方式']), str(p['帳號末五碼']) ? '末五碼 ' + p['帳號末五碼'] : '', str(w.rec['項目說明']), str(p['備註'])].filter(Boolean).join('・')),
+        r: (stu ? ui.tel(m.phone(stu)) : '') + btn('已入帳', 'payConfirm', { id: p['收款ID'] }, 'pri') + btn('沒付款', 'payWrong', { id: p['收款ID'] }, 'bad') });
+    },
+  });
+  // v4.24：待退款 — 已登記、還沒匯出的退款（原本混在待對帳裡）
+  q({
+    id: 'refundTodo', title: '待退款（還沒匯出）', hint: '主理人匯出後按「已匯出」。完整帳號只有管理層看得到（按「看帳號」），其他地方只顯示末五碼',
+    items: () => PB.rows('3_收款明細').filter(m.payRefundTodo).sort((a, b) => byKey(day(a['收款日期']), day(b['收款日期']))),
+    row: (p) => {
+      const w = payWho(p);
+      return row({ act: w.payer ? 'openStu' : '', id: w.payer, t: esc(w.payer ? m.stuName(w.payer) : '（沒有學員）') + ' <span class="num">退 ' + money(Math.abs(num(p['金額']))) + '</span>' + (str(p['帳號末五碼']) ? '' : ' <span class="badge warn">還沒有退款帳號</span>'),
+        s: esc([fmtD(p['收款日期']) + ' 登記', str(p['付款方式']), str(p['帳號末五碼']) ? '末五碼 ' + p['帳號末五碼'] : '', str(w.rec['項目說明']), str(p['備註'])].filter(Boolean).join('・')),
+        r: (isMgmt() && str(p['帳號末五碼']) ? btn('看帳號', 'refundAcct', { id: p['收款ID'] }, 'ghost') : '') + btn('已匯出', 'refundDone', { id: p['收款ID'] }, 'pri') });
+    },
   });
   q({
     id: 'hostDue', title: '場主手上還沒繳回的錢', hint: '場主經手的現金＋匹客城，還沒被已確認的繳回抵掉。場主當月收的錢要全部繳回，場主費另外照付',
@@ -1432,9 +1456,13 @@
     const formed = x && x.single && ['確定開課', '進行中'].indexOf(x.st) >= 0;
     const fields = (PB.db.cols['2_報名'] || []).indexOf('學員取消原因') >= 0 ? [{ k: 'why', label: '學員的取消原因（選填）', t: 'enum', opts: '學員取消原因', hint: '累積資料找出取消的真正原因' }] : [];
     const text = esc(m.sigTarget(r)) + '<br>' + (formed ? '<b>這堂已成班：規則是不退費，可以改用「換人」。</b>確定要例外取消嗎？<br>' : '') +
-      (p.net > 0 ? '已付 ' + money(p.net) + '：系統會開退款待辦' + (x && x.single && PB.has('3_抵用金流水') ? '（學員要抵用金的話，在退款待辦按「改轉抵用金」）' : '') + '。' : '未付款的應收會作廢。') + '學員會收到取消通知，候補自動遞補。';
+      (p.net > 0 ? '已付 ' + money(p.net) + '：請在下面選怎麼處理。' : '未付款的應收會作廢。') + '學員會收到取消通知，候補自動遞補。';
+    // v4.24：已付款的，取消時直接選怎麼處理
+    const PAID_OPTS = ['退款（開退款待辦）'].concat(PB.has('3_抵用金流水') ? ['轉課程抵用金'] : []).concat(['不退費']);
+    if (p.net > 0) fields.push({ k: 'paid', label: '已付的 ' + money(p.net) + ' 怎麼處理', t: 'enum', opts: PAID_OPTS, value: formed ? '不退費' : PAID_OPTS[0], req: true, hint: '退款：先開待辦，匯款後登記退款。轉抵用金：馬上轉入。不退費：留下紀錄，不開待辦' },
+      { k: 'keepNote', label: '不退費的原因', t: 'text', when: { paid: ['不退費'] }, placeholder: '例：成班後取消，依規則不退' });
     const v = await ui.ask('取消報名：' + m.stuName(r['學員']), text, { fields: fields, danger: true, ok: '取消報名' });
-    if (v) PB.run('signupCancel', { ids: [d.id], why: v.why || '' });
+    if (v) PB.run('signupCancel', { ids: [d.id], why: v.why || '', paid: str(v.paid) === '轉課程抵用金' ? 'credit' : str(v.paid) === '不退費' ? 'keep' : '', keepNote: v.keepNote || '' });
   };
   A.sigSwap = async (d) => {
     const r = PB.get('2_報名', d.id);
@@ -1513,20 +1541,47 @@
     });
     if (v) PB.run('payAdd', { rid: d.id, amount: v.amount, date: v.date, method: v.method, last5: v.last5, status: v.status, note: v.note });
   };
+  /**
+   * v4.24（11/23）：退款一條龍 — 退款帳戶獨立欄位（只顯示末五碼）、可先登記「待退款」、
+   * 退款同時取消報名；全額退的應收作廢、部分退的應收改成留下的金額 → 學員不再顯示未付
+   */
   A.refund = async (d) => {
     const rec = PB.get('3_應收帳款', d.id);
     const x = m.rec(d.id);
     const payer = str(rec['付款人']) || str(rec['學員']);
-    const v = await ui.ask('建立退款：' + m.stuName(payer), esc(str(rec['項目說明'])) + '<br>已收 ' + money(x.net) + '。<b>退款金額與方式需主管核准，匯款完成後再登記。</b>', {
-      fields: [
-        { k: 'amount', label: '退款金額', t: 'money', req: true, value: x.net },
-        { k: 'date', label: '退款日期', t: 'date', req: true, value: today() },
-        { k: 'method', label: '方式', t: 'enum', opts: '收款方式', value: '轉帳' },
-        { k: 'note', label: '備註（帳戶、核准人）', t: 'text', req: true },
-      ], ok: '登記退款', danger: true,
-    });
-    if (v) PB.run('refund', { rid: d.id, amount: v.amount, date: v.date, method: v.method, note: v.note, taskId: d.task || '' });
+    const sg = str(rec['報名']) ? PB.get('2_報名', rec['報名']) : null;
+    const live = !!sg && ['已報名', '候補', '保留中'].indexOf(str(sg['報名狀態'])) >= 0;
+    const fields = [
+      { k: 'amount', label: '退款金額', t: 'money', req: true, value: x.net },
+      { k: 'state', label: '匯款狀態', t: 'enum', opts: ['已匯出', '還沒匯出（先登記待退款）'], value: '已匯出', req: true, hint: '還沒匯出的會列在待處理「待退款」，匯出後按「已匯出」' },
+      { k: 'date', label: '退款日期', t: 'date', req: true, value: today() },
+      { k: 'method', label: '方式', t: 'enum', opts: '收款方式', value: '轉帳' },
+      { k: 'bank', label: '銀行代碼（3 碼）', t: 'text', when: { method: ['轉帳'] }, placeholder: '例：012' },
+      { k: 'acct', label: '退款帳號', t: 'text', when: { method: ['轉帳'] }, hint: '完整帳號只有管理層看得到，其他畫面只顯示末五碼；不要寫在備註' },
+      { k: 'note', label: '備註（核准人、原因）', t: 'text', req: true },
+    ];
+    if (live) fields.push({ k: 'cancel', label: '同時取消這筆報名（' + str(sg['報名狀態']) + '）', t: 'bool', value: true, hint: '不取消的話，退款後系統會當成還沒付款、繼續催繳' });
+    if (live && (PB.db.cols['2_報名'] || []).indexOf('學員取消原因') >= 0) fields.push({ k: 'why', label: '學員的取消原因（選填）', t: 'enum', opts: '學員取消原因', when: { cancel: ['true', 'TRUE'] } });
+    fields.push({ k: 'adjust', label: '部分退款時，把應收改成留下的金額', t: 'bool', value: true, hint: '例：上過 1 堂退 3 堂 → 應收改成 1 堂的錢，不再顯示未付' });
+    const v = await ui.ask('建立退款：' + m.stuName(payer), esc(str(rec['項目說明'])) + '<br>已收 ' + money(x.net) + '。<b>退款金額與方式需主管核准。</b>', { fields: fields, ok: '登記退款', danger: true });
+    if (!v) return;
+    if (/\d{6,}/.test(str(v.note))) return ui.toast('備註裡看起來有帳號：請改填在「退款帳號」欄（備註所有人都看得到）', 'bad');
+    PB.run('refund', { rid: d.id, amount: v.amount, date: v.date, method: v.method, note: v.note, taskId: d.task || '', bank: v.bank || '', acct: v.acct || '',
+      state: str(v.state) === '已匯出' ? 'done' : 'todo', cancel: live && v.cancel === true, why: v.why || '', adjust: v.adjust !== false });
   };
+  A.refundDone = async (d) => {
+    const p = PB.get('3_收款明細', d.id);
+    if (!p) return;
+    const v = await ui.ask('退款已匯出', '退 ' + money(Math.abs(num(p['金額']))) + (str(p['帳號末五碼']) ? '（末五碼 ' + esc(p['帳號末五碼']) + '）' : '') + '。確認後這筆退款完成；全額退的應收會作廢。', { fields: [{ k: 'date', label: '匯出日期', t: 'date', req: true, value: today() }], ok: '已匯出' });
+    if (v) PB.run('refundDone', { ids: [d.id], date: v.date });
+  };
+  A.refundAcct = async (d) => {
+    const r = await PB.read('refundAcct', { id: d.id });
+    if (!r) return;
+    const line = (label, val) => '<tr><td class="mut" style="width:5em">' + label + '</td><td><b style="font-size:1.05rem">' + esc(val || '—') + '</b></td><td style="text-align:right">' + (val ? ui.btn('複製', 'copyText', { v: val, what: label }, 'sm ghost') : '') + '</td></tr>';
+    ui.modal({ title: '退款帳號', body: (r.acct ? '' : '<div class="note warn">這筆只記了末五碼，沒有完整帳號。</div>') + '<div class="tbl-wrap"><table class="tbl"><tbody>' + line('銀行代碼', r.bank) + line('帳號', r.acct || r.last5) + line('金額', String(Math.round(r.amount))) + '</tbody></table></div>' });
+  };
+  A.copyText = (d) => PB.copy(d.v, d.what);
 
   // ================================================================
   // 上課場次（點名、請假、改期）
@@ -2727,7 +2782,7 @@
     title: '營運工作台',
     version: '4.16',
     // v4.12：排課、主檔與紀錄從管理後台移過來（行政客服、管理層；社群行銷看不到）
-    screens: [Today, Queue, PB.Timetable, PB.schedScreen, Classes, Games, Students, Kb, Publish, Sources, PB.dataScreen].filter(Boolean), // 11/10：排課放在課表下一個
+    screens: [Today, Queue, PB.Timetable, PB.schedScreen, Classes, Games, Students, PB.ledgerScreen, Kb, Publish, Sources, PB.dataScreen].filter(Boolean), // 11/10：排課放在課表下一個
     links: () => (!PB.cfg.kb && PB.cfg.kbUrl ? [{ label: '知識庫', url: PB.cfg.kbUrl, icon: 'kb', mobile: true }] : []),
   });
 })();
