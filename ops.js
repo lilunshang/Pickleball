@@ -158,13 +158,13 @@
   });
   // v4.24：待退款 — 已登記、還沒匯出的退款（原本混在待對帳裡）
   q({
-    id: 'refundTodo', title: '待退款（還沒匯出）', hint: '主理人匯出後按「已匯出」。完整帳號只有管理層看得到（按「看帳號」），其他地方只顯示末五碼',
+    id: 'refundTodo', title: '待退款（還沒匯出）', hint: '有退款帳號的，系統會在 10、12、18、22 點透過場主 OA 通知主理人匯款；還沒有帳號的不會通知，問到後按「補帳號」。主理人匯出後按「已匯出」（LINE 或這裡都可以）。完整帳號只有管理層看得到',
     items: () => PB.rows('3_收款明細').filter(m.payRefundTodo).sort((a, b) => byKey(day(a['收款日期']), day(b['收款日期']))),
     row: (p) => {
       const w = payWho(p);
       return row({ act: w.payer ? 'openStu' : '', id: w.payer, t: esc(w.payer ? m.stuName(w.payer) : '（沒有學員）') + ' <span class="num">退 ' + money(Math.abs(num(p['金額']))) + '</span>' + (str(p['帳號末五碼']) ? '' : ' <span class="badge warn">還沒有退款帳號</span>'),
         s: esc([fmtD(p['收款日期']) + ' 登記', str(p['付款方式']), str(p['帳號末五碼']) ? '末五碼 ' + p['帳號末五碼'] : '', str(w.rec['項目說明']), str(p['備註'])].filter(Boolean).join('・')),
-        r: (isMgmt() && str(p['帳號末五碼']) ? btn('看帳號', 'refundAcct', { id: p['收款ID'] }, 'ghost') : '') + btn('已匯出', 'refundDone', { id: p['收款ID'] }, 'pri') });
+        r: (isMgmt() && str(p['帳號末五碼']) ? btn('看帳號', 'refundAcct', { id: p['收款ID'] }, 'ghost') : '') + btn(str(p['帳號末五碼']) ? '改帳號' : '補帳號', 'refundAcctSet', { id: p['收款ID'] }, str(p['帳號末五碼']) ? 'ghost' : '') + btn('已匯出', 'refundDone', { id: p['收款ID'] }, 'pri') });
     },
   });
   q({
@@ -1581,6 +1581,19 @@
     if (!p) return;
     const v = await ui.ask('退款已匯出', '退 ' + money(Math.abs(num(p['金額']))) + (str(p['帳號末五碼']) ? '（末五碼 ' + esc(p['帳號末五碼']) + '）' : '') + '。確認後這筆退款完成；全額退的應收會作廢。', { fields: [{ k: 'date', label: '匯出日期', t: 'date', req: true, value: today() }], ok: '已匯出' });
     if (v) PB.run('refundDone', { ids: [d.id], date: v.date });
+  };
+  // v4.26：補／改退款帳號（有帳號才會通知主理人）
+  A.refundAcctSet = async (d) => {
+    const v = await ui.ask('退款帳號', '填好後，下個通知時段（10、12、18、22 點）會透過場主 OA 通知主理人匯款。', { fields: [
+      { k: 'bank', label: '銀行代碼（3 碼）', t: 'text', req: true },
+      { k: 'acct', label: '帳號（8–16 碼數字）', t: 'text', req: true },
+    ], ok: '儲存' });
+    if (!v) return;
+    const bank = String(v.bank || '').replace(/\D/g, '');
+    const acct = String(v.acct || '').replace(/\D/g, '');
+    if (bank.length !== 3) return ui.toast('銀行代碼要 3 碼數字', 'bad');
+    if (acct.length < 8 || acct.length > 16) return ui.toast('帳號要 8–16 碼數字', 'bad');
+    PB.run('refundAcctSet', { id: d.id, bank: bank, acct: acct });
   };
   A.refundAcct = async (d) => {
     const r = await PB.read('refundAcct', { id: d.id });
