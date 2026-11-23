@@ -168,7 +168,7 @@
     if (str(r['遞補時間'])) add(r['遞補時間'], '候補遞補');
     const tasks = PB.has('4_工作任務') ? PB.rows('4_工作任務') : [];
     e.recs.forEach((rec) => {
-      add(day(rec['建立日期']), '應收 ' + money(rec['應收金額']) + (rec['作廢'] === true ? '（已作廢）' : ''), str(rec['項目說明']), rec['作廢'] === true ? 'mut' : '');
+      add(day(rec['建立日期']), '應收 ' + money(rec['應收金額']) + (num(rec['折扣金額']) > 0 ? '（原價 ' + money(rec['原價']) + '，' + (str(rec['折扣類型']) || '折扣') + ' −' + num(rec['折扣金額']) + '）' : '') + (rec['作廢'] === true ? '（已作廢）' : ''), str(rec['項目說明']), rec['作廢'] === true ? 'mut' : ''); // v4.25：折價券
       (PB.ix.payByRec[str(rec['應收ID'])] || []).forEach((p) => {
         const a = num(p['金額']);
         const pst = str(p['對帳狀態']);

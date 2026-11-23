@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -18,7 +18,7 @@
   /** 清單列 */
   function row(o) {
     return '<div class="row' + (o.act ? ' click' : '') + '"' + (o.act ? ' data-act="' + o.act + '" data-id="' + esc(o.id) + '"' : '') + '>' +
-      (o.check ? '<input type="checkbox" data-q="' + esc(o.check) + '" value="' + esc(o.id) + '" data-stop>' : '') +
+      (o.check ? '<input type="checkbox" data-q="' + esc(o.check) + '" value="' + esc(o.checkId || o.id) + '" data-stop>' : '') + // v4.25：checkId＝勾選框的值和點開的對象不同時用
       (o.when !== undefined ? '<div class="when">' + o.when + '</div>' : '') +
       '<div class="main-c"><div class="t">' + (o.t || '') + '</div>' + (o.s ? '<div class="s">' + o.s + '</div>' : '') + '</div>' +
       (o.r ? '<div class="r"' + (o.act ? ' data-stop' : '') + '>' + o.r + '</div>' : '') + '</div>';
@@ -360,9 +360,10 @@
   const KEY_NOTICE = ['候補遞補', '付款提醒', '尾款通知', '開課通知', '開課調整通知', '順延通知', '保留名額通知', '未成班通知', '球敘取消', '球敘未成團', '球敘異動', '場次異動', '補課異動', '逾期釋出'];
   const skippedKey = (n) => str(n['發送結果']) === '略過' && /未加好友/.test(str(n['錯誤訊息'])) && KEY_NOTICE.indexOf(str(n['通知類型'])) >= 0;
   q({
-    id: 'fail', title: '通知沒送到（近 7 天）', hint: '發送失敗，或對方沒加好友所以沒送（只列重要通知）：改用電話或私訊；重要通知要確認對方收到',
+    id: 'fail', title: '通知沒送到（近 7 天）', hint: '發送失敗，或對方沒加好友所以沒送（只列重要通知）：改用電話或私訊；重要通知要確認對方收到。聯絡過或事情已經過了，按「已處理」就不再列（紀錄還在）',
     items: () => PB.rows('9_通知紀錄').filter((n) => (str(n['發送結果']) === '失敗' || skippedKey(n)) && day(n['發送時間']) >= addDays(today(), -7)).sort((a, b) => byKey(str(b['發送時間']), str(a['發送時間']))),
-    row: (n) => row({ act: str(n['對象學員']) ? 'openStu' : '', id: n['對象學員'], t: esc((str(n['對象學員']) ? m.stuName(n['對象學員']) : m.staffName(n['對象人員'])) + '・' + str(n['通知類型'])) + (str(n['發送結果']) === '略過' ? ' <span class="badge warn">沒加好友・未送出</span>' : ''), s: esc(fmtDT(n['發送時間']) + '・' + str(n['官方帳號']) + '・' + str(n['錯誤訊息']).slice(0, 80)), r: str(n['對象學員']) ? ui.tel(m.phone(PB.get('1_學員', n['對象學員']))) : '' }),
+    row: (n) => row({ check: 'fail', checkId: n['通知ID'], act: str(n['對象學員']) ? 'openStu' : '', id: n['對象學員'], t: esc((str(n['對象學員']) ? m.stuName(n['對象學員']) : m.staffName(n['對象人員'])) + '・' + str(n['通知類型'])) + (str(n['發送結果']) === '略過' ? ' <span class="badge warn">沒加好友・未送出</span>' : ''), s: esc(fmtDT(n['發送時間']) + '・' + str(n['官方帳號']) + '・' + str(n['錯誤訊息']).slice(0, 80)), r: (str(n['對象學員']) ? ui.tel(m.phone(PB.get('1_學員', n['對象學員']))) : '') + btn('已處理', 'notifyDone', { id: n['通知ID'] }) }),
+    bulk: { label: '勾選的都已處理', act: 'notifyDoneChecked' },
   });
   q({
     id: 'lead', title: '招生待跟進', hint: '只列今天該跟進（下次跟進日已到或沒填）的；全部跟進中的學員請看「學員 → 跟進中」。兩次沒回就停；未成交要寫原因',
@@ -1503,6 +1504,12 @@
   };
 
   // ---------------- 收款 ----------------
+  A.notifyDone = (d) => PB.run('notifyDone', { ids: [d.id] }); // v4.25
+  A.notifyDoneChecked = () => {
+    const ids = checked('fail');
+    if (!ids.length) return ui.toast('請先勾選');
+    PB.run('notifyDone', { ids: ids }, { confirm: { title: '標記 ' + ids.length + ' 則為已處理', text: '這些通知不再列在待處理；通知紀錄還查得到。', ok: '已處理' } });
+  };
   A.payConfirm = (d) => PB.run('payConfirm', { ids: [d.id] });
   A.payConfirmChecked = () => {
     const ids = checked('pay');
@@ -2242,11 +2249,47 @@
       ]) +
       sec('目前報名', active.length) + card(active.map((r) => row({ act: str(r['報名類型']) === '課程' ? 'openClass' : 'openGame', id: r[str(r['報名類型']) === '課程' ? '班級' : '球敘'], t: esc(m.sigTarget(r)) + ' ' + m.sigBadge(str(r['報名狀態'])) + ' ' + m.payBadge(m.sigPay(r['報名ID']).status), s: esc(str(r['報名類型']) + '・報名 ' + fmtDT(r['報名時間']) + (str(r['代報名人']) ? '・' + m.stuName(r['代報名人']) + ' 代報' : '')) })).join('') || ui.empty('沒有進行中的報名')) +
       sec('帳務', recs.length + ' 筆') + card(recRows || ui.empty('沒有應收')) +
+      couponSec(id, x) +
       (creditOn && (x.credits.length || x.credit) ? sec('課程抵用金', '餘額 ' + money(x.credit), x.credit > 0 ? ui.btn('申請退現', 'creditTask', { id: id }, 'sm ghost') + ui.btn('退現（已匯款）', 'creditCash', { id: id }, 'sm') : '') + card(creditRows || ui.empty('沒有紀錄')) : '') +
       (leaves.length ? sec('請假與補課', leaves.length + ' 次') + card(attRows) : '') +
       sec('招生跟進', leads.length, ui.btn('新增', 'leadNew', { stu: id }, 'sm ghost', 'plus')) + card(leads.map((l) => row({ act: 'leadEdit', id: l['跟進ID'], t: esc(fmtD(l['跟進日期']) + '・' + str(l['跟進狀態'])), s: esc((str(l['需求']) || '') + (day(l['下次跟進日期']) ? '・下次 ' + fmtD(l['下次跟進日期']) : '')) })).join('') || ui.empty('沒有跟進紀錄')) +
       (past.length ? '<details style="margin-top:12px"><summary class="mut">過去的報名 ' + past.length + ' 筆</summary>' + card(past.slice(0, 50).map((r) => row({ t: esc(m.sigTarget(r)) + ' ' + m.sigBadge(str(r['報名狀態'])), s: esc(fmtDT(r['報名時間']) + (str(r['取消原因']) ? '・' + r['取消原因'] : '')) })).join('')) + '</details>' : '');
   }
+  // ---------------- v4.25：簽到折價券（規則在學員 OA；這裡只看、手動補發、作廢） ----------------
+  const couponOn = () => PB.has('3_優惠券') && (PB.db.cols['3_優惠券'] || []).indexOf('狀態') >= 0;
+  function couponSec(id, x) {
+    if (!couponOn()) return '';
+    const t = today();
+    const list = PB.rows('3_優惠券').filter((c) => m.creditOwner(str(c['持有人'])) === x.creditOwner).sort((a, b) => byKey(str(b['發放日期']), str(a['發放日期'])));
+    const live = list.filter((c) => str(c['狀態']) === '可用' && (!day(c['有效期限']) || day(c['有效期限']) >= t));
+    const rowsHtml = list.slice(0, 30).map((c) => {
+      const st = str(c['狀態']);
+      const expired = st === '可用' && day(c['有效期限']) && day(c['有效期限']) < t;
+      const usedSig = str(c['使用報名']) ? PB.get('2_報名', c['使用報名']) : null;
+      return row({ t: '<span class="badge ' + (expired ? '' : st === '可用' ? 'ok' : st === '已使用' ? 'info' : '') + '">' + esc(expired ? '已過期' : st) + '</span> <span class="num">' + money(c['面額']) + '</span> ' + esc(str(c['適用據點']) ? m.venueName(c['適用據點']) + ' 球敘' : '所有據點球敘'),
+        s: esc([day(c['有效期限']) ? fmtD(c['有效期限']) + ' 以前的場次' : '', str(c['發放原因']), usedSig ? '用在 ' + m.sigTarget(usedSig) : '', str(c['備註'])].filter(Boolean).join('・')),
+        r: st === '可用' && !expired ? btn('作廢', 'couponVoid', { id: c['券ID'] }, 'ghost') : '' });
+    }).join('');
+    return sec('折價券', '可用 ' + live.length + ' 張', ui.btn('手動發券', 'couponGive', { id: id }, 'sm ghost')) +
+      (x.guardian ? '<div class="s mut" style="margin:0 2px 6px">家人的折價券算在管理人 ' + esc(m.stuName(x.creditOwner)) + ' 名下</div>' : '') +
+      card(rowsHtml || ui.empty('沒有折價券', '有設定「簽到折價券」的據點，球敘簽到又付清就會自動發'));
+  }
+  A.couponGive = async (d) => {
+    const venues = PB.rows('1_據點').filter((v) => num(v['簽到折價券']) > 0);
+    const v = await ui.ask('手動發折價券：' + m.stuName(d.id), '平常由系統在球敘簽到後自動發；這裡用來補發（例如現場漏點名）。學員下次報名會自動折抵，每場用一張。', {
+      fields: [
+        { k: 'venue', label: '適用據點', t: 'ref', ref: '1_據點', value: venues.length === 1 ? str(venues[0]['據點ID']) : '', hint: '不選＝所有據點的球敘都能用' },
+        { k: 'face', label: '面額', t: 'money', req: true, value: venues.length ? num(venues[0]['簽到折價券']) : 20 },
+        { k: 'until', label: '有效期限（這天以前的場次）', t: 'date', req: true, value: addDays(today(), 30) },
+        { k: 'note', label: '發券原因', t: 'text', req: true },
+      ], ok: '發券',
+    });
+    if (v) PB.run('couponGive', { stu: d.id, venue: v.venue || '', face: v.face, until: v.until, note: v.note });
+  };
+  A.couponVoid = async (d) => {
+    const v = await ui.ask('作廢折價券', '作廢後學員就不能用這張券。', { fields: [{ k: 'note', label: '原因', t: 'text', req: true }], danger: true, ok: '作廢' });
+    if (v) PB.run('couponVoid', { id: d.id, note: v.note });
+  };
   function sigEnded(r) {
     if (!r) return false;
     if (str(r['報名狀態']) === '已取消') return true;
