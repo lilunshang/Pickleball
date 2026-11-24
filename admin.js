@@ -899,7 +899,7 @@
     if (!defs.length) return;
     const apps = uniq(defs.map((b) => b.app));
     if (apps.length > 1) return ui.toast('營運工作台和管理後台的按鈕請分開設定', 'bad');
-    const places = c.places.filter((x) => x.app === apps[0]);
+    const places = c.places.filter((x) => x.app === apps[0] && x.kind !== 'q');
     const r0 = defs.length === 1 ? (PB.sys.btn || {})[defs[0].k] : null;
     const title = defs.length === 1 ? defs[0].n : '批次設定 ' + defs.length + ' 顆按鈕';
     const seen = PB.seen();
@@ -936,8 +936,35 @@
       return '<tr class="click" data-act="sysViewEdit" data-k="' + esc(x.id) + '"><td><b>' + esc(x.name) + '</b></td><td>' + sysBadge(r) + '</td><td>' + esc(wsText(r && r.ws)) + '</td><td class="mut">' + esc('#/' + id) + '</td></tr>';
     }).join('');
     return ['ops', 'admin'].map((a) => '<div class="sec"><h2>' + APPN[a] + '</h2></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>畫面</th><th>狀態</th><th>工作區</th><th>網址</th></tr></thead><tbody>' + rows(a) + '</tbody></table></div>').join('') +
-      '<p class="mut" style="font-size:.85rem">關掉的畫面不會出現在選單，直接輸入網址也會跳回第一個畫面。這只是隱藏畫面：資料權限仍照角色（例如營運工作台本來就看不到成本）。「系統設定」本身不能關。</p>';
+      '<p class="mut" style="font-size:.85rem">關掉的畫面不會出現在選單，直接輸入網址也會跳回第一個畫面。這只是隱藏畫面：資料權限仍照角色（例如營運工作台本來就看不到成本）。「系統設定」本身不能關。</p>' +
+      sysQueueSec(c, rules);
   }
+  // v4.32（11/24）：營運工作台「待處理」每一類可以關掉（關掉＝不列在待處理、也不算進數字）
+  function sysQueueSec(c, rules) {
+    const qs = c.places.filter((x) => x.kind === 'q');
+    if (!qs.length) return '';
+    const rows = qs.map((x) => {
+      const r = rules[x.id];
+      const on = r ? r.on !== false : !x.off;
+      const badge = !r ? (x.off ? '<span class="badge">預設關閉</span>' : '<span class="badge">預設</span>') : sysBadge(r);
+      return '<tr class="click" data-act="sysQEdit" data-k="' + esc(x.id) + '"><td><b>' + esc(x.name) + '</b></td><td>' + badge + '</td><td>' + esc(on ? wsText(r && r.ws) : '—') + '</td><td>' + (on ? '顯示' : '<span class="mut">不顯示</span>') + '</td></tr>';
+    }).join('');
+    return '<div class="sec"><h2>營運工作台・待處理的項目</h2></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>項目</th><th>狀態</th><th>工作區</th><th>待處理</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="mut" style="font-size:.85rem">關掉的項目不會列在待處理、也不算進數字；資料本身不受影響（例如招生跟進仍可在學員頁看到）。「招生待跟進」「教練未寫課程日誌」預設關閉：教練 OA 已會提醒。</p>';
+  }
+  A.sysQEdit = async (d) => {
+    const c = sysCat();
+    const x = c.places.find((y) => y.id === d.k);
+    const r0 = (PB.sys.view || {})[d.k];
+    const v = await ui.ask('待處理・' + x.name, '', {
+      fields: [
+        { k: 'on', label: '列在待處理', t: 'bool', value: r0 ? r0.on !== false : !x.off },
+        { k: 'ws', label: '哪些工作區看得到', t: 'enum', multi: true, opts: c.ws, value: (r0 && r0.ws) || [], hint: '不勾＝不限' },
+      ],
+      ok: '儲存',
+    });
+    if (v) await sysSave([{ id: 'view:' + d.k, on: v.on, ws: v.ws || [] }]);
+  };
   A.sysViewEdit = async (d) => {
     const c = sysCat();
     const x = c.places.find((y) => y.id === d.k);
@@ -1111,7 +1138,9 @@
     app: 'admin',
     title: '管理後台',
     version: '4.16',
-    screens: [Dash, Queue, Finance, Sys], // v4.12：排課、主檔與紀錄移到營運工作台
+    screens: [Dash, Queue, Finance, Sys, PB.moreScreen], // v4.12：排課、主檔與紀錄移到營運工作台
+    tabs: ['dash', 'queue', 'finance'], // v4.31：手機下方三個＋「更多」（系統設定、營運工作台）
+    groups: [{ name: '管理', ids: ['dash', 'queue', 'finance', 'sys'] }],
     links: () => (PB.cfg.opsUrl ? [{ label: '營運工作台', url: PB.cfg.opsUrl, icon: 'swap', mobile: true }] : []),
   });
 })();

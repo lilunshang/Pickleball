@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.29（2026/11/24：選單「場主請假」hostleave.js；球敘明細標代班）；v4.28（2026/11/24：補償抵用金）；v4.27（2026/11/24：學員搜尋含家人、全家總覽、由家人付款的帳）；v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.31（2026/11/24：待處理改版 — 今天／這週／等回覆、看自己負責的、等回覆／已處理；選單分組＋手機下方四個）；v4.29（2026/11/24：選單「場主請假」hostleave.js；球敘明細標代班）；v4.28（2026/11/24：補償抵用金）；v4.27（2026/11/24：學員搜尋含家人、全家總覽、由家人付款的帳）；v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -20,6 +20,7 @@
     return '<div class="row' + (o.act ? ' click' : '') + '"' + (o.act ? ' data-act="' + o.act + '" data-id="' + esc(o.id) + '"' : '') + '>' +
       (o.check ? '<input type="checkbox" data-q="' + esc(o.check) + '" value="' + esc(o.checkId || o.id) + '" data-stop>' : '') + // v4.25：checkId＝勾選框的值和點開的對象不同時用
       (o.when !== undefined ? '<div class="when">' + o.when + '</div>' : '') +
+      (o.av ? '<span class="av">' + esc(o.av) + '</span>' : '') + // v4.32：學員清單的頭像（姓氏）
       '<div class="main-c"><div class="t">' + (o.t || '') + '</div>' + (o.s ? '<div class="s">' + o.s + '</div>' : '') + '</div>' +
       (o.r ? '<div class="r"' + (o.act ? ' data-stop' : '') + '>' + o.r + '</div>' : '') + '</div>';
   }
@@ -43,7 +44,7 @@
       const ses = (PB.ix.sesByDay[d] || []).slice();
       const games = (PB.ix.gameByDay[d] || []).filter((g) => str(g['狀態']) !== '草稿');
       const nav = '<div class="ptop"><h1>' + (isToday ? '今天 ' : '') + fmtD(d) + '</h1><span class="sp"></span>' +
-        btn('前一天', 'day', { d: addDays(d, -1) }, 'ghost') + (!isToday ? btn('今天', 'day', { d: '' }) : '') + btn('後一天', 'day', { d: addDays(d, 1) }, 'ghost') + '</div>';
+        btn('前一天', 'day', { d: addDays(d, -1) }, 'ghost td-prev') + (!isToday ? btn('今天', 'day', { d: '' }) : '') + btn('後一天', 'day', { d: addDays(d, 1) }, 'ghost td-next') + '</div>';
       // 每個活動整理成同一種格式
       const items = [];
       let noRoll = 0, noStaff = 0, people = 0;
@@ -81,8 +82,12 @@
           s: esc(x.courts.map((c) => c.name).join('、')) + (x.hostless && !hosts ? '・無場主' : '・場主 ' + (hosts || '<b class="bad-t">未排</b>')),
           r: '<span class="badge">報名 ' + x.active.length + '/' + x.limit + '</span>' + (x.wait.length ? '<span class="badge warn">候補 ' + x.wait.length + '</span>' : '') + (x.walkin.length ? '<span class="badge warn">現場 ' + x.walkin.length + '</span>' : '') + (x.checked ? '<span class="badge ok">簽到 ' + x.checked + '</span>' : '') });
       });
+      // v4.32（11/24）：全部／球敘／課程 篩選（手機一次只看一種）
+      const kf = ['g', 'c'].indexOf(p.k) >= 0 ? p.k : '';
+      const nAll = items.length, nGa = items.filter((i) => i.kind === 'g').length;
+      const kchips = nAll && nGa && nGa < nAll ? '<div class="chips td-k">' + [['', '全部 ' + nAll], ['g', '球敘 ' + nGa], ['c', '課程 ' + (nAll - nGa)]].map((o) => '<button class="chip' + (o[0] === kf ? ' on' : '') + '" data-act="param" data-k="k" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>' : '';
       const byV = {};
-      items.forEach((it) => { (byV[it.v] = byV[it.v] || []).push(it); });
+      items.filter((it) => !kf || it.kind === kf).forEach((it) => { (byV[it.v] = byV[it.v] || []).push(it); });
       const vids = Object.keys(byV).sort((a, b) => byKey(byV[a].map((i) => i.st).sort()[0] + m.venueName(a), byV[b].map((i) => i.st).sort()[0] + m.venueName(b)));
       const nC = items.filter((i) => i.kind === 'c' && !i.off).length, nG = items.filter((i) => i.kind === 'g' && !i.off).length;
       const sum = '<div class="td-sum">' +
@@ -104,7 +109,7 @@
           }).join('') + '</div>';
       }).join('');
       const idle = PB.rows('1_據點').filter((v) => str(v['狀態']) !== '停用' && str(v['狀態']) !== '已停用' && !byV[str(v['據點ID'])]).map((v) => str(v['據點名稱']));
-      return nav + (items.length ? sum + '<div class="tv-grid">' + cards + '</div>' : card(ui.empty('這天沒有課程或球敘', '') + (() => { for (let i = 1; i <= 30; i += 1) { const n = addDays(d, i); if ((PB.ix.sesByDay[n] || []).length || (PB.ix.gameByDay[n] || []).some((g) => str(g['狀態']) !== '草稿')) return '<div class="empty">' + btn('下一個有活動的日子：' + fmtD(n), 'day', { d: n }, 'pri') + '</div>'; } return ''; })())) +
+      return nav + (items.length ? sum + kchips + '<div class="tv-grid">' + cards + '</div>' : card(ui.empty('這天沒有課程或球敘', '') + (() => { for (let i = 1; i <= 30; i += 1) { const n = addDays(d, i); if ((PB.ix.sesByDay[n] || []).length || (PB.ix.gameByDay[n] || []).some((g) => str(g['狀態']) !== '草稿')) return '<div class="empty">' + btn('下一個有活動的日子：' + fmtD(n), 'day', { d: n }, 'pri') + '</div>'; } return ''; })())) +
         (idle.length ? '<p class="mut" style="font-size:.82rem;margin-top:12px">沒有活動的據點：' + esc(idle.join('、')) + '</p>' : '');
     },
   };
@@ -382,6 +387,175 @@
     row: (s) => row({ act: 'openSes', id: s['場次ID'], t: esc(m.sesLabel(s)), s: esc('教練 ' + m.staffName(s['授課教練'])) }),
   });
 
+  // ================================================================
+  // v4.31（11/24 Imperfect 確認改版示意）：待處理分「今天／這週／等回覆」、看自己負責的、每件可標「等回覆／已處理」
+  //   tier：today 今天一定要處理（影響學員或明後天的場次）／week 這週內／later 不急的（收在這週最下面）
+  //   owner：誰負責（行政客服／主理人／管理層）；「全部」看全部
+  //   key：每一件的代號 → 4_待處理標記（QueueMark.gs）；等回覆到提醒時間前放「等回覆」，已處理先收 3 天
+  // ================================================================
+  const tierSoon = (k) => (day(k) && day(k) <= addDays(today(), 2) ? 'today' : 'week');
+  // v4.31：場主請假還沒安排代班（hostleave.js 算好的清單）
+  q({
+    id: 'hostCover', title: '場主請假、還沒安排代班', hint: '請假的人還排在場上，或據點預設場主請假、這場還沒有場主（系統不會自動排）。也可以到「場主請假」頁處理',
+    items: () => (PB.hostLeaveTodo ? PB.hostLeaveTodo() : []),
+    row: (x) => row({ act: 'openGame', id: x.g['球敘ID'], when: fmtD(x.k).replace(/（.）/, '') + '<small>' + esc(m.hm(x.g['開始時間'])) + '</small>',
+      t: esc(m.venueName(x.g['據點']) + '・' + m.gameLabel(x.g)), s: esc(m.staffName(x.orig) + ' 請假' + (str(x.off && x.off['原因']) ? '（' + str(x.off['原因']) + '）' : '') + (x.d ? '' : '・這場還沒有場主')),
+      r: btn('指派代班', 'hlAssign', { gid: x.g['球敘ID'], duty: x.d ? x.d['排班ID'] : '', orig: x.orig }, 'pri') }),
+  });
+  const QMETA = {
+    hostCover: { tier: (x) => tierSoon(x.k), owner: '行政客服', key: (x) => str(x.g['球敘ID']) + '-' + x.orig },
+    unformed: { tier: 'today', owner: '行政客服', key: (r) => r['報名ID'] },
+    singleOwe: { tier: 'today', owner: '行政客服', key: (r) => r['報名ID'] },
+    owe: { tier: 'today', owner: '行政客服', key: (r) => r['報名ID'] },
+    friend: { tier: (r) => (promotedUnpaid(r) ? 'today' : 'week'), owner: '行政客服', key: (r) => r['報名ID'] },
+    payMiss: { tier: 'today', owner: '行政客服', key: (p) => p['收款ID'] },
+    decide: { tier: 'today', owner: '行政客服', key: (x) => x.c['班級ID'] },
+    singleLate: { tier: 'today', owner: '行政客服', key: (x) => x.c['班級ID'] },
+    health: { tier: (x) => (str(x['等級']) === '急件' ? 'today' : 'week'), owner: '管理層', key: (x) => str(x['檢查ID']) || str(x['項目']) + '-' + str(x['關聯ID']) },
+    pay: { tier: 'week', owner: '主理人', key: (p) => p['收款ID'] },
+    refundTodo: { tier: 'week', owner: '行政客服', key: (p) => p['收款ID'] },
+    hostDue: { tier: 'week', owner: '主理人', key: (x) => x.who },
+    hand: { tier: 'week', owner: '主理人', key: (h) => h['交付ID'] },
+    creditTodo: { tier: 'week', owner: '行政客服', key: (r) => r['報名ID'] },
+    roll: { tier: 'week', owner: '行政客服', key: (s) => s['場次ID'] },
+    makeup: { tier: 'week', owner: '行政客服', key: (a) => a['出缺勤ID'] },
+    makeupFull: { tier: 'week', owner: '行政客服', key: (a) => a['出缺勤ID'] },
+    task: { tier: (t) => (day(t['Deadline']) && day(t['Deadline']) <= today() ? 'today' : 'week'), owner: '我', key: (t) => t['任務ID'] },
+    taskCheck: { tier: 'week', owner: '我', key: (t) => t['任務ID'] },
+    draft: { tier: (g) => tierSoon(g['日期']), owner: '行政客服', key: (g) => g['球敘ID'] },
+    avail: { tier: (a) => tierSoon(a['日期']), owner: '行政客服', key: (a) => a['可用日ID'] },
+    fail: { tier: 'week', owner: '行政客服', key: (n) => n['通知ID'] },
+    incident: { tier: 'week', owner: '管理層', key: (x) => x['事件ID'] },
+    wait: { tier: 'later', owner: '行政客服', key: (r) => r['報名ID'] },
+    lead: { tier: 'later', owner: '行政客服', key: (l) => l['跟進ID'] },
+    journal: { tier: 'later', owner: '行政客服', key: (s) => s['場次ID'] },
+  };
+  // 今天這一層的排序：會影響學員的在前
+  const TODAY_ORDER = ['friend', 'owe', 'singleOwe', 'unformed', 'hostCover', 'payMiss', 'decide', 'singleLate', 'task', 'draft', 'avail', 'health'];
+  Q.forEach((d) => Object.assign(d, QMETA[d.id] || { tier: 'week', owner: '行政客服' }));
+  const WHO = [['行政客服', '行政客服'], ['主理人', '主理人'], ['管理層', '管理層'], ['all', '全部']];
+  const defaultWho = () => (PB.ws.indexOf('管理層') >= 0 ? 'all' : '行政客服');
+  const ownerOk = (d, who) => who === 'all' || d.owner === '我' || d.owner === who;
+  // v4.32（11/24）：系統設定可以關掉某一類（招生跟進、課程日誌預設關閉）
+  const Q_OFF = { lead: true, journal: true };
+  const qOn = (id) => { const r = ((PB.sys || {}).view || {})['ops.q.' + id]; return r ? PB.sysRuleOk(r) : !Q_OFF[id]; };
+  PB.queueOn = qOn;
+  const QM_TABLE = '4_待處理標記';
+  const QM_LOCAL = {}; // 表還沒載入時（第一次標記才建立）先記在這裡
+  function marks() {
+    const m2 = {};
+    PB.rows(QM_TABLE).forEach((r) => { m2[str(r['項目'])] = r; });
+    Object.keys(QM_LOCAL).forEach((k) => { if (QM_LOCAL[k]) m2[k] = QM_LOCAL[k]; else delete m2[k]; });
+    return m2;
+  }
+  /** 分好層的待處理：{ today, week, later, wait }；每一件 { d, it, k, mk, flag } */
+  function buckets(who) {
+    const now = PB.nowText();
+    const mk = marks();
+    const B = { today: [], week: [], later: [], wait: [], err: [] };
+    Q.forEach((d) => {
+      if (!ownerOk(d, who) || !qOn(d.id)) return;
+      let items = [];
+      try { items = d.items(); } catch (e) { B.err.push({ d: d, e: e }); return; }
+      items.forEach((it) => {
+        let key = '';
+        try { key = str(d.key ? d.key(it) : ''); } catch (e) { key = ''; }
+        const k = key ? d.id + ':' + key : '';
+        const m3 = k ? mk[k] : null;
+        let tier = typeof d.tier === 'function' ? d.tier(it) : d.tier;
+        let flag = '';
+        if (m3) {
+          if (str(m3['提醒時間']) > now) { if (str(m3['狀態']) === '等回覆') B.wait.push({ d: d, it: it, k: k, mk: m3 }); return; }
+          flag = str(m3['狀態']) === '等回覆' ? 'due' : 'again';
+          tier = 'today';
+        }
+        (B[tier] || B.week).push({ d: d, it: it, k: k, mk: m3, flag: flag });
+      });
+    });
+    B.today.sort((a, b) => ((TODAY_ORDER.indexOf(a.d.id) + 1 || 99) - (TODAY_ORDER.indexOf(b.d.id) + 1 || 99)));
+    return B;
+  }
+  const queueCount = () => { try { return buckets(defaultWho()).today.length; } catch (e) { return 0; } };
+  PB.queueBuckets = buckets; // 測試用
+
+  /** 一件：原本的列＋下面一行「等回覆…／已處理」 */
+  function qItem(x, inWait) {
+    let html = '';
+    try { html = x.d.row(x.it); } catch (e) { html = row({ t: '（這一件顯示失敗）', s: esc(e.message || String(e)) }); }
+    const m3 = x.mk;
+    const note = m3 ? esc(str(m3['備註']) || str(m3['狀態'])) + ' — ' + esc(str(m3['標記人'])) + ' ' + esc(str(m3['標記時間']).slice(5).replace('-', '/')) : '';
+    let bar = '';
+    if (inWait) bar = '<span class="qm-note">⏳ ' + note + '・' + esc(str(m3['提醒時間']).slice(5).replace('-', '/')) + ' 再提醒</span>' + btn('放回待處理', 'qUndo', { k: x.k }, 'ghost');
+    else if (x.k) bar = (x.flag === 'due' ? '<span class="qm-note due">等回覆到期：' + note + '</span>' : x.flag === 'again' ? '<span class="qm-note due">3 天前標過已處理，還沒解決</span>' : '<span class="qm-note"></span>') +
+      btn('等回覆…', 'qWait', { k: x.k, t: x.d.title }, 'ghost') + btn('已處理', 'qDone', { k: x.k }, 'ghost');
+    return '<div class="qi">' + html + (bar ? '<div class="qm">' + bar + '</div>' : '') + '</div>';
+  }
+  function qGroups(list, inWait) {
+    const order = [];
+    const by = {};
+    list.forEach((x) => { if (!by[x.d.id]) { by[x.d.id] = []; order.push(x.d); } by[x.d.id].push(x); });
+    return order.map((d) => {
+      const xs = by[d.id];
+      return '<section class="qg grp" data-q="' + d.id + '"><div class="qg-h grp-h"><h2>' + esc(d.title) + '</h2><span class="cnt">' + xs.length + '</span><span class="sp"></span>' + (d.bulk && !inWait ? btn(d.bulk.label, d.bulk.act, {}, '') : '') + '</div>' +
+        (d.hint ? '<div class="qg-hint">' + esc(d.hint) + '</div>' : '') +
+        '<div class="card list">' + xs.slice(0, 60).map((x) => qItem(x, inWait)).join('') + (xs.length > 60 ? '<div class="empty">另有 ' + (xs.length - 60) + ' 件…</div>' : '') + '</div></section>';
+    }).join('');
+  }
+
+  const Queue = {
+    id: 'queue', label: '待處理', icon: 'inbox', show: isOps, badge: () => queueCount(),
+    render(p) {
+      const who = WHO.some((w) => w[0] === p.who) ? p.who : defaultWho();
+      const tab = ['today', 'week', 'wait', 'all'].indexOf(p.tab) >= 0 ? p.tab : 'today'; // all：全部攤開（測試、找東西用；不在畫面上）
+      const B = buckets(who);
+      const tabBtn = (id, label, n, cls) => '<button class="chip qtab' + (tab === id ? ' on' : '') + '" data-act="param" data-k="tab" data-v="' + id + '">' + label + '<span class="c ' + (cls || '') + '">' + n + '</span></button>';
+      const whoSel = '<select class="btn" data-input="queueWho" aria-label="看誰負責的">' + WHO.map((w) => '<option value="' + w[0] + '"' + (w[0] === who ? ' selected' : '') + '>' + (w[0] === 'all' ? '全部' : w[1] + '負責的') + '</option>').join('') + '</select>';
+      const head = '<div class="ptop"><h1>待處理</h1><span class="sp"></span>' + whoSel + '</div>' +
+        '<div class="qsum">' + (B.today.length ? '今天還有 <b class="bad-t">' + B.today.length + ' 件</b>要處理' : '今天要處理的都做完了 🎉') + '・這週 ' + (B.week.length + B.later.length) + '・等回覆 ' + B.wait.length + '</div>' +
+        '<div class="chips qtabs">' + tabBtn('today', '今天', B.today.length, B.today.length ? 'hot' : '') + tabBtn('week', '這週', B.week.length + B.later.length) + tabBtn('wait', '等回覆', B.wait.length) + '</div>';
+      let body = '';
+      if (tab === 'today') body = B.today.length ? '<p class="qg-hint" style="margin:4px 2px 10px">會影響學員或明後天的場次，今天要處理掉</p>' + qGroups(B.today) : card(ui.empty('今天要處理的都做完了', '「這週」還有 ' + (B.week.length + B.later.length) + ' 件可以慢慢處理'));
+      if (tab === 'week') {
+        body = (B.week.length ? qGroups(B.week) : card(ui.empty('這週沒有要處理的', ''))) +
+          (B.later.length ? '<details class="qlater"><summary>不急的（' + B.later.length + '）：候補、招生跟進、日誌提醒</summary>' + qGroups(B.later) + '</details>' : '');
+      }
+      if (tab === 'all') body = qGroups(B.today.concat(B.week, B.later)) + (B.wait.length ? qGroups(B.wait, true) : '');
+      if (tab === 'wait') body = B.wait.length ? '<p class="qg-hint" style="margin:4px 2px 10px">已經聯絡過、在等對方；到了提醒時間會回到「今天」</p>' + qGroups(B.wait, true) : card(ui.empty('沒有在等回覆的', '處理到一半在等對方時，按那一件的「等回覆…」'));
+      const errs = B.err.length ? '<div class="note bad">有 ' + B.err.length + ' 類清單讀取失敗：' + esc(B.err.map((x) => x.d.title).join('、')) + '</div>' : '';
+      return head + errs + body +
+        '<div class="qtools">' + btn('新增異常事件', 'incNew', {}, 'ghost', 'plus') + btn('新增任務', 'taskNew', {}, 'ghost', 'plus') + '</div>';
+    },
+  };
+  PB.inputs.queueWho = (v) => PB.setParam('who', v === defaultWho() ? '' : v);
+  const qUntil = (opt) => {
+    const t = today();
+    if (opt === '今晚 20:00') return t + ' 20:00';
+    if (opt === '明天早上 09:00') return addDays(t, 1) + ' 09:00';
+    if (opt === '2 天後') return addDays(t, 2) + ' 09:00';
+    if (opt === '3 天後') return addDays(t, 3) + ' 09:00';
+    return addDays(t, 7) + ' 09:00';
+  };
+  async function qMark(k, state, note, until) {
+    const r = await PB.run('queueMark', { key: k, state: state, note: note || '', until: until || '' });
+    if (!r) return null;
+    if (!PB.has(QM_TABLE)) QM_LOCAL[k] = state ? { 項目: k, 狀態: state, 備註: note || '', 提醒時間: until, 標記人: PB.me.name, 標記時間: PB.nowText() } : null;
+    PB.render();
+    return r;
+  }
+  A.qWait = async (d) => {
+    const now = PB.nowText().slice(11, 16);
+    const whenOpts = (now < '19:00' ? ['今晚 20:00'] : []).concat(['明天早上 09:00', '2 天後', '3 天後', '一週後']);
+    const v = await ui.ask('等回覆', esc(d.t || '') + '<br>在等誰、等什麼？時間到會回到「今天」。', { fields: [
+      { k: 'why', label: '在等什麼', t: 'enum', req: true, opts: ['已私訊，等對方回', '電話沒接，晚點再打', '等主理人', '等場主', '等教練', '其他'], value: '已私訊，等對方回', chips: true },
+      { k: 'note', label: '補充（選填）', t: 'text', placeholder: '例：她說晚上下班轉帳' },
+      { k: 'when', label: '什麼時候再提醒我', t: 'enum', req: true, opts: whenOpts, value: whenOpts[0], chips: true },
+    ], ok: '放到等回覆' });
+    if (!v) return null;
+    return qMark(d.k, '等回覆', v.why + (str(v.note) ? '：' + str(v.note) : ''), qUntil(v.when));
+  };
+  A.qDone = (d) => qMark(d.k, '已處理', '', addDays(today(), 3) + ' ' + PB.nowText().slice(11, 16));
+  A.qUndo = (d) => qMark(d.k, '', '', '');
+
   function targetOpen(r) {
     if (str(r['報名類型']) === '課程') {
       const c = PB.get('2_課程班級', r['班級']);
@@ -395,27 +569,7 @@
     if (x.single) return '<span class="nowrap" title="已付人數／成班門檻／上限">' + x.paid + '／' + x.min + '／' + x.limit + (x.need ? '・差 ' + x.need : '・可成班') + '</span><div class="bar ' + (x.paid >= x.min ? 'ok' : 'warn') + '" style="width:70px"><i style="width:' + pct + '%"></i></div>';
     return '<span class="nowrap" title="已付首堂／成班門檻／上限">' + x.paid + '／' + x.min + '／' + x.limit + '</span><div class="bar ' + (x.paid >= x.min ? 'ok' : 'warn') + '" style="width:70px"><i style="width:' + pct + '%"></i></div>';
   }
-  const queueCount = () => Q.reduce((s, d) => { try { return s + d.items().length; } catch (e) { return s; } }, 0);
 
-  const Queue = {
-    id: 'queue', label: '待處理', icon: 'inbox', show: isOps, badge: () => queueCount(),
-    render(p) {
-      const groups = Q.map((d) => {
-        let items = [];
-        try { items = d.items(); } catch (e) { return { id: d.id, title: d.title, count: 1, body: () => { throw e; } }; }
-        return {
-          id: d.id, title: d.title, count: items.length, hint: d.hint,
-          right: d.bulk ? btn(d.bulk.label, d.bulk.act, {}, '') : '',
-          body: () => card(items.slice(0, 60).map(d.row).join('') + (items.length > 60 ? '<div class="empty">另有 ' + (items.length - 60) + ' 件…</div>' : '')),
-        };
-      });
-      const view = ui.groups(groups, p, { key: 'queue' });
-      return '<div class="ptop"><h1>待處理</h1><span class="sp"></span>' + btn('新增異常事件', 'incNew', {}, 'ghost', 'plus') + btn('新增任務', 'taskNew', {}, 'ghost', 'plus') + '</div>' +
-        (view || card(ui.empty('都處理完了 🎉', '有新的事情系統會放進來'))) +
-        '<p class="mut" style="font-size:.82rem;margin-top:16px">下班前清單只剩「等別人回覆」的項目，並在備註寫等誰、等什麼。</p>';
-    },
-    after(page) { const c = page.querySelector('.grp-menu .chip.on'); if (c && c.parentNode.scrollWidth > c.parentNode.clientWidth) c.parentNode.scrollLeft = c.offsetLeft - 16; },
-  };
 
   // ================================================================
   // 課程
@@ -501,19 +655,22 @@
   }
   A.openClass = (d) => openClass(d.id);
 
-  function classBody(id) {
+  function classBody(id) { return classTiles(id) + classBodyMain(id) + classNotify(id); }
+  function classBodyMain(id) {
     const c = PB.get('2_課程班級', id);
     const x = m.cls(c);
     if (x.single) return singleBody(id, x);
     if (m.isPrivate(c)) return privateBody(id, x); // v4.9
     const t = today();
     const isPre = x.st === '籌備中';
-    const decideHint = isPre ? (x.canDecide ? '' : '已付首堂達人數下限 ' + x.min + ' 人就能確認成班（目前 ' + x.paid + ' 人）；決定日 ' + fmtD(x.decide) + ' 起不限人數') : '';
+    // v4.32（11/24 Imperfect）：成不成班由人自己判斷，不必等到決定日（籌備中、有開課日就能按；早於決定日或人數不足會再確認一次）
+    const canAct = isPre && !!day(c['開課日期']) && split(c['上課時段']).length > 0;
+    const decideHint = isPre && !canAct ? '請先填好開課日期與上課時段' : '';
     const acts = [];
     if (isPre && PB.forms['2_課程班級']) {
-      acts.push(ui.btn('確認成班', 'classAct', { id: id, a: '確認成班' }, 'pri' + (x.canDecide && !x.pending ? '' : '" disabled title="' + esc(decideHint || '排程處理中'))));
+      acts.push(ui.btn('確認成班', 'classAct', { id: id, a: '確認成班' }, 'pri' + (canAct && !x.pending ? '' : '" disabled title="' + esc(decideHint || '排程處理中'))));
       acts.push(ui.btn('順延', 'classAct', { id: id, a: '順延' }, (num(c['順延次數']) >= (PB.cfg.maxPostpone || 1) || x.pending ? '" disabled title="已順延過或處理中' : '')));
-      acts.push(ui.btn('未成班', 'classAct', { id: id, a: '未成班' }, 'bad' + (x.canDecide && !x.pending ? '' : '" disabled title="' + esc(decideHint || '排程處理中'))));
+      acts.push(ui.btn('未成班', 'classAct', { id: id, a: '未成班' }, 'bad' + (canAct && !x.pending ? '' : '" disabled title="' + esc(decideHint || '排程處理中'))));
       if (str(c['彈性場地'])) acts.push(ui.btn('用彈性場地加開一班', 'copyClass', { id: id }));
     }
     // v3.5：確定開課、還沒上課 → 改回籌備中／取消開課
@@ -652,11 +809,14 @@
     if (x.single && d.a === '未成班') {
       return PB.run('classAction', { id: d.id, action: '未成班' }, { confirm: { title: '未成班：' + m.singleLabel(c), text: '這堂取消；已付學員會在 LINE 收到「改報其他堂／課程抵用金／退款」，3 天未回覆轉抵用金。', danger: true, ok: '設為未成班' } });
     }
+    // v4.32：決定日之前、或已付人數未達門檻也能按，先把狀況講清楚
+    const early = !x.single && x.decide && today() < x.decide ? '<div class="note warn" style="margin-bottom:8px">還沒到決定日 ' + esc(fmtD(x.decide)) + '：提早' + (d.a === '未成班' ? '決定不開' : '確認成班') + '。</div>' : '';
+    const short = d.a === '確認成班' && x.paid < x.min ? '<div class="note warn" style="margin-bottom:8px"><b>已付首堂 ' + x.paid + ' 人，未達門檻 ' + x.min + ' 人</b>，仍要開班。</div>' : '';
     if (d.a === '確認成班') {
-      return PB.run('classAction', { id: d.id, action: '確認成班' }, { confirm: { title: '確認成班：' + m.classLabel(c), text: '已付首堂 ' + x.paid + ' 人（門檻 ' + x.min + '、上限 ' + x.limit + '）。<br>系統會開尾款、入帳堂數、把彈性場地轉成球敘草稿，並通知學員開課。還沒額滿時學員仍可報名到上限（付全額）。<br><b>請先確認開課日期、教練、場地都已定案。</b>', ok: '確認成班' } });
+      return PB.run('classAction', { id: d.id, action: '確認成班' }, { confirm: { title: '確認成班：' + m.classLabel(c), text: early + short + '已付首堂 ' + x.paid + ' 人（門檻 ' + x.min + '、上限 ' + x.limit + '）。<br>系統會開尾款、入帳堂數、把彈性場地轉成球敘草稿，並通知學員開課。還沒額滿時學員仍可報名到上限（付全額）。<br><b>請先確認開課日期、教練、場地都已定案。</b>', ok: '確認成班' } });
     }
     if (d.a === '未成班') {
-      return PB.run('classAction', { id: d.id, action: '未成班' }, { confirm: { title: '未成班：' + m.classLabel(c), text: '場次全部取消、場地轉成球敘草稿；已付學員會在 LINE 收到「順延／轉班／退款」三選項。', danger: true, ok: '設為未成班' } });
+      return PB.run('classAction', { id: d.id, action: '未成班' }, { confirm: { title: '未成班：' + m.classLabel(c), text: early + '場次全部取消、場地轉成球敘草稿；已付學員會在 LINE 收到「順延／轉班／退款」三選項。', danger: true, ok: '設為未成班' } });
     }
     // v3.5：確定開課 → 改回籌備中／取消開課（取消開課＝開班動作「未成班」）
     if (d.a === '改回籌備中') {
@@ -1463,7 +1623,7 @@
       (p.net > 0 ? '已付 ' + money(p.net) + '：請在下面選怎麼處理。' : '未付款的應收會作廢。') + '學員會收到取消通知，候補自動遞補。';
     // v4.24：已付款的，取消時直接選怎麼處理
     const PAID_OPTS = ['退款（開退款待辦）'].concat(PB.has('3_抵用金流水') ? ['轉課程抵用金'] : []).concat(['不退費']);
-    if (p.net > 0) fields.push({ k: 'paid', label: '已付的 ' + money(p.net) + ' 怎麼處理', t: 'enum', opts: PAID_OPTS, value: formed ? '不退費' : PAID_OPTS[0], req: true, hint: '退款：先開待辦，匯款後登記退款。轉抵用金：馬上轉入。不退費：留下紀錄，不開待辦' },
+    if (p.net > 0) fields.push({ k: 'paid', label: '已付的 ' + money(p.net) + ' 怎麼處理', t: 'enum', opts: PAID_OPTS, value: formed ? '不退費' : PAID_OPTS[0], req: true, chips: true, hint: '退款：先開待辦，匯款後登記退款。轉抵用金：馬上轉入。不退費：留下紀錄，不開待辦' },
       { k: 'keepNote', label: '不退費的原因', t: 'text', when: { paid: ['不退費'] }, placeholder: '例：成班後取消，依規則不退' });
     const v = await ui.ask('取消報名：' + m.stuName(r['學員']), text, { fields: fields, danger: true, ok: '取消報名' });
     if (v) PB.run('signupCancel', { ids: [d.id], why: v.why || '', paid: str(v.paid) === '轉課程抵用金' ? 'credit' : str(v.paid) === '不退費' ? 'keep' : '', keepNote: v.keepNote || '' });
@@ -1547,7 +1707,7 @@
       fields: [
         { k: 'amount', label: '金額', t: 'money', req: true, value: x.left },
         { k: 'date', label: '收款日期', t: 'date', req: true, value: today() },
-        { k: 'method', label: '付款方式', t: 'enum', opts: '收款方式', value: '轉帳', req: true },
+        { k: 'method', label: '付款方式', t: 'enum', opts: '收款方式', value: '轉帳', req: true, chips: true },
         { k: 'last5', label: '帳號末五碼', t: 'text', when: { method: ['轉帳'] } },
         { k: 'status', label: '對帳', t: 'enum', opts: ['已確認', '待確認'], value: '已確認', hint: '已在銀行明細看到 → 已確認（學員會收到入帳通知）' },
         { k: 'note', label: '備註', t: 'text' },
@@ -1825,7 +1985,22 @@
     ui.sheet(() => { const g = PB.get('2_球敘場次', id); return g ? fmtD(g['日期']) + ' ' + m.venueName(g['據點']) : null; }, () => gameBody(id), 'game');
   }
   A.openGame = (d) => openGame(d.id);
-  function gameBody(id) {
+  const gameStartMs = (g) => { const d = day(g['日期']); return d ? new Date(d.replace(/-/g, '/') + ' ' + (str(g['開始時間']).slice(0, 5) || '00:00')).getTime() : 0; };
+  A.gameForm = (d) => {
+    const g = PB.get('2_球敘場次', d.id);
+    const x = m.game(g);
+    const min = num(g['人數下限']) || (m.gameType(g['球敘類型']).min || 4) * Math.max(1, x.courts.length);
+    const paid = x.active.filter((r) => m.sigPay(r['報名ID']).left <= 0).length;
+    const host = x.hosts.length ? 1 : 0;
+    const short = x.active.length + host < min;
+    return PB.run('gameFormConfirm', { id: d.id }, { confirm: { title: '確認成團：' + m.gameLabel(g),
+      text: (short ? '<div class="note warn" style="margin-bottom:8px"><b>目前 ' + (x.active.length + host) + ' 人（含場主），成團人數 ' + min + ' 人</b>，仍要成團。</div>' : '') +
+        '已報名 ' + x.active.length + ' 人（已付 ' + paid + '）' + (host ? '＋場主' : '') + '。<br>確認後系統<b>不會再自動取消或合併面數</b>，報名頁顯示「已成團，歡迎加入」；不會另外通知學員。<br>開始前 24 小時以前都可以「撤回成團」。不成團請用「取消球敘」。',
+      ok: '確認成團' } });
+  };
+  A.gameFormUndo = (d) => PB.run('gameFormUndo', { id: d.id }, { confirm: { title: '撤回成團', text: '清掉成團紀錄：開始前 24 小時照常由系統自動檢查（人數不足會合併面數或取消）。', ok: '撤回' } });
+  function gameBody(id) { return gameTiles(id) + gameBodyMain(id) + gameNotify(id); }
+  function gameBodyMain(id) {
     const g = PB.get('2_球敘場次', id);
     if (m.isCharter(g)) return charterBody(id); // v4.14
     const x = m.game(g);
@@ -1835,6 +2010,12 @@
     if (can && x.st === '草稿') acts.push(ui.btn('開放報名', 'gameOpen', { id: id }, 'pri'));
     if (['開放報名', '已額滿'].indexOf(x.st) >= 0 && day(g['日期']) >= t) acts.push(ui.btn('後台報名', 'sigNew', { type: '球敘', target: id }, '', 'plus'), ui.btn('報名連結', 'copyLink', { type: '球敘', id: id }, 'ghost', 'link'));
     if (can && ['取消', '已結束'].indexOf(x.st) < 0 && day(g['日期']) >= t && !x.cancelPending) acts.push(ui.btn(x.st === '草稿' ? '取消草稿' : '取消球敘', 'gameCancel', { id: id }, 'bad'));
+    // v4.32（11/24 Imperfect）：自己判斷成團，不必等開始前 24 小時的自動檢查
+    const formCol = (PB.db.cols['2_球敘場次'] || []).indexOf('成團檢查時間') >= 0;
+    if (formCol && ['開放報名', '已額滿'].indexOf(x.st) >= 0 && !str(g['取消請求時間']) && !m.isCharter(g)) {
+      if (!str(g['成團檢查時間']) && day(g['日期']) >= t) acts.push(ui.btn('確認成團', 'gameForm', { id: id }, 'pri'));
+      else if (str(g['成團檢查時間']) && gameStartMs(g) - Date.now() > 24 * 3600000) acts.push(ui.btn('撤回成團', 'gameFormUndo', { id: id }, 'ghost'));
+    }
     if (can && x.st === '草稿' && !x.sigs.length) acts.push(ui.btn('刪除草稿', 'gameDelete', { id: id }, 'ghost'));
     if (can && ['草稿', '開放報名', '已額滿'].indexOf(x.st) >= 0) acts.push(ui.btn('編輯', 'gameEdit', { id: id }, 'ghost'));
     if (PB.ksOk('game', id)) acts.push(ui.btn('更換種類', 'kindSwap', { t: 'game', id: id }, 'ghost')); // v4.12
@@ -1850,7 +2031,7 @@
       ['程度', lv ? esc(lv) + (m.gameType(g['球敘類型']).rule === '分級' ? ' <span class="mut">（分級：依程度擋，往上相容）</span>' : ' <span class="mut">（建議，不擋報名）</span>') : '<span class="mut">不指定</span>'], // v4.1
       ['費用', str(g['費用']) !== '' ? esc(money(g['費用']) + '／人') : '<span class="badge bad">未填（不能開放報名）</span>'],
       ...(x.rackets !== null ? [['球拍租借', esc('已報名的人租 ' + x.rackets + ' 支') + (x.racketStock !== null ? esc('・據點庫存 ' + x.racketStock + ' 支（同時段共用）') : '')]] : []), // v3.0
-      ['成團', str(g['成團檢查時間']) ? esc('已檢查 ' + fmtDT(g['成團檢查時間'])) : ['開放報名', '已額滿'].indexOf(x.st) >= 0 ? '<span class="mut">開始前 24 小時依已付款人數檢查（每面 ' + esc(String(m.gameType(g['球敘類型']).min || 6)) + ' 人；不足先合併面數，仍不足就取消）</span>' : '<span class="mut">—</span>'], // v3.7
+      ['成團', str(g['成團檢查時間']) && !str(g['取消請求時間']) ? '<span class="badge ok">已成團</span> ' + esc('確認時間 ' + fmtDT(g['成團檢查時間'])) : str(g['成團檢查時間']) ? esc('已檢查 ' + fmtDT(g['成團檢查時間'])) : ['開放報名', '已額滿'].indexOf(x.st) >= 0 ? '<span class="mut">開始前 24 小時依已付款人數檢查（每面 ' + esc(String(m.gameType(g['球敘類型']).min || 6)) + ' 人；不足先合併面數，仍不足就取消）</span>' : '<span class="mut">—</span>'], // v3.7
       ['名額', esc('已報名 ' + x.active.length + '／上限 ' + x.limit + '・剩 ' + x.left) + (x.walkin.length ? ' <span class="badge warn">現場待確認 ' + x.walkin.length + '</span>' : '') + (x.checked ? ' <span class="badge ok">簽到 ' + x.checked + '</span>' : '')],
       ['場主', hostCell(g, x, can && ['草稿', '開放報名', '已額滿'].indexOf(x.st) >= 0 && day(g['日期']) >= t)],
       ['計分', esc((str(g['每場分數']) || '15') + ' 分' + (g['需贏2分'] === false ? '・不需贏 2 分' : ''))],
@@ -2219,23 +2400,190 @@
         '<label class="search">' + PB.icon('search') + '<input placeholder="姓名、電話、LINE 名稱" value="' + esc(p.q || '') + '" data-input="stuSearch"></label></div>';
       const rows = list.slice(0, num(p.n) || 80).map((s) => {
         const x = m.stu(s);
-        return row({ act: 'openStu', id: s['學員ID'], t: esc(str(s['姓名']) || str(s['LINE顯示名稱']) || '（未填姓名）') + (str(s['身分']) ? ' <span class="badge">' + esc(s['身分']) + '</span>' : '') + (x.guardian ? ' <span class="badge info">' + esc(m.stuName(s['管理人']) + '的' + (str(s['與管理人關係']) || '家人')) + '</span>' : '') + (x.family.length ? ' <span class="badge info">家人 ' + x.family.length + ' 位</span>' : '') + (f === '跟進中' ? (() => { const L = openLeads(s).map((l) => day(l['下次跟進日期'])).filter(Boolean).sort(); return ' <span class="badge ' + (L[0] && L[0] <= today() ? 'warn' : 'info') + '">' + (L[0] ? '下次跟進 ' + esc(fmtD(L[0])) : '跟進中') + '</span>'; })() : ''), s: esc([str(s['電話']), str(s['LINE顯示名稱']) ? 'LINE ' + s['LINE顯示名稱'] : '', m.levelName(s['程度'])].filter(Boolean).join('・')), r: (x.owed > 0 ? '<span class="badge bad">未收 ' + money(x.owed) + '</span>' : '') + (x.lessons ? '<span class="badge">剩 ' + x.lessons + ' 堂</span>' : '') });
+        return row({ act: 'openStu', id: s['學員ID'], av: (str(s['姓名']) || str(s['LINE顯示名稱']) || '？').charAt(0), t: esc(str(s['姓名']) || str(s['LINE顯示名稱']) || '（未填姓名）') + (str(s['身分']) ? ' <span class="badge">' + esc(s['身分']) + '</span>' : '') + (x.guardian ? ' <span class="badge info">' + esc(m.stuName(s['管理人']) + '的' + (str(s['與管理人關係']) || '家人')) + '</span>' : '') + (x.family.length ? ' <span class="badge info">家人 ' + x.family.length + ' 位</span>' : '') + (f === '跟進中' ? (() => { const L = openLeads(s).map((l) => day(l['下次跟進日期'])).filter(Boolean).sort(); return ' <span class="badge ' + (L[0] && L[0] <= today() ? 'warn' : 'info') + '">' + (L[0] ? '下次跟進 ' + esc(fmtD(L[0])) : '跟進中') + '</span>'; })() : ''), s: esc([str(s['電話']), str(s['LINE顯示名稱']) ? 'LINE ' + s['LINE顯示名稱'] : '', m.levelName(s['程度'])].filter(Boolean).join('・')), r: (x.owed > 0 ? '<span class="badge bad">未收 ' + money(x.owed) + '</span>' : '') + (x.lessons ? '<span class="badge">剩 ' + x.lessons + ' 堂</span>' : '') });
       }).join('');
-      return top + card((rows || ui.empty('找不到學員', '可以用電話或 LINE 名稱搜尋')) + (total > (num(p.n) || 80) ? '<div class="empty">' + ui.btn('顯示更多', 'param', { k: 'n', v: (num(p.n) || 80) + 200 }) + '</div>' : ''));
+      const rec = !kw ? stuRecent().filter((k) => PB.get('1_學員', k)) : [];
+      const recHtml = rec.length ? '<div class="recent"><span class="mut" style="font-size:.85rem">最近查過</span>' + rec.map((k) => '<button class="chip" data-act="openStu" data-id="' + esc(k) + '">' + esc(m.stuName(k)) + '</button>').join('') + '</div>' : '';
+      return top + recHtml + card((rows || ui.empty('找不到學員', '可以用電話或 LINE 名稱搜尋')) + (total > (num(p.n) || 80) ? '<div class="empty">' + ui.btn('顯示更多', 'param', { k: 'n', v: (num(p.n) || 80) + 200 }) + '</div>' : ''));
     },
   };
+  // v4.32：最近查過的學員（這台裝置，最多 6 位）
+  const STU_RECENT_KEY = 'pb.stuRecent';
+  function stuRecent() { try { return JSON.parse(localStorage.getItem(STU_RECENT_KEY) || '[]') || []; } catch (e) { return []; } }
+  function stuRecentAdd(id) { try { localStorage.setItem(STU_RECENT_KEY, JSON.stringify([id].concat(stuRecent().filter((k) => k !== id)).slice(0, 6))); } catch (e) { /* 私密模式 */ } }
   function openStu(id) {
+    stuRecentAdd(String(id));
     ui.sheet(() => { const s = PB.get('1_學員', id); return s ? str(s['姓名']) || str(s['LINE顯示名稱']) || '學員' : null; }, () => stuBody(id), 'stu');
   }
   A.openStu = (d) => { if (d.id) openStu(d.id); };
+  // ---------------- v4.32（11/24）球敘／課程明細的「最近通知」（依 9_通知紀錄.關聯ID：場次＋報名＋排班） ----------------
+  const REL_NOTIFY = {};
+  function relNotify(key, refs) {
+    const c = REL_NOTIFY[key];
+    if (!c || (!c.loading && Date.now() - c.at > 300000)) {
+      REL_NOTIFY[key] = { loading: true, at: c ? c.at : 0, r: c && c.r };
+      PB.read('notifyQuery', { refs: refs, limit: 8 }).then((r) => { REL_NOTIFY[key] = { at: Date.now(), r: r || { rows: [], total: 0, err: !r } }; PB.render(); })
+        .catch(() => { REL_NOTIFY[key] = { at: Date.now(), r: { rows: [], total: 0, err: true } }; });
+    }
+    const r = (REL_NOTIFY[key] || {}).r;
+    const head = sec('最近通知', r && r.total ? r.total : undefined);
+    if (!r) return head + card('<div class="empty">讀取中…</div>');
+    if (r.err) return head + card(ui.empty('通知紀錄讀不到'));
+    if (!r.rows.length) return head + card(ui.empty('還沒有發過通知'));
+    const RES = { 成功: ['ok', '✓ 已送到'], 失敗: ['bad', '✗ 沒送到'], 略過: ['warn', '略過'] };
+    return head + card(r.rows.map((x) => {
+      const who = str(x['對象學員']) ? m.stuName(x['對象學員']) : str(x['對象人員']) ? m.staffName(x['對象人員']) : '';
+      const res = RES[str(x['發送結果'])] || ['', str(x['發送結果'])];
+      return row({ act: str(x['對象學員']) ? 'openStu' : '', id: x['對象學員'], t: esc(str(x['通知類型']) || '通知') + (who ? ' → ' + esc(who) : ''), s: esc([fmtDT(x['發送時間']), str(x['官方帳號']) ? x['官方帳號'] + ' OA' : '', str(x['錯誤訊息'])].filter(Boolean).join('・')), r: '<span class="badge ' + res[0] + '">' + esc(res[1]) + '</span>' });
+    }).join(''));
+  }
+  // v4.32：明細最上面三格（一眼看人數與收款）
+  const tiles3 = (list) => '<div class="stu-tiles dt-tiles">' + list.map((t) => '<div class="stu-tile ' + (t[2] || '') + '"><span>' + esc(t[0]) + '</span><b>' + t[1] + '</b></div>').join('') + '</div>';
+  function gameTiles(id) {
+    const g = PB.get('2_球敘場次', id);
+    if (!g || m.isCharter(g)) return '';
+    const x = m.game(g);
+    const unpaid = x.active.filter((r) => m.sigPay(r['報名ID']).left > 0).length;
+    return tiles3([['已報名', x.active.length + '／' + x.limit], ['未付', unpaid, unpaid ? 'bad' : ''], ['候補', x.wait.length, x.wait.length ? 'warn' : '']]);
+  }
+  function classTiles(id) {
+    const c = PB.get('2_課程班級', id);
+    if (!c) return '';
+    const x = m.cls(c);
+    return tiles3([['已報名', x.active.length + '／' + x.limit], ['已付', x.paid + (x.need && x.st === '籌備中' ? '（差 ' + x.need + '）' : ''), x.need && x.st === '籌備中' ? 'warn' : 'ok'], ['候補', x.wait.length, x.wait.length ? 'warn' : '']]);
+  }
+  function gameNotify(id) {
+    const g = PB.get('2_球敘場次', id);
+    if (!g) return '';
+    const refs = [id].concat(PB.rows('2_報名').filter((r) => str(r['球敘']) === str(id)).map((r) => str(r['報名ID'])), (PB.ix.dutyByGame[str(id)] || []).map((x) => str(x['排班ID'])));
+    return relNotify('g:' + id, refs);
+  }
+  function classNotify(id) {
+    if (!PB.get('2_課程班級', id)) return '';
+    const refs = [id].concat(PB.rows('2_報名').filter((r) => str(r['班級']) === str(id)).map((r) => str(r['報名ID'])), PB.rows('2_上課場次').filter((s) => str(s['班級']) === str(id)).map((s) => str(s['場次ID'])));
+    return relNotify('c:' + id, refs);
+  }
+  // ---------------- v4.32（11/24）學員頁：分頁、底下固定按鈕、一筆報名的動作清單 ----------------
+  const STU_TABS = ['接下來', '帳', '通知', '經過'];
+  const stuTab = {};
+  const STU_NOTIFY = {}; // 學員ID → { at, r }（通知紀錄 5 分鐘內不重抓）
+  const sigDay = (r) => {
+    if (str(r['報名類型']) === '課程') { const c = PB.get('2_課程班級', r['班級']) || {}; return day(c['開課日期']) + str(c['開始時間']); }
+    const g = PB.get('2_球敘場次', r['球敘']) || {};
+    return day(g['日期']) + str(g['開始時間']);
+  };
+  A.stuTab = (d) => { stuTab[d.id] = d.v; PB.render(); };
+  function stuNotifyTab(id) {
+    const c = STU_NOTIFY[id];
+    if (!c || Date.now() - c.at > 300000) {
+      if (!c || !c.loading) {
+        STU_NOTIFY[id] = Object.assign({}, c || {}, { loading: true, at: (c && c.at) || 0 });
+        PB.read('notifyQuery', { student: id, limit: 50 }).then((r) => { STU_NOTIFY[id] = { at: Date.now(), r: r || { rows: [], total: 0 } }; PB.render(); })
+          .catch(() => { STU_NOTIFY[id] = { at: Date.now(), r: { rows: [], total: 0, err: true } }; PB.render(); });
+      }
+      if (!c || !c.r) return card('<div class="empty">讀取通知紀錄中…</div>');
+    }
+    const r = c.r;
+    const RES = { 成功: 'ok', 失敗: 'bad', 略過: 'warn' };
+    if (r.err) return card(ui.empty('通知紀錄讀不到', '稍後再切回這一頁'));
+    if (!r.rows.length) return card(ui.empty('沒有通知紀錄'));
+    return '<p class="mut" style="margin:0 2px 8px;font-size:.85rem">共 ' + r.total + ' 則' + (r.total > r.rows.length ? '，顯示最近 ' + r.rows.length + ' 則' : '') + '（新到舊）</p>' +
+      card(r.rows.map((x) => row({ t: esc(x['通知類型'] || '通知') + ' <span class="badge ' + (RES[str(x['發送結果'])] || '') + '">' + esc(x['發送結果']) + '</span>', s: esc([fmtDT(x['發送時間']), str(x['官方帳號']), str(x['內容'] || '').replace(/\s+/g, ' ').slice(0, 80), str(x['錯誤訊息'])].filter(Boolean).join('・')) })).join(''));
+  }
+  /** 學員頁「收款」：只有一筆未收 → 直接收；多筆 → 先選 */
+  A.stuPay = (d) => {
+    const x = m.stu(d.id);
+    const list = x.payRecs.filter((r) => { const y = m.rec(r['應收ID']); return !y.voided && y.left > 0; });
+    if (!list.length) return ui.toast('這位學員沒有未收的帳');
+    if (list.length === 1) return A.payAdd({ id: list[0]['應收ID'] });
+    ui.actions('收哪一筆？', esc(m.stuName(d.id)) + ' 有 ' + list.length + ' 筆未收', list.map((r) => ({ label: (str(r['項目說明']) || str(r['收入來源'])) + '・未收 ' + money(m.rec(r['應收ID']).left), sub: str(r['學員']) !== d.id ? '替 ' + m.stuName(r['學員']) + ' 付' : '', act: 'payAdd', data: { id: r['應收ID'] } })));
+  };
+  A.stuMore = (d) => {
+    const x = m.stu(d.id);
+    ui.actions(m.stuName(d.id), '', [
+      { label: '新增招生跟進', act: 'leadNew', data: { stu: d.id } },
+      { label: '編輯學員資料', act: 'stuEdit', data: { id: d.id } },
+      x.guardian ? null : { label: '新增家人', act: 'stuFamily', data: { id: d.id } },
+      PB.has('3_抵用金流水') ? { label: '補償抵用金', act: 'compStu', data: { id: d.id } } : null,
+      couponOn() ? { label: '手動發折價券', act: 'couponGive', data: { id: d.id } } : null,
+      x.owed > 0 ? { label: '提醒付款（全部未收）', act: 'payRemind', data: { ids: x.payRecs.filter((r) => m.rec(r['應收ID']).left > 0 && !m.rec(r['應收ID']).voided).map((r) => r['應收ID']).join(',') } } : null,
+      { label: '通知紀錄', act: 'stuTab', data: { id: d.id, v: '通知' } },
+    ]);
+  };
+  /** 一筆報名的動作（學員頁點一筆） */
+  A.sigActs = (d) => {
+    const r = PB.get('2_報名', d.id);
+    if (!r) return;
+    const st = str(r['報名狀態']);
+    const p = m.sigPay(d.id);
+    const isC = str(r['報名類型']) === '課程';
+    const c = isC ? PB.get('2_課程班級', r['班級']) : null;
+    const g = isC ? null : PB.get('2_球敘場次', r['球敘']);
+    const single = isC && m.isSingle(c);
+    const cst = str((c || {})['課程狀態']);
+    const live = ['已報名', '候補', '保留中'].indexOf(st) >= 0;
+    const owe = p.recs.filter((x) => { const y = m.rec(x['應收ID']); return !y.voided && y.left > 0; });
+    const payer = owe.length ? str(owe[0]['付款人']) : '';
+    const sub = esc([str(r['報名類型']) + (st !== '已報名' ? '・' + st : ''), g && str(r['場地']) ? m.courtName(r['場地']) : '', p.left > 0 ? '未付 ' + money(p.left) + (payer && payer !== str(r['學員']) ? '（由 ' + m.stuName(payer) + ' 付）' : '') : p.status].filter(Boolean).join('・'));
+    ui.actions(m.stuName(r['學員']) + '・' + m.sigTarget(r), sub, [
+      owe.length && st === '已報名' ? { label: '收款 ' + money(p.left), act: 'payAdd', data: { id: owe[0]['應收ID'] }, cls: 'pri' } : null,
+      owe.length && st === '已報名' ? { label: '提醒付款', act: 'payRemind', data: { ids: owe.map((x) => x['應收ID']).join(',') } } : null,
+      st === '候補' ? { label: '手動遞補', act: 'sigPromote', data: { id: d.id } } : null,
+      live && !isC && g ? { label: '換到別場', sub: '只列同據點', act: 'sigGameMove', data: { id: d.id } } : null,
+      live && !isC && g && split(g['使用場地']).length > 1 ? { label: '換球面', act: 'sigCourt', data: { id: d.id } } : null,
+      live && isC && (!single || ['籌備中', '未成班'].indexOf(cst) >= 0) ? { label: single ? '改報別堂' : '移班', act: 'sigMove', data: { id: d.id } } : null,
+      st === '已報名' ? { label: '換人', act: 'sigSwap', data: { id: d.id } } : null,
+      PB.has('3_抵用金流水') ? { label: '補償抵用金', act: 'compStu', data: { id: str(r['學員']) } } : null,
+      { label: isC ? '開這班' : '開這場的名單', act: isC ? 'openClass' : 'openGame', data: { id: isC ? r['班級'] : r['球敘'] } },
+      live ? { label: '取消報名…', act: 'sigCancel', data: { id: d.id }, cls: 'bad' } : null,
+    ]);
+  };
+  const courtOpts = (g, selfId) => split(g['使用場地']).map((cid) => {
+    const used = PB.rows('2_報名').filter((x) => str(x['報名ID']) !== selfId && str(x['球敘']) === str(g['球敘ID']) && str(x['場地']) === cid && ['已報名', '現場待確認'].indexOf(str(x['報名狀態'])) >= 0).length;
+    const cap = num((PB.get('1_據點_場地', cid) || {})['人數上限']);
+    return { id: cid, l: m.courtName(cid) + '（' + used + (cap ? '/' + cap : '') + ' 人）' };
+  });
+  A.sigCourt = async (d) => {
+    const r = PB.get('2_報名', d.id);
+    const g = PB.get('2_球敘場次', r['球敘']);
+    const opts = courtOpts(g, d.id).filter((o) => o.id !== str(r['場地']));
+    if (!opts.length) return ui.toast('這場只有一面', 'bad');
+    const fields = [{ k: 'court', label: '換到', t: 'enum', req: true, opts: opts.map((o) => o.l) }];
+    if (isMgmt()) fields.push({ k: 'force', label: '那一面滿了也換（管理層）', t: 'bool' });
+    const v = await ui.ask('換球面：' + m.stuName(r['學員']), esc(m.sigTarget(r)) + '<br>目前在 ' + esc(m.courtName(r['場地']) || '—') + '。學員不會自動收到通知，請另外告知。', { fields: fields, ok: '換球面' });
+    if (!v) return;
+    const o = opts.find((x) => x.l === v.court);
+    if (o) PB.run('signupCourt', { id: d.id, court: o.id, force: v.force === true });
+  };
+  A.sigGameMove = async (d) => {
+    const r = PB.get('2_報名', d.id);
+    const from = PB.get('2_球敘場次', r['球敘']);
+    const t = today();
+    const mine = new Set(PB.rows('2_報名').filter((x) => str(x['學員']) === str(r['學員']) && ['已報名', '候補', '保留中', '現場待確認'].indexOf(str(x['報名狀態'])) >= 0).map((x) => str(x['球敘'])));
+    const games = PB.rows('2_球敘場次').filter((g) => str(g['據點']) === str(from['據點']) && str(g['球敘ID']) !== str(from['球敘ID']) && day(g['日期']) >= t && ['開放報名', '已額滿'].indexOf(str(g['狀態'])) >= 0 && !m.isCharter(g) && !mine.has(str(g['球敘ID'])))
+      .sort((a, b) => byKey(day(a['日期']) + str(a['開始時間']), day(b['日期']) + str(b['開始時間'])));
+    if (!games.length) return ui.toast(m.venueName(from['據點']) + ' 目前沒有其他開放報名的球敘', 'bad');
+    const gl = (g) => m.label('2_球敘場次', g) + (num(g['費用']) !== num(from['費用']) ? '｜' + money(g['費用']) : '');
+    const v = await ui.ask('換到別場：' + m.stuName(r['學員']), esc(m.sigTarget(r)) + '<br>只列 ' + esc(m.venueName(from['據點'])) + ' 的球敘。已付的錢跟著報名走；費用不同時差額請另外處理。學員不會自動收到通知。', {
+      fields: [{ k: 'game', label: '換到哪一場', t: 'enum', req: true, opts: games.map(gl) }].concat(isMgmt() ? [{ k: 'force', label: '那場滿了也換入（管理層）', t: 'bool' }] : []),
+      ok: '下一步',
+    });
+    if (!v) return;
+    const g = games.find((x) => gl(x) === v.game);
+    if (!g) return;
+    let court = '';
+    const cs = courtOpts(g, d.id);
+    if (cs.length > 1) {
+      const v2 = await ui.ask('選球面', esc(m.label('2_球敘場次', g)), { fields: [{ k: 'court', label: '球面', t: 'enum', req: true, opts: cs.map((o) => o.l) }], ok: '換場' });
+      if (!v2) return;
+      court = (cs.find((o) => o.l === v2.court) || {}).id || '';
+    } else court = cs.length ? cs[0].id : '';
+    PB.run('signupGameMove', { id: d.id, gameId: g['球敘ID'], court: court, force: v.force === true });
+  };
   function stuBody(id) {
     const s = PB.get('1_學員', id);
     const x = m.stu(s);
     const t = today();
-    const acts = [ui.btn('後台報名', 'sigNew', { stu: id }, 'pri', 'plus'), ui.btn('新增跟進', 'leadNew', { stu: id }), ui.btn('編輯', 'stuEdit', { id: id }, 'ghost')];
-    if (!x.guardian) acts.push(ui.btn('新增家人', 'stuFamily', { id: id }, 'ghost'));
-    acts.push(ui.btn('通知紀錄', 'notifyOf', { id: id }, 'ghost'));
-    if (PB.has('3_抵用金流水')) acts.push(ui.btn('補償抵用金', 'compStu', { id: id }, 'ghost')); // v4.28
     // v4.26（11/24 Imperfect）：學員合併的資訊（待合併、已合併、合併按鈕）全部不顯示
     const active = x.sigs.filter((r) => ['已報名', '候補', '保留中', '現場待確認'].indexOf(str(r['報名狀態'])) >= 0 && (str(r['報名類型']) === '課程' ? !!PB.get('2_課程班級', r['班級']) && ['已結束', '取消'].indexOf(str(PB.get('2_課程班級', r['班級'])['課程狀態'])) < 0 : day((PB.get('2_球敘場次', r['球敘']) || {})['日期']) >= t));
     const past = x.sigs.filter((r) => active.indexOf(r) < 0);
@@ -2248,7 +2596,6 @@
       const b = [];
       if (!y.voided && y.left > 0) b.push(btn('收款', 'payAdd', { id: r['應收ID'] }, 'pri'), btn('提醒', 'payRemind', { ids: r['應收ID'] }, 'ghost'));
       if (!y.voided && y.left > 0 && creditOn && m.stu(m.creditOwner(str(r['付款人'] || r['學員']))).credit > 0 && m.creditOwner(str(r['付款人'] || r['學員'])) === x.creditOwner) b.push(btn('用抵用金付', 'creditUse', { id: r['應收ID'] }));
-      if (y.net > 0) b.push(btn('退款', 'refund', { id: r['應收ID'] }, 'ghost'));
       if (y.net > 0 && creditOn && sigEnded(PB.get('2_報名', r['報名']))) b.push(btn('轉抵用金', 'creditIn', { id: r['應收ID'] }, 'ghost'));
       if (!y.voided && y.net > 0) b.push(btn('退款', 'refund', { id: r['應收ID'] }, 'ghost')); // v4.28（11/24）：學員頁每筆已收款的帳都能登記退款
       const pays = (PB.ix.payByRec[str(r['應收ID'])] || []).map((p) => fmtD(p['收款日期']) + ' ' + money(p['金額']) + ' ' + str(p['付款方式']) + (str(p['對帳狀態']) !== '已確認' ? '（' + str(p['對帳狀態']) + '）' : '')).join('；');
@@ -2278,10 +2625,38 @@
       return row({ act: 'openStu', id: str(r['付款人']), t: esc(str(r['項目說明'])) + ' <span class="num">' + money(r['應收金額']) + '</span>', s: esc('付款人 ' + m.stuName(r['付款人'])), r: y.left > 0 ? '<span class="badge bad">未收 ' + money(y.left) + '</span>' : '<span class="badge ok">已付</span>' });
     }).join('')) : '';
     const friend = !str(s['LINE_userId']) ? '<span class="badge">未綁 LINE</span>' : s['好友狀態'] === false ? '<span class="badge bad">未加好友（收不到通知）</span>' : '<span class="badge ok">已加好友</span>';
-    return '<div class="acts">' + acts.join('') + '</div>' +
-      '<div class="kpis" style="margin-bottom:12px"><div class="kpi"><div class="l">剩餘堂數</div><div class="v">' + x.lessons + '</div></div><div class="kpi' + (x.owed > 0 ? ' neg' : '') + '"><div class="l">未收金額</div><div class="v">' + money(x.owed) + '</div><div class="d">以付款人計</div></div><div class="kpi"><div class="l">報名</div><div class="v">' + x.sigs.filter((r) => str(r['報名狀態']) !== '已取消').length + '</div></div>' +
-      (creditOn ? '<div class="kpi' + (x.credit > 0 ? ' pos' : '') + '"><div class="l">課程抵用金</div><div class="v">' + money(x.credit) + '</div><div class="d">' + (x.guardian ? '家人的抵用金算在管理人 ' + esc(m.stuName(x.creditOwner)) : '不設到期日，可申請退現' + (x.family.length ? '（含家人）' : '')) + '</div></div>' : '') + '</div>' +
-      kv([
+    // v4.32（11/24）手機優先：上面三格 → 分頁（接下來／帳／通知／經過）→ 底下固定「＋報名／收款／更多」
+    const tab = STU_TABS.indexOf(stuTab[id]) >= 0 ? stuTab[id] : '接下來';
+    const owedN = recs.filter((r) => { const y = m.rec(r['應收ID']); return !y.voided && y.left > 0; }).length;
+    const tiles = [['還沒付', money(x.owed), x.owed > 0 ? 'bad' : '', '帳']];
+    if (creditOn) tiles.push(['抵用金', money(x.credit), x.credit > 0 ? 'ok' : '', '帳']);
+    if (kinIds.length) tiles.push(['全家', (kinIds.length + 1) + ' 人', '', '接下來']);
+    tiles.push(['剩餘堂數', x.lessons, '', '經過'], ['報名', active.length, '', '接下來']);
+    const tileHtml = '<div class="stu-tiles">' + tiles.slice(0, 3).map((t) => '<button class="stu-tile ' + t[2] + '" data-act="stuTab" data-id="' + esc(id) + '" data-v="' + t[3] + '"><span>' + esc(t[0]) + '</span><b>' + t[1] + '</b></button>').join('') + '</div>';
+    const meta = '<div class="stu-meta">' + (str(s['電話']) ? ui.tel(str(s['電話'])) : x.guardian && m.phone(s) ? '<span class="mut">家長 ' + esc(m.phone(s)) + '</span>' : '<span class="mut">沒有電話</span>') + friend +
+      (x.guardian ? '<span class="mut">由 <a href="#" data-act="openStu" data-id="' + esc(s['管理人']) + '">' + esc(m.stuName(s['管理人'])) + '</a> 管理</span>' : '') + (str(s['身分']) ? '<span class="badge">' + esc(s['身分']) + '</span>' : '') + '</div>';
+    const cnt = { 接下來: active.length, 帳: owedN ? '未付 ' + owedN : '', 通知: '', 經過: '' };
+    const tabs = '<div class="stu-tabs">' + STU_TABS.map((t) => '<button class="chip' + (t === tab ? ' on' : '') + '" data-act="stuTab" data-id="' + esc(id) + '" data-v="' + t + '">' + t + (cnt[t] !== '' && cnt[t] !== 0 ? ' ' + cnt[t] : '') + '</button>').join('') + '</div>';
+    const sigCard = (r) => {
+      const p = m.sigPay(r['報名ID']);
+      const owe = p.left > 0 && str(r['報名狀態']) === '已報名';
+      const isC = str(r['報名類型']) === '課程';
+      const g = isC ? null : PB.get('2_球敘場次', r['球敘']);
+      const court = !isC && str(r['場地']) && g && split(g['使用場地']).length > 1 ? m.courtName(r['場地']) : '';
+      return '<button class="stu-sig' + (owe ? ' owe' : '') + '" data-act="sigActs" data-id="' + esc(r['報名ID']) + '"><span class="t"><b>' + esc(m.sigTarget(r)) + '</b>' + (str(r['報名狀態']) !== '已報名' ? m.sigBadge(str(r['報名狀態'])) : '') + (str(r['報名狀態']) === '候補' ? '' : owe ? '<span class="badge bad">未付 ' + money(p.left) + '</span>' : m.payBadge(p.status)) + '</span>' +
+        '<span class="s">' + esc([str(r['報名類型']), court, str(r['代報名人']) ? m.stuName(r['代報名人']) + ' 代報' : '', '報名 ' + fmtDT(r['報名時間'])].filter(Boolean).join('・')) + '</span></button>';
+    };
+    let body = '';
+    if (tab === '接下來') {
+      body = (active.length ? active.slice().sort((a, b) => byKey(sigDay(a), sigDay(b))).map(sigCard).join('') : card(ui.empty('沒有進行中的報名', '按下面「＋報名」幫學員報名'))) + famSec;
+    } else if (tab === '帳') {
+      body = sec('帳務', recs.length + ' 筆') + card(recRows || ui.empty('沒有應收')) + kidRecSec +
+        (creditOn && (x.credits.length || x.credit) ? sec('課程抵用金', '餘額 ' + money(x.credit), x.credit > 0 ? ui.btn('申請退現', 'creditTask', { id: id }, 'sm ghost') + ui.btn('退現（已匯款）', 'creditCash', { id: id }, 'sm') : '') + card(creditRows || ui.empty('沒有紀錄')) : '') +
+        couponSec(id, x);
+    } else if (tab === '通知') {
+      body = stuNotifyTab(id);
+    } else {
+      body = kv([
         ['電話', ui.tel(str(s['電話'])) + (!str(s['電話']) && x.guardian ? ' <span class="mut">（家長 ' + esc(m.phone(s)) + '）</span>' : '')],
         ['LINE', esc(str(s['LINE顯示名稱'])) + ' ' + friend],
         ['身分／程度', esc([str(s['身分']), m.levelName(s['程度']), str(s['DUPR雙打']) ? 'DUPR ' + s['DUPR雙打'] : ''].filter(Boolean).join('・'))],
@@ -2293,14 +2668,12 @@
         ['狀態', esc(str(s['目前狀態']))],
         ['備註', esc(s['備註'])],
       ]) +
-      famSec + kidRecSec +
-      sec('目前報名', active.length) + card(active.map((r) => row({ act: str(r['報名類型']) === '課程' ? 'openClass' : 'openGame', id: r[str(r['報名類型']) === '課程' ? '班級' : '球敘'], t: esc(m.sigTarget(r)) + ' ' + m.sigBadge(str(r['報名狀態'])) + ' ' + m.payBadge(m.sigPay(r['報名ID']).status), s: esc(str(r['報名類型']) + '・報名 ' + fmtDT(r['報名時間']) + (str(r['代報名人']) ? '・' + m.stuName(r['代報名人']) + ' 代報' : '')) })).join('') || ui.empty('沒有進行中的報名')) +
-      sec('帳務', recs.length + ' 筆') + card(recRows || ui.empty('沒有應收')) +
-      couponSec(id, x) +
-      (creditOn && (x.credits.length || x.credit) ? sec('課程抵用金', '餘額 ' + money(x.credit), x.credit > 0 ? ui.btn('申請退現', 'creditTask', { id: id }, 'sm ghost') + ui.btn('退現（已匯款）', 'creditCash', { id: id }, 'sm') : '') + card(creditRows || ui.empty('沒有紀錄')) : '') +
-      (leaves.length ? sec('請假與補課', leaves.length + ' 次') + card(attRows) : '') +
-      sec('招生跟進', leads.length, ui.btn('新增', 'leadNew', { stu: id }, 'sm ghost', 'plus')) + card(leads.map((l) => row({ act: 'leadEdit', id: l['跟進ID'], t: esc(fmtD(l['跟進日期']) + '・' + str(l['跟進狀態'])), s: esc((str(l['需求']) || '') + (day(l['下次跟進日期']) ? '・下次 ' + fmtD(l['下次跟進日期']) : '')) })).join('') || ui.empty('沒有跟進紀錄')) +
-      (past.length ? '<details style="margin-top:12px"><summary class="mut">過去的報名 ' + past.length + ' 筆</summary>' + card(past.slice(0, 50).map((r) => row({ t: esc(m.sigTarget(r)) + ' ' + m.sigBadge(str(r['報名狀態'])), s: esc(fmtDT(r['報名時間']) + (str(r['取消原因']) ? '・' + r['取消原因'] : '')) })).join('')) + '</details>' : '');
+        (leaves.length ? sec('請假與補課', leaves.length + ' 次') + card(attRows) : '') +
+        sec('招生跟進', leads.length, ui.btn('新增', 'leadNew', { stu: id }, 'sm ghost', 'plus')) + card(leads.map((l) => row({ act: 'leadEdit', id: l['跟進ID'], t: esc(fmtD(l['跟進日期']) + '・' + str(l['跟進狀態'])), s: esc((str(l['需求']) || '') + (day(l['下次跟進日期']) ? '・下次 ' + fmtD(l['下次跟進日期']) : '')) })).join('') || ui.empty('沒有跟進紀錄')) +
+        sec('過去的報名', past.length) + card(past.slice(0, 50).map((r) => row({ t: esc(m.sigTarget(r)) + ' ' + m.sigBadge(str(r['報名狀態'])), s: esc(fmtDT(r['報名時間']) + (str(r['取消原因']) ? '・' + r['取消原因'] : '')) })).join('') || ui.empty('沒有'));
+    }
+    const bar = '<div class="stu-bar">' + ui.btn('報名', 'sigNew', { stu: id }, 'pri', 'plus') + ui.btn(owedN ? '收款' : '收款', 'stuPay', { id: id }, owedN ? '' : 'ghost') + ui.btn('更多…', 'stuMore', { id: id }, 'ghost') + '</div>';
+    return meta + tileHtml + tabs + '<div class="stu-body" data-tab="' + esc(tab) + '">' + body + '</div>' + bar;
   }
   // ---------------- v4.25：簽到折價券（規則在學員 OA；這裡只看、手動補發、作廢） ----------------
   const couponOn = () => PB.has('3_優惠券') && (PB.db.cols['3_優惠券'] || []).indexOf('狀態') >= 0;
@@ -2578,7 +2951,10 @@
       const plat = (k) => SRC_PLATFORM[k.split('_')[0]] || '';
       return '<div class="ptop"><h1>來源成效</h1><span class="sp"></span><select class="btn" data-input="srcMonth">' + months.map((x) => '<option' + (x === mon ? ' selected' : '') + '>' + x + '</option>').join('') + '</select></div>' +
         '<div class="kpis"><div class="kpi"><div class="l">' + mon + ' 報名</div><div class="v">' + sigs.length + '</div></div><div class="kpi"><div class="l">有效（未取消）</div><div class="v">' + sum(list, (o) => o.ok) + '</div></div><div class="kpi"><div class="l">新人</div><div class="v">' + sum(list, (o) => o.nw) + '</div></div><div class="kpi"><div class="l">帶來源碼的比例</div><div class="v">' + (sigs.length ? Math.round((sigs.filter((r) => str(r['來源代碼'])).length / sigs.length) * 100) : 0) + '%</div></div></div>' +
-        sec('依來源碼', list.length + ' 個') + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>來源碼</th><th>平台</th><th class="num">報名</th><th class="num">有效</th><th class="num">新人</th><th class="num">課程</th><th class="num">球敘</th><th>帶來的場次</th></tr></thead><tbody>' +
+        sec('依來源碼', list.length + ' 個') +
+        // v4.32（11/24）手機：卡片清單（表格太寬）
+        '<div class="only-m">' + card(list.map((o) => row({ t: '<b>' + esc(o.k) + '</b> <span class="mut">' + esc(plat(o.k)) + '</span>', s: esc('有效 ' + o.ok + '／報名 ' + o.n + '・新人 ' + o.nw + '・課程 ' + o.cls + '・球敘 ' + o.game) + (Object.keys(o.targets).length ? '<br><span style="font-size:.8rem">' + esc(Object.keys(o.targets).slice(0, 4).map((t) => t + ' ×' + o.targets[t]).join('；') + (Object.keys(o.targets).length > 4 ? '…' : '')) + '</span>' : ''), r: '<span class="badge ok">' + o.ok + ' 人</span>' })).join('') || ui.empty('這個月還沒有報名')) + '</div>' +
+        '<div class="tbl-wrap only-d"><table class="tbl"><thead><tr><th>來源碼</th><th>平台</th><th class="num">報名</th><th class="num">有效</th><th class="num">新人</th><th class="num">課程</th><th class="num">球敘</th><th>帶來的場次</th></tr></thead><tbody>' +
         (list.map((o) => '<tr><td><b>' + esc(o.k) + '</b></td><td>' + esc(plat(o.k)) + '</td><td class="num">' + o.n + '</td><td class="num">' + o.ok + '</td><td class="num">' + o.nw + '</td><td class="num">' + o.cls + '</td><td class="num">' + o.game + '</td><td style="white-space:normal;min-width:220px;font-size:.82rem">' + esc(Object.keys(o.targets).map((t) => t + ' ×' + o.targets[t]).join('；')) + '</td></tr>').join('') || '<tr><td colspan="8" class="mut">這個月還沒有報名</td></tr>') +
         '</tbody></table></div><p class="mut" style="font-size:.8rem">只統計報名紀錄上的來源碼（不含學員個資）；成交以「有效」為準，不看粉絲數。</p>';
     },
@@ -2926,7 +3302,10 @@
     title: '營運工作台',
     version: '4.16',
     // v4.12：排課、主檔與紀錄從管理後台移過來（行政客服、管理層；社群行銷看不到）
-    screens: [Today, Queue, PB.hostLeaveScreen, PB.Timetable, PB.schedScreen, Classes, Games, Students, PB.ledgerScreen, Kb, Publish, Sources, PB.dataScreen].filter(Boolean), // v4.29：場主請假放在待處理下一個 // 11/10：排課放在課表下一個
+    screens: [Today, Queue, PB.hostLeaveScreen, PB.Timetable, PB.schedScreen, Classes, Games, Students, PB.ledgerScreen, Kb, Publish, Sources, PB.dataScreen, PB.moreScreen].filter(Boolean), // v4.29：場主請假放在待處理下一個
+    // v4.31：選單分組；手機下方只放 tabs＋「更多」
+    groups: [{ name: '今天', ids: ['today', 'queue'] }, { name: '找人找場', ids: ['students', 'timetable', 'ledger'] }, { name: '排課與場主', ids: ['sched', 'hostLeave'] }, { name: '社群', ids: ['publish', 'sources'] }, { name: '資料', ids: ['kb', 'data'] }],
+    tabs: ['queue', 'students', 'today'], // 11/10：排課放在課表下一個
     links: () => (!PB.cfg.kb && PB.cfg.kbUrl ? [{ label: '知識庫', url: PB.cfg.kbUrl, icon: 'kb', mobile: true }] : []),
   });
 })();

@@ -218,4 +218,5 @@
   };
 
   PB.hostLeaveScreen = Screen;
+  PB.hostLeaveTodo = () => lists().todo; // v4.31：待處理「場主請假、還沒安排代班」
 })();

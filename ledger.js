@@ -137,6 +137,8 @@
       const limit = num(p.n) || 100;
       return '<div class="ptop"><h1>帳務</h1><span class="cnt mut">' + list.length + ' 筆・未付合計 ' + money(unpaid) + '</span><span class="sp"></span>' + moSel + kindSel + venueSel + '</div>' +
         '<div class="ptop">' + tabs + '<span class="sp"></span><label class="search">' + PB.icon('search') + '<input placeholder="姓名、電話、末五碼、金額" value="' + esc(p.q || '') + '" data-input="ledgerSearch"></label></div>' +
+        // v4.32（11/24）：兩格一眼看「未付」「待對帳」，點了就篩
+        '<div class="stu-tiles lg-tiles">' + [['未付', money(unpaid), unpaid > 0 ? 'bad' : '', '未付'], ['待對帳', (count['待對帳'] || 0) + ' 筆', '', '待對帳']].map((t) => '<button class="stu-tile ' + t[2] + '" data-act="param" data-k="st" data-v="' + esc(t[3]) + '"><span>' + esc(t[0]) + '</span><b>' + t[1] + '</b></button>').join('') + '</div>' +
         warn +
         '<div class="chips" style="margin-bottom:10px">' + chip('', '全部', list.length) + ORDER.filter((s) => count[s]).map((s) => chip(s, s, count[s])).join('') + '</div>' +
         '<div class="card list">' + (shown.slice(0, limit).map(rowHtml).join('') || ui.empty('沒有符合的資料', kw ? '可以用姓名、電話、末五碼或金額搜尋' : '')) +

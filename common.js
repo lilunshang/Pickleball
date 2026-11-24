@@ -806,6 +806,25 @@
   ui.tel = (p) => (p ? '<a href="tel:' + esc(p) + '" class="nowrap">' + esc(p) + '</a>' : '<span class="mut">沒有電話</span>');
 
   /** 對話框；body 可以是 HTML 字串。actions：[{label, kind, click:(el)=>Promise|false}] */
+  /**
+   * v4.32（11/24）動作清單（手機是底部抽屜）：items [{ label, act, data, cls, sub }]，null／空的略過
+   *   每一列是 data-act 按鈕（走原本的事件與系統設定開關）；點了就關掉清單
+   */
+  ui.actions = (title, sub, items) => {
+    const list = (items || []).filter(Boolean);
+    const bg = document.createElement('div');
+    bg.className = 'modal-bg as';
+    bg.innerHTML = '<div class="modal" role="dialog" aria-modal="true"><div class="modal-h">' + esc(title || '') + (sub ? '<div class="as-sub">' + sub + '</div>' : '') + '</div><div class="modal-b as-list">' +
+      list.map((it) => '<button class="as-row ' + (it.cls || '') + '" data-act="' + esc(it.act) + '"' + Object.keys(it.data || {}).map((k) => ' data-' + k + '="' + esc(it.data[k]) + '"').join('') + '><span>' + esc(it.label) + '</span>' + (it.sub ? '<small>' + esc(it.sub) + '</small>' : '') + '</button>').join('') +
+      '</div><div class="modal-f"><button class="btn" data-as-close>關閉</button></div></div>';
+    const close = () => { bg.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    bg.addEventListener('click', (e) => { if (e.target === bg || e.target.closest('[data-as-close]') || e.target.closest('[data-act]')) close(); });
+    document.body.appendChild(bg);
+    gateButtons(bg);
+    if (!bg.querySelector('.as-row')) { close(); ui.toast('沒有可以做的動作'); }
+  };
   ui.modal = (o) => new Promise((resolve) => {
     const bg = document.createElement('div');
     bg.className = 'modal-bg';
@@ -894,6 +913,42 @@
     const sb = sh.querySelector('.sheet-b');
     sb.dataset.place = sheetFn.place || '';
     sb.innerHTML = ui.safe(sheetFn.body, '詳情');
+    mobileActs(sb);
+  }
+  /**
+   * v4.32（11/24）手機：詳情面板最上面那排按鈕 → 移到底下固定的一條（主要的兩顆＋「更多…」）
+   *   「更多…」打開動作清單（同一個 data-act，系統設定開關照樣有效）；電腦版不變
+   */
+  const kebab = (k) => k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+  function mobileActs(sb) {
+    if (window.innerWidth > 640) return;
+    const a = sb.querySelector(':scope > .acts');
+    if (!a) return;
+    gateButtons(a);
+    const all = Array.from(a.children).filter((b) => b.matches('button,a,label') && !b.disabled);
+    if (!all.length) return;
+    const movable = all.filter((b) => b.tagName === 'BUTTON' && b.dataset.act);
+    const order = all.filter((b) => b.classList.contains('pri')).concat(all.filter((b) => !b.classList.contains('pri')));
+    let keep = order.length <= 3 ? order : order.filter((b) => movable.indexOf(b) < 0 || b.classList.contains('pri')).slice(0, 2);
+    if (keep.length < 2 && order.length > 3) keep = keep.concat(order.filter((b) => keep.indexOf(b) < 0).slice(0, 2 - keep.length));
+    const rest = order.filter((b) => keep.indexOf(b) < 0 && movable.indexOf(b) >= 0);
+    rest.forEach((b) => b.remove());
+    a.classList.add('mbar');
+    if (rest.length) {
+      const items = rest.map((b) => {
+        const data = {};
+        Object.keys(b.dataset).forEach((k) => { if (k !== 'act') data[kebab(k)] = b.dataset[k]; });
+        const label = b.textContent.trim();
+        return { label: label, act: b.dataset.act, data: data, cls: b.classList.contains('bad') || /^(取消|刪除)/.test(label) ? 'bad' : '' };
+      }).sort((x, y) => (x.cls === 'bad') - (y.cls === 'bad')); // 取消／刪除放最後
+      const mb = document.createElement('button');
+      mb.className = 'btn ghost';
+      mb.textContent = '更多…';
+      mb.setAttribute('data-mbar-more', '');
+      mb.onclick = () => ui.actions('更多動作', esc((sb.closest('.sheet').querySelector('h3') || {}).textContent || ''), items);
+      a.appendChild(mb);
+    }
+    sb.appendChild(a);
   }
   function closeSheetNow() {
     sheetFn = null;
@@ -949,6 +1004,11 @@
       const cur = split(val);
       if (f.multi) {
         return wrap('<div class="multi" id="' + id + '" data-multi="' + esc(f.k) + '">' + (opts.length ? opts.map((o) => '<label><input type="checkbox" value="' + esc(o.v) + '"' + (cur.indexOf(o.v) >= 0 ? ' checked' : '') + '>' + esc(o.l) + '</label>').join('') : '<span class="mut">沒有可選的項目</span>') + '</div>');
+      }
+      // v4.32：選項少的單選用按鈕（手機一點就好）；f.chips＝true
+      if (f.chips && t === 'enum' && opts.length && opts.length <= 8) {
+        const cv = str(val);
+        return wrap('<div class="chips pickc" id="' + id + '" data-radio="' + esc(f.k) + '">' + opts.map((o) => '<label class="chip"><input type="radio" name="' + id + '" value="' + esc(o.v) + '"' + (o.v === cv ? ' checked' : '') + '>' + esc(o.l) + '</label>').join('') + '</div>');
       }
       if (f.other || (t === 'ref' && opts.length > 60)) {
         const list = id + '_l';
@@ -1674,7 +1734,10 @@
     window.addEventListener('hashchange', () => { closeSheetNow(); readHash(); renderMain(); document.getElementById('main') && (document.getElementById('main').scrollTop = 0); });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && PB.boot && Date.now() - lastSync > 5 * 60000) PB.refresh(true);
+      if (document.visibilityState === 'visible') checkWebVer(); // v4.31
     });
+    checkWebVer();
+    setInterval(checkWebVer, 10 * 60000);
     // v4.7：畫面上新出現的按鈕依系統設定隱藏（涵蓋主畫面、詳情面板、之後局部更新的內容）
     new MutationObserver((list) => list.forEach((mu) => mu.addedNodes.forEach((n) => { if (n.nodeType === 1) gateButtons(n); }))).observe(document.body, { childList: true, subtree: true });
     start();
@@ -1707,6 +1770,29 @@
   function screens() {
     return APPDEF.screens.filter((s) => (!s.show || s.show()) && (s.sysLock || PB.viewOk(s.id)));
   }
+  /** v4.31：手機「更多」— 選單分組列出所有功能（下方四個以外的） */
+  PB.moreScreen = {
+    id: 'more', label: '更多', icon: 'grid', nav: false,
+    render() {
+      const list = screens().filter((s) => s.nav !== false && s.id !== 'more');
+      const tabs = APPDEF.tabs || [];
+      const item = (href, icon, label, sub, ext) => '<a class="more-i" href="' + esc(href) + '"' + (ext ? ' target="_blank" rel="noopener"' : '') + '>' + PB.icon(icon) + '<span class="more-t">' + esc(label) + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span><span class="more-c">›</span></a>';
+      let html = '<div class="ptop"><h1>更多</h1></div>';
+      const groups = APPDEF.groups || [{ name: '', ids: list.map((s) => s.id) }];
+      const used = {};
+      groups.forEach((g) => {
+        const ss = g.ids.map((id) => list.find((s) => s.id === id)).filter(Boolean);
+        ss.forEach((s) => { used[s.id] = 1; });
+        if (ss.length) html += '<div class="more-g">' + esc(g.name) + '</div><div class="card list">' + ss.map((s) => item('#/' + s.id, s.icon, s.label, tabs.indexOf(s.id) >= 0 ? '下方選單也有' : '')).join('') + '</div>';
+      });
+      const rest = list.filter((s) => !used[s.id]);
+      if (rest.length) html += '<div class="more-g">其他</div><div class="card list">' + rest.map((s) => item('#/' + s.id, s.icon, s.label)).join('') + '</div>';
+      const links = (APPDEF.links ? APPDEF.links() : []).map((l) => item(l.url, l.icon || 'ext', l.label, '', true)).concat(APPDEF.otherLink ? [item(APPDEF.otherLink.url, 'swap', APPDEF.otherLink.label)] : []);
+      if (links.length) html += '<div class="more-g">連結</div><div class="card list">' + links.join('') + '</div>';
+      html += '<div class="more-g">帳號</div><div class="card list"><a class="more-i" href="#" data-act="userMenu">' + PB.icon('user') + '<span class="more-t">' + esc(PB.me.name) + '<small>版本、登出</small></span><span class="more-c">›</span></a></div>';
+      return html;
+    },
+  };
   function renderShell() {
     const root = document.getElementById('app');
     const other = PB.appId === 'ops' ? (PB.ws.indexOf('管理層') >= 0 && C.adminUrl ? { url: C.adminUrl, label: '管理後台' } : null) : null;
@@ -1723,11 +1809,29 @@
     const nav = document.getElementById('nav');
     if (!nav) return;
     const list = screens().filter((s) => s.nav !== false); // v3.8：nav:false 的畫面不放選單，網址仍可開
-    nav.innerHTML = list.map((s) => {
+    // v4.31：選單分組（電腦）；手機下方只顯示 tabs 的幾個＋「更多」
+    const tabs = APPDEF.tabs || [];
+    nav.classList.toggle('tabbed', tabs.length > 0);
+    const link = (s) => {
       let n = 0;
       try { n = s.badge ? s.badge() : 0; } catch (e) { n = 0; }
-      return '<a href="#/' + s.id + '" class="' + (current.id === s.id ? 'on' : '') + '">' + PB.icon(s.icon) + '<span>' + esc(s.label) + '</span>' + (n ? '<span class="n">' + (n > 99 ? '99+' : n) + '</span>' : '') + '</a>';
-    }).join('') + '<hr>' + (APPDEF.links ? APPDEF.links().map((l) => '<a class="ext' + (l.mobile ? '' : ' desk') + '" href="' + esc(l.url) + '" target="_blank" rel="noopener">' + PB.icon(l.icon || 'ext') + '<span>' + esc(l.label) + '</span></a>').join('') : '') +
+      const ti = tabs.indexOf(s.id);
+      return '<a href="#/' + s.id + '" class="' + (current.id === s.id ? 'on' : '') + (ti >= 0 ? ' mt' : '') + '"' + (ti >= 0 ? ' style="--o:' + ti + '"' : '') + '>' + PB.icon(s.icon) + '<span>' + esc(s.label) + '</span>' + (n ? '<span class="n">' + (n > 99 ? '99+' : n) + '</span>' : '') + '</a>';
+    };
+    let html = '';
+    if (APPDEF.groups) {
+      const used = {};
+      APPDEF.groups.forEach((g) => {
+        const ss = g.ids.map((id) => list.find((s) => s.id === id)).filter(Boolean);
+        ss.forEach((s) => { used[s.id] = 1; });
+        if (ss.length) html += '<div class="ng">' + esc(g.name) + '</div>' + ss.map(link).join('');
+      });
+      const rest = list.filter((s) => !used[s.id] && s.id !== 'more');
+      if (rest.length) html += '<div class="ng">其他</div>' + rest.map(link).join('');
+    } else html = list.filter((s) => s.id !== 'more').map(link).join('');
+    const extra = list.filter((s) => tabs.indexOf(s.id) < 0 && s.id !== 'more').length > 0 || (APPDEF.links && APPDEF.links().length) || APPDEF.otherLink;
+    if (tabs.length && extra) html += '<a href="#/more" class="mt more-only' + (current.id === 'more' ? ' on' : '') + '" style="--o:9">' + PB.icon('grid') + '<span>更多</span></a>';
+    nav.innerHTML = html + '<hr>' + (APPDEF.links ? APPDEF.links().map((l) => '<a class="ext' + (l.mobile ? '' : ' desk') + '" href="' + esc(l.url) + '" target="_blank" rel="noopener">' + PB.icon(l.icon || 'ext') + '<span>' + esc(l.label) + '</span></a>').join('') : '') +
       (APPDEF.otherLink ? '<a class="ext desk" href="' + esc(APPDEF.otherLink.url) + '">' + PB.icon('swap') + '<span>' + esc(APPDEF.otherLink.label) + '</span></a>' : '');
   }
   // v4.23：正在畫面裡的輸入框組字時先不重畫，等選完字再畫（搜尋的延遲重畫、背景同步都可能剛好碰上）
@@ -1758,11 +1862,28 @@
     el.className = 'sync ' + (state === 'ok' ? '' : state);
     el.querySelector('.txt').textContent = text || (db.at ? '更新 ' + str(db.at).slice(11, 16) : '');
   }
+  // v4.31：網頁有新版本 → 上方提示重新整理（手機開著舊頁面時）
+  const WEBVER = { loaded: '', seen: '', at: 0 };
+  async function checkWebVer() {
+    if (Date.now() - WEBVER.at < 60000) return;
+    WEBVER.at = Date.now();
+    try {
+      const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const v = str((await r.json()).v);
+      if (!v) return;
+      if (!WEBVER.loaded) WEBVER.loaded = v;
+      if (v !== WEBVER.seen) { WEBVER.seen = v; renderBanner(); }
+    } catch (e) { /* 沒有 version.json 或離線：略過 */ }
+  }
+  PB.checkWebVer = checkWebVer;
+  PB.acts.reloadPage = () => { location.reload(); };
   function renderBanner() {
     const el = document.getElementById('banner');
     if (!el) return;
     const w = (PB.boot && PB.boot.warnings) || [];
-    el.innerHTML = (PB.stale ? '<div class="banner' + (PB.stale === 'err' ? ' bad' : '') + '">' + (PB.stale === 'err' ? '無法連線，顯示的是 ' + esc(fmtDT(db.at)) + ' 的資料（不能儲存）。' : '顯示上次的資料，正在更新…') + '</div>' : '') +
+    const newVer = WEBVER.loaded && WEBVER.seen && WEBVER.seen !== WEBVER.loaded;
+    el.innerHTML = (newVer ? '<div class="banner newver"><span>系統有新版本，請重新整理後再操作</span><button class="btn sm pri" data-act="reloadPage">重新整理</button></div>' : '') + (PB.stale ? '<div class="banner' + (PB.stale === 'err' ? ' bad' : '') + '">' + (PB.stale === 'err' ? '無法連線，顯示的是 ' + esc(fmtDT(db.at)) + ' 的資料（不能儲存）。' : '顯示上次的資料，正在更新…') + '</div>' : '') +
       (w.length ? '<div class="banner">部分資料未載入：' + esc(w.slice(0, 3).join('；')) + (w.length > 3 ? '…' : '') + '（相關功能暫停，其他照常）</div>' : '');
   }
 
