@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台：場主請假／代班 hostleave.js v4.29（2026/11/24）
+ * 理論上匹克球｜營運工作台：場主請假／代班 hostleave.js v4.29（2026/11/24）；v4.30（同日：據點固定場主請假那天、場次直接排給別人的也算已代班，原場主在場主 OA v3.22 看得到）
  * Imperfect 11/24：場主跟行政客服請假，行政客服在這裡登記並指派代班；待處理項目太多，這件事獨立一頁、一眼看懂
  *   上方「＋登記請假」：選場主、日期、原因、代班場主（可先不選）→ 一次換好他那幾天的球敘
  *   ① 還沒安排代班：請假的人還排在場上，或預設場主請假、這場還沒有場主 →「指派代班」
@@ -53,6 +53,13 @@
         else { const off = offOn(pid, k); if (off && isHost(pid)) todo.push({ g: g, d: d, k: k, orig: pid, off: off }); }
       });
       if (!duties.length) { const vh = venueHost(g['據點']); const off = vh && offOn(vh, k); if (off) todo.push({ g: g, d: null, k: k, orig: vh, off: off }); }
+      // v4.30：據點固定場主（1_據點.場主 有列）那天請假、場次直接排給別人（沒記原場主）→ 也算已代班
+      else {
+        const hosts = duties.map((d) => str(d['人員']));
+        const origs = duties.map((d) => str(d['原場主']));
+        const vhs = split((PB.get('1_據點', g['據點']) || {})['場主']).filter((h) => hosts.indexOf(h) < 0 && origs.indexOf(h) < 0 && offOn(h, k));
+        if (vhs.length) done.push({ g: g, d: duties[0], k: k, orig: vhs[0], sub: hosts[0], implicit: true });
+      }
     });
     const sort = (a, b) => byKey(a.k + hm(a.g['開始時間']), b.k + hm(b.g['開始時間']));
     return { todo: todo.sort(sort), done: done.sort(sort) };
@@ -79,8 +86,8 @@
       const doneRows = L.done.map((x) => row({
         when: when(x), id: x.g['球敘ID'],
         t: gameT(x.g),
-        s: esc(m.staffName(x.orig)) + ' 請假 → <b>' + esc(m.staffName(x.sub)) + '</b> 代班' + (str(x.d['簽到時間']) ? ' <span class="badge ok">已到場</span>' : ''),
-        r: locked(x.d) ? '<span class="mut">' + esc(locked(x.d)) + '</span>' : btn('換代班', 'hlAssign', { gid: x.g['球敘ID'], duty: x.d['排班ID'], orig: x.orig }, 'ghost') + btn('換回原場主', 'hlUndo', { duty: x.d['排班ID'] }, 'ghost'),
+        s: esc(m.staffName(x.orig)) + ' 請假 → <b>' + esc(m.staffName(x.sub)) + '</b> 代班' + (x.implicit ? ' <span class="mut">（排課時直接排）</span>' : '') + (str(x.d['簽到時間']) ? ' <span class="badge ok">已到場</span>' : ''),
+        r: locked(x.d) ? '<span class="mut">' + esc(locked(x.d)) + '</span>' : btn('換代班', 'hlAssign', { gid: x.g['球敘ID'], duty: x.d['排班ID'], orig: x.orig }, 'ghost') + btn('換回原場主', 'hlUndo', { duty: x.d['排班ID'], gid: x.g['球敘ID'], orig: x.orig }, 'ghost'),
       })).join('');
       const leaveRows = leaves.map((r) => {
         const a = day(r['開始日期']);
@@ -192,7 +199,9 @@
   A.hlUndo = (d) => {
     const du = PB.get('2_場主排班', d.duty);
     if (!du) return null;
-    return PB.run('hostCoverUndo', { duty: d.duty }, { confirm: { title: '換回原場主：' + m.staffName(du['原場主']), text: '代班的 ' + esc(m.staffName(du['人員'])) + ' 會收到「排班取消」，' + esc(m.staffName(du['原場主'])) + ' 收到排班通知。', ok: '換回' } });
+    const orig = str(du['原場主']) || d.orig; // v4.30：排課時直接排的沒有原場主欄
+    const conf = { confirm: { title: '換回原場主：' + m.staffName(orig), text: '代班的 ' + esc(m.staffName(du['人員'])) + ' 會收到「排班取消」，' + esc(m.staffName(orig)) + ' 收到排班通知。', ok: '換回' } };
+    return str(du['原場主']) ? PB.run('hostCoverUndo', { duty: d.duty }, conf) : PB.run('hostCoverSet', { gid: d.gid, duty: d.duty, orig: orig, sub: orig }, conf);
   };
   A.hlDel = async (d) => {
     const r = PB.get('2_教練不可排日期', d.id);
