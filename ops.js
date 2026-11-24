@@ -2850,18 +2850,23 @@
     const v = PB.get('1_據點', id) || {};
     return str(v['據點名稱']) + (str(v['地址']) ? '（' + str(v['地址']) + '）' : str(v['地點']) ? '（' + str(v['地點']) + '）' : '');
   }
+  // v4.32（11/24 Tammy）：貼文只留 名稱📍據點／日期時間／程度／費用／報名連結
   function postText(type, row, src) {
+    const fee = (n) => Math.round(num(n)).toLocaleString('en-US');
     if (type === '課程') {
       const c = row;
-      const per = str(c['計費方式']) === '每期' && num(c['總堂數']) ? '（每堂 ' + money(num(c['費用']) / num(c['總堂數'])) + '）' : '';
-      return ['【課程】' + m.classLabel(c), '地點：' + venueLine(c['據點']), '時間：' + m.classWhen(c) + '・共 ' + num(c['總堂數']) + ' 堂', c['程度'] ? '程度：' + m.levelName(c['程度']) : '', '費用：' + money(c['費用']) + '／' + (str(c['計費方式']) === '每小時' ? '小時' : '期') + per, '狀態：' + classStatusWord(c), '報名：' + m.signupUrl('課程', c['班級ID'], src)].filter(Boolean).join('\n');
+      const single = m.isSingle(c);
+      const name = single ? str(c['課程名稱']) : m.classLabel(c);
+      const when = single || !day(c['開課日期'])
+        ? (day(c['開課日期']) ? fmtD(c['開課日期']) : m.classWhen(c).split(' ')[0] + ' ') + m.hm(c['開始時間'], c['結束時間'])
+        : fmtD(c['開課日期']) + '起・' + m.classWhen(c);
+      const n = num(c['總堂數']);
+      const unit = str(c['計費方式']) === '每小時' ? '/人・每小時' : '/人' + (!single && n > 1 ? '（共 ' + n + ' 堂）' : '');
+      return [name + '📍' + m.venueName(c['據點']), when, c['程度'] ? '程度：' + m.levelName(c['程度']) : '', '費用：' + fee(c['費用']) + unit, '報名🔗：' + m.signupUrl('課程', c['班級ID'], src)].filter(Boolean).join('\n');
     }
     const g = row;
-    const x = m.game(g);
-    const gt = m.gameType(g['球敘類型']); // v3.6
-    const glv = m.gameLevel(g); // v4.1
-    const kind = m.gameKind(g) + (gt.rule === '不限' && !glv ? '（不分級）' : '');
-    return ['【球敘】' + fmtD(g['日期']) + ' ' + m.hm(g['開始時間'], g['結束時間']) + (str(g['球敘名稱']) ? '｜' + g['球敘名稱'] : ''), '地點：' + venueLine(g['據點']), '類型：' + kind, glv && gt.rule !== '分級' ? '程度：建議 ' + glv : '', gt.desc ? '說明：' + gt.desc : '', '費用：每人 ' + money(g['費用']), '名額：' + (x.st === '已額滿' || x.left <= 0 ? '目前額滿，可登記候補' : '剩 ' + x.left + ' 位'), '報名：' + m.signupUrl('球敘', g['球敘ID'], src)].filter(Boolean).join('\n');
+    const glv = m.gameLevel(g);
+    return [m.gameKind(g) + '📍' + m.venueName(g['據點']), fmtD(g['日期']) + m.hm(g['開始時間'], g['結束時間']), glv && m.gameType(g['球敘類型']).rule !== '分級' ? '程度：' + glv : '', '費用：' + fee(g['費用']) + '/人', '報名🔗：' + m.signupUrl('球敘', g['球敘ID'], src)].filter(Boolean).join('\n');
   }
   const Publish = {
     id: 'publish', label: '發布資訊', icon: 'mega', show: isSocial,

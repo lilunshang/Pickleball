@@ -171,34 +171,14 @@ details.chk ul{margin:6px 0 0;padding-left:18px;font-size:.86rem}
   var seatText = function (g) { return g.full ? '目前額滿，可登記候補' : '剩 ' + g.left + ' 位'; };
   var venueLine = function (v) { return v.name + (v.addr ? '（' + v.addr + '）' : ''); };
   var levelLine = function (g) { return g.level && g.rule !== '分級' ? g.level : ''; };
-  // 單場：與營運工作台「發布資訊 → 複製貼文資訊」相同格式
+  // 單場：與營運工作台「發布資訊 → 複製貼文資訊」相同格式（v4.32：名稱📍據點／日期時間／程度／費用／報名連結）
   function postOne(g) {
     var v = venueOf(g.venue);
-    var kind = g.kind + (g.rule === '不限' && !g.level ? '（不分級）' : '');
-    return ['【球敘】' + fmtD(g.date) + ' ' + hm(g.start, g.end) + (g.name ? '｜' + g.name : ''), '地點：' + venueLine(v), '類型：' + kind,
-      levelLine(g) ? '程度：建議 ' + levelLine(g) : '', g.desc ? '說明：' + g.desc : '', '費用：每人 ' + money(g.fee), '名額：' + seatText(g), '報名：' + url(g)].filter(Boolean).join('\n');
+    return [g.kind + '📍' + v.name, fmtD(g.date) + hm(g.start, g.end), levelLine(g) ? '程度：' + levelLine(g) : '',
+      '費用：' + Math.round(Number(g.fee) || 0).toLocaleString('en-US') + '/人', '報名🔗：' + url(g)].filter(Boolean).join('\n');
   }
-  // 多場：依據點分組，每場兩行；類型說明放最後（每種一次）
-  function postMany(list) {
-    if (list.length === 1) return postOne(list[0]);
-    var byV = [], seen = {}, types = [], tSeen = {};
-    list.forEach(function (g) {
-      if (!seen[g.venue]) { seen[g.venue] = []; byV.push(g.venue); }
-      seen[g.venue].push(g);
-      if (g.desc && !tSeen[g.type]) { tSeen[g.type] = 1; types.push(g); }
-    });
-    var out = ['【理論上匹克球｜球敘報名】'];
-    byV.forEach(function (vid) {
-      out.push('', '■ ' + venueLine(venueOf(vid)));
-      seen[vid].forEach(function (g) {
-        out.push('・' + fmtD(g.date) + ' ' + hm(g.start, g.end) + ' ' + g.kind + (levelLine(g) ? '・建議 ' + levelLine(g) : '') + '｜每人 ' + money(g.fee) + '｜' + (g.full ? '額滿可候補' : '剩 ' + g.left + ' 位'));
-        out.push('　報名：' + url(g));
-      });
-    });
-    if (types.length) { out.push('', '類型說明'); types.forEach(function (g) { out.push('・' + g.type + '：' + g.desc); }); }
-    out.push('', '程度為建議、不擋報名；報名後請依報名頁說明完成付款。');
-    return out.join('\n');
-  }
+  // 多場：每場一段，中間空一行
+  function postMany(list) { return list.map(postOne).join('\n\n'); }
 
   // ---------- 複製／分享 ----------
   var toastT;
