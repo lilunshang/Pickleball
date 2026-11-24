@@ -1137,7 +1137,7 @@
   PB.app({
     app: 'admin',
     title: '管理後台',
-    version: '4.16',
+    version: '4.32',
     screens: [Dash, Queue, Finance, Sys, PB.moreScreen], // v4.12：排課、主檔與紀錄移到營運工作台
     tabs: ['dash', 'queue', 'finance'], // v4.31：手機下方三個＋「更多」（系統設定、營運工作台）
     groups: [{ name: '管理', ids: ['dash', 'queue', 'finance', 'sys'] }],

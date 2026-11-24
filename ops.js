@@ -3305,7 +3305,7 @@
   PB.app({
     app: 'ops',
     title: '營運工作台',
-    version: '4.16',
+    version: '4.32',
     // v4.12：排課、主檔與紀錄從管理後台移過來（行政客服、管理層；社群行銷看不到）
     screens: [Today, Queue, PB.hostLeaveScreen, PB.Timetable, PB.schedScreen, Classes, Games, Students, PB.ledgerScreen, Kb, Publish, Sources, PB.dataScreen, PB.moreScreen].filter(Boolean), // v4.29：場主請假放在待處理下一個
     // v4.31：選單分組；手機下方只放 tabs＋「更多」
