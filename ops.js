@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.31（2026/11/24：待處理改版 — 今天／這週／等回覆、看自己負責的、等回覆／已處理；選單分組＋手機下方四個）；v4.29（2026/11/24：選單「場主請假」hostleave.js；球敘明細標代班）；v4.28（2026/11/24：補償抵用金）；v4.27（2026/11/24：學員搜尋含家人、全家總覽、由家人付款的帳）；v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.33（2026/11/25：移班 — 球敘轉球敘、課程轉課程，費用不同也能移，先列差額警告、LINE 告知學員）；v4.31（2026/11/24：待處理改版 — 今天／這週／等回覆、看自己負責的、等回覆／已處理；選單分組＋手機下方四個）；v4.29（2026/11/24：選單「場主請假」hostleave.js；球敘明細標代班）；v4.28（2026/11/24：補償抵用金）；v4.27（2026/11/24：學員搜尋含家人、全家總覽、由家人付款的帳）；v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -683,6 +683,7 @@
     if (PB.forms['2_課程班級']) acts.push(ui.btn('編輯', 'classEdit', { id: id }, 'ghost'));
     if (PB.ksOk('class', id)) acts.push(ui.btn('更換種類', 'kindSwap', { t: 'class', id: id }, 'ghost')); // v4.12
     if (PB.has('3_抵用金流水')) acts.push(ui.btn('補償抵用金', 'compGroup', { type: '課程', id: id }, 'ghost')); // v4.28
+    if (x.sigs.some(tfCanMove)) acts.push(ui.btn('移班', 'tfGroup', { type: '課程', id: id }, 'ghost')); // v4.33
     if (canDeleteClass(x)) acts.push(ui.btn('刪除班級', 'classDelete', { id: id }, 'bad'));
     const info = kv([
       ['狀態', m.classBadge(x.st) + (x.pending ? ' <span class="badge info">「' + esc(c['開班動作']) + '」排程處理中</span>' : '')],
@@ -748,6 +749,7 @@
     if (can) acts.push(ui.btn('編輯', 'classEdit', { id: id }, 'ghost'));
     if (PB.ksOk('class', id)) acts.push(ui.btn('更換種類', 'kindSwap', { t: 'class', id: id }, 'ghost')); // v4.12
     if (PB.has('3_抵用金流水')) acts.push(ui.btn('補償抵用金', 'compGroup', { type: '課程', id: id }, 'ghost')); // v4.28
+    if (x.sigs.some(tfCanMove)) acts.push(ui.btn('移班', 'tfGroup', { type: '課程', id: id }, 'ghost')); // v4.33
     if (canDeleteClass(x)) acts.push(ui.btn('刪除班級', 'classDelete', { id: id }, 'bad'));
     const spec = PB.get('0_專項', c['專項']);
     const decideTxt = isPre ? (x.late ? '<span class="badge bad">已過 ' + esc(fmtDT(x.decideAt)) + '，排程還沒處理</span>' : esc(fmtDT(x.decideAt)) + ' 系統自動判斷（已付達 ' + x.min + ' 人成班）') : '';
@@ -789,7 +791,8 @@
       if (st === '候補') b.push(btn('遞補', 'sigPromote', { id: r['報名ID'] }));
       const single = str(r['報名類型']) === '課程' && m.isSingle(PB.get('2_課程班級', r['班級']));
       const cst = single ? str((PB.get('2_課程班級', r['班級']) || {})['課程狀態']) : '';
-      if (str(r['報名類型']) === '課程' && (!single || ['籌備中', '未成班'].indexOf(cst) >= 0)) b.push(btn(single ? '改報' : '移班', 'sigMove', { id: r['報名ID'] }, 'ghost'));
+      if (tfCanMove(r)) b.push(btn('移班', 'sigTransfer', { id: r['報名ID'] }, 'ghost')); // v4.33：球敘轉球敘、課程轉課程，費用不同也能移
+      else if (str(r['報名類型']) === '課程' && (!single || ['籌備中', '未成班'].indexOf(cst) >= 0)) b.push(btn(single ? '改報' : '移班', 'sigMove', { id: r['報名ID'] }, 'ghost'));
       if (st === '已報名') b.push(btn('換人', 'sigSwap', { id: r['報名ID'] }, 'ghost'));
       if (p.left > 0 && st === '已報名') b.push(btn('提醒付款', 'payRemind', { ids: p.recs.map((x) => x['應收ID']).join(',') }, 'ghost'));
       b.push(btn('取消', 'sigCancel', { id: r['報名ID'] }, 'bad'));
@@ -1608,9 +1611,14 @@
   };
   function openTargets() {
     const t = today();
-    const cls = PB.rows('2_課程班級').filter((c) => ['籌備中', '確定開課', '進行中'].indexOf(str(c['課程狀態'])) >= 0).map((c) => ({ type: '課程', id: c['班級ID'], l: '課程｜' + m.label('2_課程班級', c) }));
-    const gs = PB.rows('2_球敘場次').filter((g) => day(g['日期']) >= t && ['開放報名', '已額滿'].indexOf(str(g['狀態'])) >= 0 && !m.isCharter(g)) // v4.14：包場不能後台報名.sort((a, b) => byKey(day(a['日期']), day(b['日期']))).map((g) => ({ type: '球敘', id: g['球敘ID'], l: '球敘｜' + m.label('2_球敘場次', g) }));
-    return cls.concat(gs);
+    // v4.33（11/25 Tammy）：修正 — 球敘那行的註解把 .sort().map() 一起註解掉，學員頁「＋報名」只剩課程可選（v4.14 起）
+    const gs = PB.rows('2_球敘場次').filter((g) => day(g['日期']) >= t && ['開放報名', '已額滿'].indexOf(str(g['狀態'])) >= 0 && !m.isCharter(g)) // v4.14：包場不能後台報名
+      .sort((a, b) => byKey(day(a['日期']) + str(a['開始時間']), day(b['日期']) + str(b['開始時間'])))
+      .map((g) => ({ type: '球敘', id: g['球敘ID'], l: '球敘｜' + m.label('2_球敘場次', g) + (str(g['狀態']) === '已額滿' ? '｜已額滿' : '') }));
+    const cls = PB.rows('2_課程班級').filter((c) => ['籌備中', '確定開課', '進行中'].indexOf(str(c['課程狀態'])) >= 0 && !(m.isSingle(c) && day(c['開課日期']) < t))
+      .sort((a, b) => byKey(day(a['開課日期']) + str(a['開始時間']), day(b['開課日期']) + str(b['開始時間'])))
+      .map((c) => ({ type: '課程', id: c['班級ID'], l: '課程｜' + m.label('2_課程班級', c) }));
+    return gs.concat(cls);
   }
   A.sigCancel = async (d) => {
     const r = PB.get('2_報名', d.id);
@@ -2020,6 +2028,7 @@
     if (can && ['草稿', '開放報名', '已額滿'].indexOf(x.st) >= 0) acts.push(ui.btn('編輯', 'gameEdit', { id: id }, 'ghost'));
     if (PB.ksOk('game', id)) acts.push(ui.btn('更換種類', 'kindSwap', { t: 'game', id: id }, 'ghost')); // v4.12
     if (PB.has('3_抵用金流水') && x.st !== '草稿') acts.push(ui.btn('補償抵用金', 'compGroup', { type: '球敘', id: id }, 'ghost')); // v4.28
+    if (x.sigs.some(tfCanMove)) acts.push(ui.btn('移班', 'tfGroup', { type: '球敘', id: id }, 'ghost')); // v4.33
     const lv = split(g['程度']).map(m.levelName).join('、');
     const courts = x.courts.map((c) => sec(c.name, c.list.length + '／' + c.cap + ' 人') + card(c.list.map((r) => sigRow(r, 'game')).join('') || ui.empty('還沒有人'))).join('');
     const noCourt = x.active.filter((r) => !split(g['使用場地']).some((c) => c === str(r['場地'])));
@@ -2529,9 +2538,9 @@
       owe.length && st === '已報名' ? { label: '收款 ' + money(p.left), act: 'payAdd', data: { id: owe[0]['應收ID'] }, cls: 'pri' } : null,
       owe.length && st === '已報名' ? { label: '提醒付款', act: 'payRemind', data: { ids: owe.map((x) => x['應收ID']).join(',') } } : null,
       st === '候補' ? { label: '手動遞補', act: 'sigPromote', data: { id: d.id } } : null,
-      live && !isC && g ? { label: '換到別場', sub: '只列同據點', act: 'sigGameMove', data: { id: d.id } } : null,
+      tfCanMove(r) ? { label: '移班', sub: isC ? '換到別堂課程（費用不同會先列差額）' : '換到別場球敘（費用不同會先列差額）', act: 'sigTransfer', data: { id: d.id } } : null, // v4.33
       live && !isC && g && split(g['使用場地']).length > 1 ? { label: '換球面', act: 'sigCourt', data: { id: d.id } } : null,
-      live && isC && (!single || ['籌備中', '未成班'].indexOf(cst) >= 0) ? { label: single ? '改報別堂' : '移班', act: 'sigMove', data: { id: d.id } } : null,
+      live && isC && !tfCanMove(r) && (!single || ['籌備中', '未成班'].indexOf(cst) >= 0) ? { label: single ? '改報別堂' : '移班', sub: '未成班／保留中', act: 'sigMove', data: { id: d.id } } : null,
       st === '已報名' ? { label: '換人', act: 'sigSwap', data: { id: d.id } } : null,
       PB.has('3_抵用金流水') ? { label: '補償抵用金', act: 'compStu', data: { id: str(r['學員']) } } : null,
       { label: isC ? '開這班' : '開這場的名單', act: isC ? 'openClass' : 'openGame', data: { id: isC ? r['班級'] : r['球敘'] } },
@@ -2580,6 +2589,120 @@
     } else court = cs.length ? cs[0].id : '';
     PB.run('signupGameMove', { id: d.id, gameId: g['球敘ID'], court: court, force: v.force === true });
   };
+  // ---------------- v4.33（11/25）移班：球敘轉球敘、課程轉課程；費用不同也能移，先跳警告、學員會收到要補的差額（後端 Transfer.gs） ----------------
+  const TF_LIVE = ['已報名', '候補', '保留中'];
+  /** 原本的移班／改報（未成班、取消、保留中：差額不處理）還用舊流程 */
+  const tfOldFlow = (r) => {
+    if (str(r['報名類型']) !== '課程') return false;
+    const c = PB.get('2_課程班級', r['班級']);
+    return str(r['報名狀態']) === '保留中' || ['未成班', '取消'].indexOf(str((c || {})['課程狀態'])) >= 0;
+  };
+  const tfCanMove = (r) => !!r && TF_LIVE.indexOf(str(r['報名狀態'])) >= 0 && !tfOldFlow(r) &&
+    (str(r['報名類型']) === '球敘' ? !m.isCharter(PB.get('2_球敘場次', r['球敘'])) : !m.isPrivate(PB.get('2_課程班級', r['班級'])));
+  function tfTargets(type, from, selfIds) {
+    const t = today();
+    const venue = str((from || {})['據點']);
+    if (type === '球敘') {
+      return PB.rows('2_球敘場次').filter((g) => str(g['球敘ID']) !== str((from || {})['球敘ID']) && day(g['日期']) >= t && ['開放報名', '已額滿'].indexOf(str(g['狀態'])) >= 0 && !m.isCharter(g))
+        .map((g) => ({ id: str(g['球敘ID']), here: str(g['據點']) === venue, sort: day(g['日期']) + str(g['開始時間']), fee: num(g['費用']), row: g,
+          l: m.label('2_球敘場次', g) + '｜' + money(g['費用']) + (str(g['狀態']) === '已額滿' ? '｜已額滿' : '') }));
+    }
+    return PB.rows('2_課程班級').filter((c) => str(c['班級ID']) !== str((from || {})['班級ID']) && day(c['開課日期']) >= t && ['籌備中', '確定開課'].indexOf(str(c['課程狀態'])) >= 0 && !m.isPrivate(c))
+      .map((c) => { const x = m.cls(c); return { id: str(c['班級ID']), here: str(c['據點']) === venue, sort: day(c['開課日期']) + str(c['開始時間']), fee: num(c['費用']), row: c,
+        l: (m.isSingle(c) ? '【專項】' : '【期制】') + m.label('2_課程班級', c) + '｜' + money(c['費用']) + '（' + x.used + '/' + x.limit + '）' }; });
+  }
+  A.sigTransfer = (d) => {
+    const r = PB.get('2_報名', d.id);
+    if (!r) return;
+    const isG = str(r['報名類型']) === '球敘';
+    tfOpen({ type: isG ? '球敘' : '課程', id: str(r[isG ? '球敘' : '班級']), pick: [d.id] });
+  };
+  A.tfGroup = (d) => tfOpen({ type: d.type, id: d.id, pick: [] });
+  async function tfOpen(o) {
+    const isG = o.type === '球敘';
+    const from = PB.get(isG ? '2_球敘場次' : '2_課程班級', o.id);
+    if (!from) return;
+    const sigs = PB.rows('2_報名').filter((r) => str(r[isG ? '球敘' : '班級']) === str(o.id) && str(r['報名類型']) === o.type && tfCanMove(r));
+    if (!sigs.length) return ui.toast('這' + (isG ? '場' : '班') + '沒有可以移班的報名（未成班／保留中的請用原本的「移班／改報」）', 'bad');
+    const all = tfTargets(o.type, from).sort((a, b) => (a.here === b.here ? byKey(a.sort, b.sort) : a.here ? -1 : 1));
+    if (!all.length) return ui.toast('目前沒有可以移入的' + (isG ? '球敘' : '課程'), 'bad');
+    const opt = (x) => '<option value="' + esc(x.id) + '">' + esc(x.l) + '</option>';
+    const here = all.filter((x) => x.here);
+    const other = all.filter((x) => !x.here);
+    const sel = '<select name="tfTo"><option value="">請選擇</option>' + (here.length ? '<optgroup label="同據點（' + esc(m.venueName(from['據點'])) + '）">' + here.map(opt).join('') + '</optgroup>' : '') +
+      (other.length ? '<optgroup label="其他據點">' + other.map(opt).join('') + '</optgroup>' : '') + '</select>';
+    const pick = new Set(o.pick || []);
+    const body = '<p style="margin-top:0">從：' + esc(isG ? m.label('2_球敘場次', from) : m.label('2_課程班級', from)) + '</p>' +
+      '<div style="margin:6px 0;font-weight:600">要移的學員<a href="#" data-tf-all style="font-size:.84rem;font-weight:400;margin-left:8px">全選／全不選</a></div>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;padding:2px">' + sigs.map((r) => {
+        const p = m.sigPay(r['報名ID']);
+        return '<label style="display:flex;gap:8px;align-items:center;font-size:.9rem"><input type="checkbox" data-tf="' + esc(r['報名ID']) + '"' + (pick.has(str(r['報名ID'])) ? ' checked' : '') + '><span>' + esc(m.stuName(r['學員'])) + ' <span class="mut">' + esc(str(r['報名狀態']) + '・已付 ' + money(p.net)) + '</span></span></label>';
+      }).join('') + '</div>' +
+      '<div class="fld" style="margin-top:10px"><label>移到<b>*</b></label>' + sel + '<span class="hint">' + (isG ? '球敘只能轉球敘' : '課程只能轉課程（專項、期制可以互轉）') + '；同據點的排在前面。費用不同也可以移，下一步會先列出差額。</span></div>' +
+      (isG ? '<div class="fld" data-tf-court style="display:none"><label>球面</label><select name="tfCourt"></select></div>' : '') +
+      '<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;font-size:.9rem"><label style="display:flex;gap:8px"><input type="checkbox" name="tfNotify" checked><span>LINE 通知學員（新的時間地點、要補的差額；沒有 LINE 的通知家長）</span></label>' +
+      (isMgmt() ? '<label style="display:flex;gap:8px"><input type="checkbox" name="tfForce"><span>目標額滿也移入（管理層）</span></label>' : '') + '</div>';
+    await ui.modal({
+      title: '移班',
+      body: body,
+      sticky: true,
+      onOpen: (el) => {
+        el.querySelector('[data-tf-all]').addEventListener('click', (ev) => { ev.preventDefault(); const cs = Array.prototype.slice.call(el.querySelectorAll('input[data-tf]')); const to = !cs.every((i) => i.checked); cs.forEach((i) => { i.checked = to; }); });
+        if (!isG) return;
+        el.querySelector('[name=tfTo]').addEventListener('change', (ev) => {
+          const x = all.find((y) => y.id === ev.target.value);
+          const box = el.querySelector('[data-tf-court]');
+          const cs = x ? courtOpts(x.row, '') : [];
+          box.style.display = cs.length > 1 ? '' : 'none';
+          box.querySelector('select').innerHTML = cs.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.l) + '</option>').join('');
+        });
+      },
+      actions: [{ label: '取消' }, {
+        label: '下一步', kind: 'pri',
+        click: async (el) => {
+          const ids = Array.prototype.slice.call(el.querySelectorAll('input[data-tf]:checked')).map((i) => i.dataset.tf);
+          if (!ids.length) { ui.toast('請勾選要移班的學員', 'bad'); return false; }
+          const to = el.querySelector('[name=tfTo]').value;
+          if (!to) { ui.toast('請選要移到哪' + (isG ? '一場' : '一班'), 'bad'); return false; }
+          const x = all.find((y) => y.id === to);
+          let court = '';
+          if (isG) { const cs = courtOpts(x.row, ''); court = cs.length > 1 ? el.querySelector('[name=tfCourt]').value : (cs[0] || {}).id || ''; }
+          const fo = el.querySelector('[name=tfForce]');
+          const args = { ids: ids, type: o.type, to: to, court: court, force: !!(fo && fo.checked), notify: el.querySelector('[name=tfNotify]').checked };
+          const sc = await PB.run('transferScan', args, { quiet: true });
+          if (!sc) return false;
+          return tfConfirm(args, sc.data || sc);
+        },
+      }],
+    });
+  }
+  /** 第二步：列出每個人的差額；費用不同時顯示警告，按「確認移班」才送 */
+  async function tfConfirm(args, sc) {
+    const items = sc.items || [];
+    const okI = items.filter((x) => !x.block);
+    const bad = items.filter((x) => x.block);
+    if (!okI.length) { await ui.ask('沒辦法移班', bad.map((x) => esc(x.name) + '：' + esc(x.block)).join('<br>'), { ok: '知道了' }); return false; }
+    const warn = okI.some((x) => x.ack);
+    const cell = (v, strong) => '<td style="text-align:right;padding:4px 6px;white-space:nowrap">' + (strong ? '<b>' + v + '</b>' : v) + '</td>';
+    const table = '<table style="width:100%;border-collapse:collapse;font-size:.86rem"><thead><tr style="border-bottom:1px solid var(--line,#ddd)"><th style="text-align:left;padding:4px 6px">學員</th><th style="text-align:right;padding:4px 6px">原費用</th><th style="text-align:right;padding:4px 6px">新費用</th><th style="text-align:right;padding:4px 6px">已付</th><th style="text-align:right;padding:4px 6px">還要付</th><th style="text-align:right;padding:4px 6px">轉抵用金</th></tr></thead><tbody>' +
+      okI.map((x) => '<tr style="border-bottom:1px solid var(--line,#eee)"><td style="padding:4px 6px">' + esc(x.name) + (x.wait ? ' <span class="badge warn">候補</span>' : '') + (x.full && !x.wait ? ' <span class="badge warn">額滿強制</span>' : '') + '</td>' +
+        cell(money(x.oldFee)) + cell(money(x.newFee), x.diff !== 0) + cell(money(x.paid)) + cell(x.due > 0 ? money(x.due) : '—', x.due > 0) + cell(x.credit > 0 ? money(x.credit) : '—', x.credit > 0) + '</tr>' +
+        (x.later > 0 || x.racketCut > 0 || !x.billed ? '<tr><td colspan="6" class="mut" style="padding:0 6px 6px;font-size:.8rem">' + [x.later > 0 ? '期制班確認成班後再收尾款 ' + money(x.later) : '', x.racketCut > 0 ? '新' + (args.type === '球敘' ? '場' : '班') + '球拍不夠，少' + (args.type === '球敘' ? '租' : '借') + ' ' + x.racketCut + ' 支' : '', !x.billed && !x.wait ? '還沒有應收：系統依新費用請款' : ''].filter(Boolean).join('・') + '</td></tr>' : '')).join('') + '</tbody></table>';
+    const dues = okI.filter((x) => x.due > 0);
+    const credits = okI.filter((x) => x.credit > 0);
+    const note = (warn ? '<div class="note warn" style="margin-bottom:10px"><b>⚠ 費用不同</b>：' + esc(sc.to) + ' 每人 ' + money(sc.fee) + '。' +
+      (dues.length ? '<br>・' + dues.map((x) => esc(x.name)).join('、') + ' 要補差額，付款期限重算；開始前 6 小時還沒補，名額會取消、已付的轉課程抵用金。' : '') +
+      (credits.length ? '<br>・' + credits.map((x) => esc(x.name)).join('、') + ' 多付的' + (sc.creditOn ? '轉成課程抵用金（家人的記在管理人）' : '要另外退款（目前沒有抵用金表）') + '。' : '') + '</div>' : '') +
+      '<div style="margin-bottom:6px">移到：<b>' + esc(sc.to) + '</b>（' + esc(sc.venue) + '）</div>' + table +
+      (bad.length ? '<div class="note" style="margin-top:8px">不會移：' + bad.map((x) => esc(x.name) + '（' + esc(x.block) + '）').join('、') + '</div>' : '') +
+      '<p class="mut" style="font-size:.84rem;margin-bottom:0">' + (args.notify && sc.canNotify ? '學員約 15 分鐘內會收到 LINE：新的時間地點' + (dues.length ? '、要補的差額與期限' : '') + (credits.length ? '、轉入的抵用金' : '') + '（夜間隔天早上發）。' : args.notify ? '試算表 2_報名 還沒有「移班紀錄」欄，學員不會收到通知，請另外告知。' : '不通知學員，請另外告知' + (dues.length ? '要補的差額' : '') + '。') + '</p>';
+    const done = await ui.modal({
+      title: warn ? '確認移班（費用不同）' : '確認移班',
+      body: note,
+      actions: [{ label: '返回' }, { label: '確認移班', kind: warn ? 'bad fill' : 'pri', click: async () => !!(await PB.run('transferApply', Object.assign({}, args, { ack: true }))) }],
+    });
+    return !!done;
+  }
   function stuBody(id) {
     const s = PB.get('1_學員', id);
     const x = m.stu(s);
