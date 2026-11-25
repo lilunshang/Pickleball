@@ -1864,6 +1864,8 @@
   }
   // v4.31：網頁有新版本 → 上方提示重新整理（手機開著舊頁面時）
   const WEBVER = { loaded: '', seen: '', at: 0 };
+  /** v4.34：這一頁（ops.html／admin.html）的版本＝<meta name="web-ver">；設定頁「版本」也顯示這個 */
+  function webVerOfPage() { const mv = document.querySelector('meta[name="web-ver"]'); return mv ? str(mv.content) : ''; }
   async function checkWebVer() {
     if (Date.now() - WEBVER.at < 60000) return;
     WEBVER.at = Date.now();
@@ -1872,7 +1874,21 @@
       if (!r.ok) return;
       const v = str((await r.json()).v);
       if (!v) return;
-      if (!WEBVER.loaded) WEBVER.loaded = v;
+      // v4.34（11/25 Tammy iPhone 看到舊頁面）：「目前這頁的版本」改看 ops.html／admin.html 的 <meta name="web-ver">，
+      //   不再拿第一次讀到的 version.json 當現在的版本（舊頁面第一次讀到的就已經是新版 → 永遠不會提示）
+      if (!WEBVER.loaded) WEBVER.loaded = webVerOfPage() || v;
+      // v4.34：剛打開就發現網站上有更新的版本（瀏覽器拿了快取的舊頁面）→ 自動用新網址重新載入一次（同一個版本只試一次，不會一直重整）
+      if (!WEBVER.seen && v !== WEBVER.loaded && webVerOfPage()) {
+        let tried = '';
+        try { tried = sessionStorage.getItem('pb:reloadFor') || ''; } catch (e) { /* 無痕模式 */ }
+        if (tried !== v) {
+          try { sessionStorage.setItem('pb:reloadFor', v); } catch (e) { /* 略過 */ }
+          const u = new URL(location.href);
+          u.searchParams.set('r', v);
+          location.replace(u.toString());
+          return;
+        }
+      }
       if (v !== WEBVER.seen) { WEBVER.seen = v; renderBanner(); }
     } catch (e) { /* 沒有 version.json 或離線：略過 */ }
   }
@@ -1891,7 +1907,7 @@
   PB.acts.userMenu = async () => {
     const r = await ui.modal({
       title: PB.me.name,
-      body: '<dl class="kv"><dt>帳號</dt><dd>' + esc(PB.me.email) + '</dd><dt>角色</dt><dd>' + esc(PB.me.roles.join('、')) + '</dd><dt>工作區</dt><dd>' + esc(PB.ws.join('、')) + '</dd><dt>資料時間</dt><dd>' + esc(fmtDT(db.at)) + '</dd><dt>版本</dt><dd>網頁 ' + esc(APPDEF.version || '') + '／後端 ' + esc(C.version || '') + '</dd></dl>',
+      body: '<dl class="kv"><dt>帳號</dt><dd>' + esc(PB.me.email) + '</dd><dt>角色</dt><dd>' + esc(PB.me.roles.join('、')) + '</dd><dt>工作區</dt><dd>' + esc(PB.ws.join('、')) + '</dd><dt>資料時間</dt><dd>' + esc(fmtDT(db.at)) + '</dd><dt>版本</dt><dd>網頁 ' + esc(webVerOfPage() || APPDEF.version || '') + '／後端 ' + esc(C.version || '') + '</dd></dl>',
       actions: [{ label: '登出', kind: 'bad', value: 'out' }].concat(APPDEF.otherLink ? [{ label: '前往' + APPDEF.otherLink.label, value: 'go' }] : []).concat([{ label: '關閉' }]),
     });
     if (r === 'out') logout();
