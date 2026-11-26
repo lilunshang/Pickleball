@@ -434,6 +434,7 @@
       case '0_專項': return str(r['專項名稱']) + (str(r['程度']) ? '｜' + m.levelName(r['程度']) : '');
       case '0_球敘類型': return str(r['類型名稱']) + (r['是否啟用'] === false || str(r['是否啟用']).toUpperCase() === 'FALSE' ? '（停用）' : '');
       case '0_角色': return str(r['角色名稱']);
+      case '0_報名分類': return str(r['分類名稱']) + (r['是否啟用'] === false || str(r['是否啟用']).toUpperCase() === 'FALSE' ? '（停用）' : ''); // v4.36
       case '0_教練費率': return m.staffName(r['教練']) + '｜' + m.typeName(r['課程類型']) + '｜' + str(r['基準']);
       case '1_合作夥伴': return str(r['名稱']);
       case '3_合作方案': return str(r['方案名稱']);
@@ -1467,14 +1468,18 @@
         if (Number(sp['人數上限']) > 0) out['人數上限'] = Number(sp['人數上限']);
         out['總堂數'] = 1;
         const own = Number(sp['費用']);
+        const gym = Number(sp['球館費用']); // v4.36：學校、球館分開填
         const p = PB.cfg.specPrice || { 學校: 1000, 球館: 1200 };
-        if (own > 0) out['費用'] = own; else if (str(v['據點'])) out['費用'] = Number(p[dvKind(v['據點'])]) || 1000;
+        if (gym > 0 && str(v['據點']) && dvKind(v['據點']) === '球館') out['費用'] = gym;
+        else if (own > 0) out['費用'] = own; else if (str(v['據點'])) out['費用'] = Number(p[dvKind(v['據點'])]) || 1000;
+        if (str(sp['預設教練']) && !str(v['主教練'])) out['主教練'] = str(sp['預設教練']); // v4.36
       }
       if (k === '課程模板') {
         const t = PB.get('0_課程模板', v['課程模板']);
         if (!t) return out;
         const map = { 課程名稱: '模板名稱', 課程類型: '課程類型', 人數下限: '人數下限', 人數上限: '人數上限', 費用: '費用', 計費方式: '計費方式', 總堂數: '總堂數' };
         Object.keys(map).forEach((x) => { if (str(t[map[x]]) !== '') out[x] = ['人數下限', '人數上限', '費用', '總堂數'].indexOf(x) >= 0 ? Number(t[map[x]]) : str(t[map[x]]); });
+        if (str(t['預設教練']) && !str(v['主教練'])) out['主教練'] = str(t['預設教練']); // v4.36
       }
       if (k === '據點' || k === '上課時段') {
         const cs = (PB.ix.courtByVenue[str(v['據點'])] || []).filter((c) => str(c['狀態']) !== '暫停使用' && str(c['類型']).indexOf('課程') >= 0);
@@ -1520,7 +1525,7 @@
     });
   };
 
-  PB.RIPPLE_TABLES = ['0_專項', '0_課程類型', '0_教練費率'];
+  PB.RIPPLE_TABLES = ['0_專項', '0_課程類型', '0_教練費率', '0_課程模板']; // v4.36：模板教練費
   PB.ripple = async () => {
     if ((PB.ws || []).indexOf('管理層') < 0) return;
     const r = await PB.run('rippleScan', {}, { quiet: true });

@@ -37,7 +37,7 @@
   const monthsAhead = () => { const out = []; let y = +today().slice(0, 4); let mo = +today().slice(5, 7); for (let i = 0; i < 4; i++) { out.push(y + '-' + ('0' + mo).slice(-2)); mo += 1; if (mo > 12) { mo = 1; y += 1; } } return out; };
   const nextMonth = () => monthsAhead()[1];
   const venueKind = (vid) => { const v = PB.get('1_據點', vid) || {}; return str(v['據點類別']) || (/國小|國中|高中|大學|科大|學校|中學/.test(str(v['據點名稱'])) ? '學校' : '球館'); };
-  const price = (vid, specId) => { const own = num((PB.get('0_專項', specId) || {})['費用']); if (own > 0) return own; const p = PB.cfg.specPrice || { 學校: 1000, 球館: 1200 }; return num(p[venueKind(vid)]) || 1000; };
+  const price = (vid, specId) => { const sp = PB.get('0_專項', specId) || {}; if (num(sp['球館費用']) > 0 && venueKind(vid) === '球館') return num(sp['球館費用']); const own = num(sp['費用']); if (own > 0) return own; /* v4.36：球館費用 */ const p = PB.cfg.specPrice || { 學校: 1000, 球館: 1200 }; return num(p[venueKind(vid)]) || 1000; };
   const specs = () => PB.rows('0_專項').filter((s) => s['是否啟用'] !== false).sort((a, b) => byKey(('000' + num((PB.get('0_程度', a['程度']) || {})['排序'])).slice(-3) + str(a['專項名稱']), ('000' + num((PB.get('0_程度', b['程度']) || {})['排序'])).slice(-3) + str(b['專項名稱'])));
   const singleType = () => str((PB.rows('0_課程類型').find((t) => str(t['課程類型']) === (PB.cfg.singleType || '單堂專項')) || {})['類型ID']);
   /** 期制課程模板（不含單堂專項；要有總堂數） */
@@ -483,7 +483,9 @@
   function trayHtml() {
     const tabs = [['spec', '專項'], ['tpl', '期制課程'], ['game', '球敘']];
     const head = '<div class="sb-trayh">' + (S.placing ? '<span><span class="sb-mode m-' + S.placing.split(':')[0] + '">放置中</span><b>' + esc(KIND_LABEL[placingKind()] + '｜' + placingName()) + '</b>｜點格子放上去</span><button class="btn sm pri" data-act="sbPlace" data-v="">完成</button>' :
-      '<div class="sb-ttabs">' + tabs.map((t) => '<button class="' + (S.tray === t[0] ? 'on' : '') + '" data-act="sbTray" data-v="' + t[0] + '">' + t[1] + '</button>').join('') + '</div><span>選一個，再點格子放上去</span>') + '</div>';
+      '<div class="sb-ttabs">' + tabs.map((t) => '<button class="' + (S.tray === t[0] ? 'on' : '') + '" data-act="sbTray" data-v="' + t[0] + '">' + t[1] + '</button>').join('') + '</div><span style="display:flex;gap:10px;align-items:center">選一個，再點格子放上去' +
+      // v4.36（11/26 Imperfect：這裡也要能快速新增）：新增後直接進入「放置中」
+      (PB.actType ? '<button class="btn sm" data-act="sbNewType" data-v="' + (S.tray === 'spec' ? '單堂課' : S.tray === 'tpl' ? '期制課' : '球敘') + '">' + PB.icon('plus') + '新增' + (S.tray === 'spec' ? '專項' : S.tray === 'tpl' ? '期制課程' : '球敘類型') + '</button>' : '') + '</span>') + '</div>';
     let chips = '';
     if (S.tray === 'spec') {
       const groups = [];
@@ -548,6 +550,14 @@
   A.sbVenue = (d) => { S.venue = d.v; PB.render(); document.getElementById('main').scrollTop = 0; };
   A.sbPlace = (d) => { S.placing = S.placing === d.v ? '' : d.v; PB.render(); };
   A.sbTray = (d) => { S.tray = d.v; PB.render(); };
+  // v4.36：托盤標題列「＋新增」→ 活動種類表單（快照確認）→ 存好後直接拿新的種類放格子
+  A.sbNewType = async (d) => {
+    const id = await PB.actType({ kind: d.v });
+    if (!id) return;
+    S.placing = (d.v === '單堂課' ? 'spec:' : d.v === '期制課' ? 'tpl:' : 'game:') + id;
+    PB.render();
+    ui.toast('已選好「' + placingName() + '」，點格子放上去');
+  };
   A.sbTodo = (d) => { S.placing = ''; return A.sbCell(d); };
 
   function setDraft(k, vals) {
@@ -568,10 +578,10 @@
     const same = cur && kindOf(cur) === kind;
     if (kind === '專項') {
       const sp = PB.get('0_專項', val) || {};
-      setDraft(k, { 用途: '專項', 專項: val, 課程模板: '', 球敘類型: '', 費用: '', 人數上限: same ? cur.人數上限 : num(sp['人數上限']) || 6, 人數下限: same ? cur.人數下限 : num(sp['人數下限']) || 5, 教練: cur && kindOf(cur) !== '球敘' ? cur.教練 : '' });
+      setDraft(k, { 用途: '專項', 專項: val, 課程模板: '', 球敘類型: '', 費用: '', 人數上限: same ? cur.人數上限 : num(sp['人數上限']) || 6, 人數下限: same ? cur.人數下限 : num(sp['人數下限']) || 5, 教練: (cur && kindOf(cur) !== '球敘' ? cur.教練 : '') || str(sp['預設教練']) }); // v4.36：預設教練
     } else if (kind === '期制') {
       const t = PB.get('0_課程模板', val) || {};
-      setDraft(k, { 用途: '期制', 專項: '', 課程模板: val, 球敘類型: '', 費用: same && cur.課程模板 === val ? cur.費用 : '', 人數上限: num(t['人數上限']) || 6, 人數下限: num(t['人數下限']) || 5, 教練: cur && kindOf(cur) !== '球敘' ? cur.教練 : '' });
+      setDraft(k, { 用途: '期制', 專項: '', 課程模板: val, 球敘類型: '', 費用: same && cur.課程模板 === val ? cur.費用 : '', 人數上限: num(t['人數上限']) || 6, 人數下限: num(t['人數下限']) || 5, 教練: (cur && kindOf(cur) !== '球敘' ? cur.教練 : '') || str(t['預設教練']) }); // v4.36：預設教練
     } else {
       setDraft(k, { 用途: '球敘', 專項: '', 課程模板: '', 球敘類型: val, 費用: same ? cur.費用 : '', 人數上限: '', 人數下限: '', 教練: '' });
     }
