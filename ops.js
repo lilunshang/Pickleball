@@ -1636,14 +1636,22 @@
     const x = c ? m.cls(c) : null;
     const formed = x && x.single && ['確定開課', '進行中'].indexOf(x.st) >= 0;
     const fields = (PB.db.cols['2_報名'] || []).indexOf('學員取消原因') >= 0 ? [{ k: 'why', label: '學員的取消原因（選填）', t: 'enum', opts: '學員取消原因', hint: '累積資料找出取消的真正原因' }] : [];
+    // v4.37（11/26 Imperfect）：付款回報還沒確認入帳（待確認）→ 先問是否已付款；未付款＝回報改有誤、應收作廢
+    const pend = Math.max(0, Math.min(p.pending || 0, p.net));
+    const conf = p.net - pend;
     const text = esc(m.sigTarget(r)) + '<br>' + (formed ? '<b>這堂已成班：規則是不退費，可以改用「換人」。</b>確定要例外取消嗎？<br>' : '') +
-      (p.net > 0 ? '已付 ' + money(p.net) + '：請在下面選怎麼處理。' : '未付款的應收會作廢。') + '學員會收到取消通知，候補自動遞補。';
+      (p.net > 0 ? (pend > 0 ? '有 ' + money(pend) + ' 的付款回報還沒確認入帳。' : '已付 ' + money(p.net) + '：請在下面選怎麼處理。') : '未付款的應收會作廢。') + '學員會收到取消通知，候補自動遞補。';
+    if (pend > 0) fields.push({ k: 'unconf', label: '這筆付款回報還沒確認入帳，請確定是否已付款？', t: 'enum', opts: ['未付款', '已付款'], req: true, chips: true, hint: '未付款：回報改成「有誤」、應收作廢，不留退款紀錄。已付款：當作已付，接著選怎麼處理' });
     // v4.24：已付款的，取消時直接選怎麼處理
     const PAID_OPTS = ['退款（開退款待辦）'].concat(PB.has('3_抵用金流水') ? ['轉課程抵用金'] : []).concat(['不退費']);
-    if (p.net > 0) fields.push({ k: 'paid', label: '已付的 ' + money(p.net) + ' 怎麼處理', t: 'enum', opts: PAID_OPTS, value: formed ? '不退費' : PAID_OPTS[0], req: true, chips: true, hint: '退款：先開待辦，匯款後登記退款。轉抵用金：馬上轉入。不退費：留下紀錄，不開待辦' },
-      { k: 'keepNote', label: '不退費的原因', t: 'text', when: { paid: ['不退費'] }, placeholder: '例：成班後取消，依規則不退' });
+    const paidWhen = conf > 0 ? null : { unconf: ['已付款'] };
+    if (p.net > 0) fields.push(Object.assign({ k: 'paid', label: '已付的款項怎麼處理', t: 'enum', opts: PAID_OPTS, value: formed ? '不退費' : PAID_OPTS[0], req: true, chips: true, hint: '退款：先開待辦，匯款後登記退款。轉抵用金：馬上轉入。不退費：留下紀錄，不開待辦' }, paidWhen ? { when: paidWhen } : {}),
+      { k: 'keepNote', label: '不退費的原因', t: 'text', when: Object.assign({ paid: ['不退費'] }, paidWhen || {}), placeholder: '例：成班後取消，依規則不退' });
     const v = await ui.ask('取消報名：' + m.stuName(r['學員']), text, { fields: fields, danger: true, ok: '取消報名' });
-    if (v) PB.run('signupCancel', { ids: [d.id], why: v.why || '', paid: str(v.paid) === '轉課程抵用金' ? 'credit' : str(v.paid) === '不退費' ? 'keep' : '', keepNote: v.keepNote || '' });
+    if (!v) return;
+    const unpaid = pend > 0 && str(v.unconf) === '未付款';
+    const keepPaid = conf > 0 || !unpaid;
+    PB.run('signupCancel', { ids: [d.id], why: v.why || '', unconfirmed: unpaid ? 'unpaid' : '', paid: !keepPaid ? '' : str(v.paid) === '轉課程抵用金' ? 'credit' : str(v.paid) === '不退費' ? 'keep' : '', keepNote: keepPaid ? v.keepNote || '' : '' });
   };
   A.sigSwap = async (d) => {
     const r = PB.get('2_報名', d.id);
