@@ -1,7 +1,7 @@
 ﻿/**
  * 理論上匹克球｜營運工作台 ops.js v4.35（2026/11/26：選單「場主請假」改「請假與可排」— 加教練請假、可排時間；待處理「教練請假、還沒安排代課」）；v4.33（2026/11/25：移班 — 球敘轉球敘、課程轉課程，費用不同也能移，先列差額警告、LINE 告知學員）；v4.31（2026/11/24：待處理改版 — 今天／這週／等回覆、看自己負責的、等回覆／已處理；選單分組＋手機下方四個）；v4.29（2026/11/24：選單「場主請假」hostleave.js；球敘明細標代班）；v4.28（2026/11/24：補償抵用金）；v4.27（2026/11/24：學員搜尋含家人、全家總覽、由家人付款的帳）；v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
- * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心）、排課、主檔與紀錄（v4.12）
+ * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心；v4.41 加內部規則分頁）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
  * 每個畫面是一個 { id, label, icon, show, badge, render } 物件；新增畫面＝在 SCREENS 加一個。
  * v2.3：單堂專項課（課程 → 專項課）、抵用金（學員頁）、換人上課、取消原因、換教練檢查可否排課
@@ -3114,8 +3114,8 @@
   const KB = { data: null, err: '', busy: false, at: 0 };
   const KB_KEY = 'pb:kb';
   const KB_ST = { 可用: 'ok', 查詢: 'info', 轉人工: 'warn', 規劃: '' };
-  const KB_TABS = [['faq', '問答'], ['tpl', '訊息模板'], ['info', '價格與據點'], ['rules', '準則與轉人工'], ['docs', '文件']];
-  const KB_KNOWN = ['問答', '訊息模板', '價格', '據點', '準則', '轉人工', '設定'];
+  const KB_TABS = [['faq', '問答'], ['irule', '內部規則'], ['tpl', '訊息模板'], ['info', '價格與據點'], ['rules', '準則與轉人工'], ['docs', '文件']];
+  const KB_KNOWN = ['問答', '內部規則', '訊息模板', '價格', '據點', '準則', '轉人工', '設定'];
   try { const c = JSON.parse(PB.LS.get(KB_KEY) || 'null'); if (c && c.tabs) KB.data = c; } catch (e) { /* 忽略 */ }
   const kbTab = (n) => (KB.data && KB.data.tabs[n]) || [];
   async function kbLoad(fresh) {
@@ -3156,6 +3156,7 @@
       const kw = str(p.q).toLowerCase();
       const search = '<label class="search kb-search">' + PB.icon('search') + '<input placeholder="搜尋問題、回覆、關鍵字" value="' + esc(p.q || '') + '" data-input="kbSearch"></label>';
       if (cur === 'faq') return head + ui.safe(() => kbFaq(p, kw, search), '問答');
+      if (cur === 'irule') return head + ui.safe(() => kbIrule(p, kw, search), '內部規則');
       if (cur === 'tpl') return head + ui.safe(() => kbTpl(kw, search), '訊息模板');
       if (cur === 'info') return head + ui.safe(() => kbInfo(kw, search), '價格與據點');
       if (cur === 'rules') return head + ui.safe(() => kbRules(), '準則與轉人工');
@@ -3178,6 +3179,73 @@
           (str(r['回覆']) ? '<div class="kb-a">' + nl(r['回覆']) + '</div>' : '') +
           (str(r['內部備註']) ? '<div class="kb-n">內部：' + nl(r['內部備註']) + '</div>' : '') + '</div>';
       }).join('') || ui.empty('找不到符合的問答', '換個關鍵字，或清除分類／狀態篩選'));
+  }
+  // ----------------------------------------------------------------
+  // 內部規則（v4.41）：試算表「內部規則」分頁，一列一條規則
+  // 重點直接顯示；細節、流程圖收合（搜尋時自動展開）；依主題分組
+  // 流程欄：一行一步，「？」結尾＝判斷，往右縮排兩格＝分支／下一層，「是：」「否：」等＝分支標籤
+  // ----------------------------------------------------------------
+  const IR_ST = { 現行: 'ok', 未上線: 'info', 待定: 'warn' };
+  const irLines = (t) => str(t).split('\n').map((x) => x.replace(/\s+$/, '')).filter((x) => x.trim());
+  const irList = (t) => '<ul class="ir-ul">' + irLines(t).map((x) => '<li>' + esc(x.trim().replace(/^[・•‧\-]\s*/, '')) + '</li>').join('') + '</ul>';
+  function kbIrule(p, kw, search) {
+    const all = kbTab('內部規則');
+    if (!all.length) return ui.empty('還沒有內部規則', '請在知識庫試算表的「內部規則」分頁新增');
+    const topics = uniq(all.map((r) => str(r['主題'])).filter(Boolean));
+    const list = all.filter((r) => (!p.cat || str(r['主題']) === p.cat) && (!p.st || str(r['狀態']) === p.st) && hit(r, kw));
+    const chip = (k, v, label, n) => '<button class="chip' + (str(p[k]) === v ? ' on' : '') + '" data-act="param" data-k="' + k + '" data-v="' + esc(str(p[k]) === v ? '' : v) + '">' + esc(label) + (n !== undefined ? '<span class="c">' + n + '</span>' : '') + '</button>';
+    const groups = topics.filter((t) => list.some((r) => str(r['主題']) === t));
+    const other = list.filter((r) => !str(r['主題']));
+    return '<div class="ptop">' + search + '<span class="sp"></span><span class="mut">' + list.length + ' 條</span></div>' +
+      '<p class="mut" style="margin:-4px 0 10px;font-size:.84rem">系統目前實際怎麼運作。回覆學員請用「問答」的話術。</p>' +
+      '<div class="chips" style="margin-bottom:6px">' + topics.map((t) => chip('cat', t, t, all.filter((r) => str(r['主題']) === t).length)).join('') + '</div>' +
+      '<div class="chips" style="margin-bottom:12px">' + Object.keys(IR_ST).map((x) => chip('st', x, x, all.filter((r) => str(r['狀態']) === x).length)).join('') + '</div>' +
+      (groups.map((t) => { const rs = list.filter((r) => str(r['主題']) === t); return sec(t, rs.length) + card(rs.map((r) => irItem(r, !!kw)).join('')); }).join('') +
+        (other.length ? sec('其他', other.length) + card(other.map((r) => irItem(r, !!kw)).join('')) : '') ||
+        ui.empty('找不到符合的規則', '換個關鍵字，或清除主題／狀態篩選'));
+  }
+  function irItem(r, open) {
+    const st = str(r['狀態']);
+    const o = open ? ' open' : '';
+    return '<div class="kb-item ir-item"><div class="kb-t"><b>' + esc(r['標題']) + '</b> ' + (st && st !== '現行' ? '<span class="badge ' + (IR_ST[st] || '') + '">' + esc(st) + '</span> ' : '') +
+      '<span class="mut" style="font-size:.78rem">' + esc(r['編號']) + '</span></div>' +
+      (str(r['重點']) ? '<div class="ir-key">' + irList(r['重點']) + '</div>' : '') +
+      (str(r['流程']) ? '<details class="ir-d"' + o + '><summary>流程圖</summary>' + kbFlow(r['流程']) + '</details>' : '') +
+      (str(r['內容']) ? '<details class="ir-d"' + o + '><summary>細節</summary>' + irList(r['內容']) + '</details>' : '') + '</div>';
+  }
+  /** 流程文字 → 由上到下的步驟圖（手機也能看；不依賴外部套件） */
+  function kbFlow(t) {
+    const root = { kids: [] };
+    const stack = [{ lv: -1, n: root }];
+    str(t).split('\n').forEach((line) => {
+      if (!line.trim()) return;
+      const lead = line.match(/^[ \t　]*/)[0].replace(/\t/g, '  ').replace(/　/g, '  ').length;
+      const lv = Math.floor(lead / 2);
+      const n = { t: line.trim(), kids: [] };
+      while (stack.length > 1 && stack[stack.length - 1].lv >= lv) stack.pop();
+      stack[stack.length - 1].n.kids.push(n);
+      stack.push({ lv: lv, n: n });
+    });
+    return '<div class="ir-flow">' + flowSeq(root.kids) + '</div>';
+  }
+  const FLOW_BR = /^([^：:\s]{1,8})[：:]\s*(.*)$/;
+  const FLOW_NO = /^(否|沒有|無|不|未|有問題)/;
+  function flowSeq(nodes) {
+    return nodes.map((n, i) => flowNode(n) + (i < nodes.length - 1 ? '<div class="ir-arrow" aria-hidden="true">↓</div>' : '')).join('');
+  }
+  function flowNode(n) {
+    const brs = n.kids.filter((k) => FLOW_BR.test(k.t));
+    const rest = n.kids.filter((k) => !FLOW_BR.test(k.t));
+    let h = '<div class="ir-step' + (/[？?]$/.test(n.t) ? ' q' : '') + '">' + esc(n.t) + '</div>';
+    if (brs.length) {
+      h += '<div class="ir-brs">' + brs.map((b) => {
+        const m = b.t.match(FLOW_BR);
+        return '<div class="ir-br' + (FLOW_NO.test(m[1]) ? ' no' : '') + '"><span class="ir-lab">' + esc(m[1]) + '</span>' +
+          (m[2] ? '<div class="ir-step">' + esc(m[2]) + '</div>' : '') + (b.kids.length ? '<div class="ir-sub">' + flowSeq(b.kids) + '</div>' : '') + '</div>';
+      }).join('') + '</div>';
+    }
+    if (rest.length) h += '<div class="ir-sub">' + flowSeq(rest) + '</div>';
+    return h;
   }
   function kbTpl(kw, search) {
     const list = kbTab('訊息模板').map((r, i) => ({ r: r, i: i })).filter((o) => hit(o.r, kw));
