@@ -1,6 +1,7 @@
 ﻿/**
  * 理論上匹克球｜營運工作台：排課看板 sched.js（v4.12 2026/11/10：從管理後台移到營運工作台，行政客服、管理層可用；合作方案的場租／分潤只有管理層看得到）
  * v2.6（2026/10/27：每格可排 專項／期制課程／球敘）
+ * v4.40（2026/11/27）：已發布（鎖定）的課程／球敘格點下去直接打開課表同一個明細，可做課表上的所有操作
  * v4.1（2026/11/02）：球敘格可選「程度」（0_程度，空白＝不指定；學員報名頁顯示建議程度、不擋報名）；程度不同的球敘格發布時分成不同場
  * v3.8（2026/10/31）：球敘格加「場主」（預設據點場主、可換人、同時段在其他據點才提醒），發布時直接排場主；球敘名稱自動「據點名稱・類型名稱」
  * 版面：上方選月份、據點頁籤 → 據點卡（場租、專項價、分潤、本月格數）→ 每個時段一張「日期 × 球面」表 → 待處理清單；桌機右側本月統計、教練人力、各據點進度；下方工具列（專項／期制課程／球敘）
@@ -104,7 +105,7 @@
       const total = num(c && c['總堂數']);
       const no = num(sess[0]['第幾堂']);
       const makeup = !single && total && no > total;
-      return { lock: { course: true, single: single, label: c ? str(c['課程名稱']) : '課程', sub: single ? '專項・已發布' : makeup ? '期末補課堂' : (no ? '第 ' + no + '/' + total + ' 堂' : '期制 ' + str(c && c['期別'])), why: '已有課程「' + (c ? m.classLabel(c) : '') + '」' + (makeup ? '的期末補課堂' : '') + '，要調整請到營運工作台的課程處理。' } };
+      return { lock: { course: true, single: single, label: c ? str(c['課程名稱']) : '課程', sub: single ? '專項・已發布' : makeup ? '期末補課堂' : (no ? '第 ' + no + '/' + total + ' 堂' : '期制 ' + str(c && c['期別'])), why: '已有課程「' + (c ? m.classLabel(c) : '') + '」' + (makeup ? '的期末補課堂' : '') + '，先結束放置再點這格處理。', open: c ? (single ? { act: 'openClass', id: str(c['班級ID']) } : { act: 'openSes', id: str(sess[0]['場次ID']) }) : null } };
     }
     const games = (PB.ix.gameByDay[d] || []).filter((g) => str(g['狀態']) !== '取消' && split(g['使用場地']).indexOf(cid) >= 0 && overlap(st, en, g['開始時間'], g['結束時間']));
     const legacy = games.filter(legacyDraft);
@@ -114,7 +115,7 @@
       const x = m.game(g);
       const name = gameName(g['球敘類型']);
       const waiting = x.st === '草稿' && str(g['開放報名時間']);
-      return { lock: { game: true, label: name, sub: waiting ? fmtD(g['開放報名時間']).replace(/（.）/, '') + ' 開放' : x.st === '草稿' ? '草稿・有人報名' : x.st + ' ' + x.active.length + ' 人', why: waiting ? '這場球敘已從看板發布，' + str(g['開放報名時間']).slice(0, 16) + ' 自動開放報名。要改請先到營運工作台「球敘」取消這場。' : x.st === '草稿' ? '這場球敘草稿已有人報名，不能改排。' : '這場球敘已開放報名（' + x.active.length + ' 人），不能改排。' } };
+      return { lock: { game: true, label: name, sub: waiting ? fmtD(g['開放報名時間']).replace(/（.）/, '') + ' 開放' : x.st === '草稿' ? '草稿・有人報名' : x.st + ' ' + x.active.length + ' 人', why: waiting ? '這場球敘已從看板發布，' + str(g['開放報名時間']).slice(0, 16) + ' 自動開放報名，不能改排；先結束放置再點這格處理。' : x.st === '草稿' ? '這場球敘草稿已有人報名，不能改排；先結束放置再點這格處理。' : '這場球敘已開放報名（' + x.active.length + ' 人），不能改排；先結束放置再點這格處理。', open: { act: 'openGame', id: str(g['球敘ID']) } } };
     }
     return { legacy: legacy };
   }
@@ -603,6 +604,8 @@
       S.flash = k;
       return PB.render();
     }
+    // v4.40：已發布的課程／球敘 → 直接打開和課表一樣的明細（收款、後台報名、移班、改期、換場主、取消…都在裡面）
+    if (c.kind === 'lock' && c.open && typeof A[c.open.act] === 'function') return A[c.open.act]({ id: c.open.id });
     if (c.kind === 'lock') return ui.modal({ title: c.label, body: '<p class="mut">' + esc(where) + '</p><div class="note">' + esc(c.why) + '</div>', actions: [{ label: '知道了' }] });
     if (c.kind !== 'draft') {
       const opts = [];
