@@ -1,5 +1,5 @@
 ﻿/**
- * 理論上匹克球｜營運工作台 ops.js v4.35（2026/11/26：選單「場主請假」改「請假與可排」— 加教練請假、可排時間；待處理「教練請假、還沒安排代課」）；v4.33（2026/11/25：移班 — 球敘轉球敘、課程轉課程，費用不同也能移，先列差額警告、LINE 告知學員）；v4.31（2026/11/24：待處理改版 — 今天／這週／等回覆、看自己負責的、等回覆／已處理；選單分組＋手機下方四個）；v4.29（2026/11/24：選單「場主請假」hostleave.js；球敘明細標代班）；v4.28（2026/11/24：補償抵用金）；v4.27（2026/11/24：學員搜尋含家人、全家總覽、由家人付款的帳）；v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
+ * 理論上匹克球｜營運工作台 ops.js v4.42（2026/11/28：專項課請假與補課 — 補課只列同程度專項課、任何據點；特殊請假發球敘券；折價券區顯示球敘券）；v4.35（2026/11/26：選單「場主請假」改「請假與可排」— 加教練請假、可排時間；待處理「教練請假、還沒安排代課」）；v4.33（2026/11/25：移班 — 球敘轉球敘、課程轉課程，費用不同也能移，先列差額警告、LINE 告知學員）；v4.31（2026/11/24：待處理改版 — 今天／這週／等回覆、看自己負責的、等回覆／已處理；選單分組＋手機下方四個）；v4.29（2026/11/24：選單「場主請假」hostleave.js；球敘明細標代班）；v4.28（2026/11/24：補償抵用金）；v4.27（2026/11/24：學員搜尋含家人、全家總覽、由家人付款的帳）；v4.25（2026/11/23：學員頁「折價券」— 查看、手動發券、作廢）；v4.24（2026/11/23：帳務頁 ledger.js、待處理「查無入帳」「待退款」、退款一條龍、取消報名選已付款怎麼處理）；v4.23（2026/11/18：待處理「專項課已開課仍未付（客服追款）」）；v4.14（2026/11/11：包場球敘 — 私人課程視窗多「包場球敘」、球敘頁「包場」、包場詳情與加一場）；v4.12（2026/11/10：選單加「排課」「主檔與紀錄」— 從管理後台移過來，sched.js、data.js）；v4.10（2026/11/9：場地停用 — 據點一段期間批次取消球敘、專項課、期制／私人課停課、可用日）；v4.9（2026/11/8：私人課程 — 包班、個人課：一次建立班級＋學員＋帳單＋收款；詳情頁加一堂、加人、退出、帳單）；v4.3（2026/11/3：待處理「沒加好友」看實際收通知的人（含家長）、遞補待付款排最前；「通知沒送到」也列未加好友而略過的重要通知）；v4.0（2026/11/2：期制班取消／未成班 → 移班可選專項課，差額不處理；發布資訊分區收合＋已過期）；v3.3（2026/10/28：修正改期、撤銷改期、刪除建錯的班級）；前版 v2.3（2026/10/26）
  * v3.8（2026/10/31）：選單「課程」「球敘」合成「課表」（timetable.js：依日期／依據點／期制班＋狀態篩選）；舊清單網址仍可開
  * 行政客服：今日、待處理、課程、球敘、學員、知識庫（讀「客服知識庫」試算表＋文件中心；v4.41 加內部規則分頁）、排課、主檔與紀錄（v4.12）
  * 社群行銷：發布資訊（報名連結＋來源碼）、來源成效
@@ -1832,6 +1832,8 @@
       if (st === '預定' && ast === '請假') b.push(btn('取消請假', 'leaveCancel', { id: a['出缺勤ID'] }, 'ghost'));
       if (st === '預定' && ast === '補課出席' && str(a['補課來源'])) b.push(btn('取消補課', 'makeupCancel', { id: a['出缺勤ID'] }, 'ghost'));
       if (ast === '請假' && !(PB.ix.attBySrc[str(a['出缺勤ID'])] || []).length) b.push(btn('安排補課', 'makeup', { id: a['出缺勤ID'] }));
+      // v4.42：專項課 24 小時內突發意外、急症 → 行政審核後發球敘券（不補課）
+      if (x && x.single && reg && st !== '取消' && (!a || ast === '缺席') && !(a && /特殊請假/.test(str(a['備註'])))) b.push(btn('特殊請假', 'leaveSpecial', { ses: id, stu: sid }, 'ghost'));
       if (st === '已完成' && fixable && a) b.push(btn('修正', 'attFix', { id: a['出缺勤ID'] }, 'ghost'));
       if (st === '已完成' && fixable && !a && reg) b.push(btn('補登', 'attFix', { ses: id, stu: sid }));
       const tag = ast ? '<span class="badge ' + ({ 出席: 'ok', 補課出席: 'info', 請假: 'warn', 缺席: 'bad' }[ast] || '') + '">' + esc(ast === '補課出席' && st === '預定' ? '補課（預定）' : ast) + '</span>' : (st === '已完成' ? '<span class="badge">未記錄</span>' : '');
@@ -1849,7 +1851,22 @@
       ['備註', esc(s['備註'])],
     ]) + sec('學員', roster.length + ' 人') + card(rows || ui.empty('沒有學員'));
   }
-  A.leave = (d) => PB.run('leave', { sessionId: d.ses, studentIds: [d.stu] }, { confirm: { title: '登記請假：' + m.stuName(d.stu), text: '後台登記不受 LINE 的 8 小時與次數限制（例外情況）。補課期限由系統依課程類型補上，並通知教練。', ok: '登記請假' } });
+  A.leave = (d) => {
+    const s = PB.get('2_上課場次', d.ses);
+    const c = s ? PB.get('2_課程班級', s['班級']) : null;
+    const single = c && m.isSingle(c);
+    PB.run('leave', { sessionId: d.ses, studentIds: [d.stu] }, { confirm: { title: '登記請假：' + m.stuName(d.stu), text: single
+      ? '專項課請假：保留一次補課（請假日起 60 天，安排同程度的專項課，差額不收）；名額會釋出給別人報名。後台登記不受 LINE 的 24 小時限制（例外情況）；24 小時內的突發狀況請改用「特殊請假」發球敘券。'
+      : '後台登記不受 LINE 的 8 小時與次數限制（例外情況）。補課期限由系統依課程類型補上，並通知教練。', ok: '登記請假' } });
+  };
+  // v4.42（11/28 業主制度）：專項課上課前 24 小時內遇突發意外、急症，經行政審核 → 不補課、發一張球敘券（免費一場球敘，1 個月內）
+  A.leaveSpecial = async (d) => {
+    const s = PB.get('2_上課場次', d.ses);
+    const v = await ui.ask('特殊請假：' + m.stuName(d.stu), esc(m.sesLabel(s)) + '<br>上課前 24 小時內遇突發意外或急症，審核通過後：這堂記為缺席、<b>不補課</b>，發一張<b>球敘券</b>（免費參加一場球敘，學校、球館都可以，不含租球拍；1 個月內有效）。<br>同一堂只能發一張；系統會用 LINE 通知學員。', {
+      fields: [{ k: 'note', label: '審核內容', t: 'text', req: true, hint: '例如：急症，已看到就醫證明' }], ok: '審核通過，發球敘券',
+    });
+    if (v) PB.run('leaveSpecial', { sessionId: d.ses, studentId: d.stu, note: v.note });
+  };
   A.leaveCancel = (d) => PB.run('leaveCancel', { id: d.id }, { confirm: { title: '取消請假', text: '學員改為照常上課。' } });
   A.makeupCancel = (d) => PB.run('makeupCancel', { id: d.id }, { confirm: { title: '取消補課安排', text: '這次請假會回到「待補課」。' } });
   A.makeup = async (d) => {
@@ -1857,6 +1874,7 @@
     const fromSes = PB.get('2_上課場次', lv['上課場次']);
     const fromCls = fromSes ? PB.get('2_課程班級', fromSes['班級']) : null;
     const t = today();
+    const fromSingle = !!fromCls && m.isSingle(fromCls); // v4.42：專項課請假 → 只補同程度的專項課、任何據點
     // v3.8（10/31）：已安排的補課（例：系統自動排的期末補課堂）可以改排；原本那筆一起取消
     const cur = (PB.ix.attBySrc[str(lv['出缺勤ID'])] || [])[0] || null;
     const curSes = cur ? PB.get('2_上課場次', cur['上課場次']) : null;
@@ -1872,19 +1890,20 @@
         const att = PB.ix.attBySes[str(s['場次ID'])] || [];
         const n = single ? x.used : x.active.length - att.filter((a) => str(a['狀態']) === '請假').length + att.filter((a) => str(a['狀態']) === '補課出席').length;
         if (single && n >= x.limit) return null; // 專項課額滿不列
+        if (fromSingle && (!single || str(c['班級ID']) === str(fromCls['班級ID']) || (str(fromCls['程度']) && str(c['程度']) && str(c['程度']) !== str(fromCls['程度'])))) return null; // v4.42
         const same = fromCls && (single ? str(c['程度']) === str(fromCls['程度']) : str(c['課程類型']) === str(fromCls['課程類型']) && str(c['程度']) === str(fromCls['程度']));
         const tag = single ? '【專項】' + str(c['課程名稱']) + (str(c['課程狀態']) === '籌備中' ? '（待成班）' : '') + '｜' : '';
         return { id: s['場次ID'], same: same, here: !fromSes || str(s['據點']) === str(fromSes['據點']), l: (same ? '★ ' : '') + tag + m.sesLabel(s) + '｜' + m.venueName(s['據點']) + '｜' + n + '/' + x.limit + ' 人', d: day(s['日期']) };
       }).filter(Boolean).sort((a, b) => (a.same === b.same ? byKey(a.d, b.d) : a.same ? -1 : 1));
     if (!opts.length) return ui.toast('補課期限內沒有可安排的場次', 'bad');
     // v4.26（11/24）：只列同據點；同據點沒有才問要不要列其他據點
-    let list = opts.filter((o) => o.here);
+    let list = fromSingle ? opts : opts.filter((o) => o.here); // v4.42：專項課請假任何據點都可以
     if (!list.length) { if (!(await ui.ask('同據點沒有可以補課的場次', '補課期限內 ' + esc(m.venueName(fromSes && fromSes['據點'])) + ' 沒有可安排的場次。要列出其他據點的嗎？', { ok: '列出其他據點' }))) return; list = opts; }
     const head = '請假：' + esc(m.sesLabel(fromSes)) + (cur ? '<br>目前補課：' + esc(m.sesLabel(curSes)) + '（改排後這筆會取消）' : '') +
-      '<br>★＝同課程類型、同程度（專項課看程度）。教練點名確認後才扣原班 1 堂。<br>【專項】＝單堂專項課：不另外收費；佔名額、算成班人數；未成班時補課自動取消並通知學員。';
-    const v = await ui.ask((cur ? '改排補課：' : '安排補課：') + m.stuName(lv['學員']), head, { fields: [{ k: 's', label: '補課場次', t: 'enum', req: true, opts: opts.map((o) => o.l) }, { k: 'note', label: '備註', t: 'text' }], ok: cur ? '改排' : '安排' });
+      (fromSingle ? '<br>專項課請假：只列同程度的專項課（任何據點、差額不收）；補課那堂再請假就視同用掉。' : '<br>★＝同課程類型、同程度（專項課看程度）。教練點名確認後才扣原班 1 堂。') + '<br>【專項】＝單堂專項課：不另外收費；佔名額、算成班人數；未成班時補課自動取消並通知學員。';
+    const v = await ui.ask((cur ? '改排補課：' : '安排補課：') + m.stuName(lv['學員']), head, { fields: [{ k: 's', label: '補課場次', t: 'enum', req: true, opts: list.map((o) => o.l) }, { k: 'note', label: '備註', t: 'text' }], ok: cur ? '改排' : '安排' });
     if (!v) return;
-    const o = opts.find((x) => x.l === v.s);
+    const o = list.find((x) => x.l === v.s);
     if (o) PB.run('makeup', { leaveId: d.id, sessionId: o.id, note: v.note, replace: cur ? str(cur['出缺勤ID']) : '' });
   };
   A.sesMove = async (d) => {
@@ -2826,7 +2845,7 @@
       const st = str(c['狀態']);
       const expired = st === '可用' && day(c['有效期限']) && day(c['有效期限']) < t;
       const usedSig = str(c['使用報名']) ? PB.get('2_報名', c['使用報名']) : null;
-      return row({ t: '<span class="badge ' + (expired ? '' : st === '可用' ? 'ok' : st === '已使用' ? 'info' : '') + '">' + esc(expired ? '已過期' : st) + '</span> <span class="num">' + money(c['面額']) + '</span> ' + esc(str(c['適用據點']) ? m.venueName(c['適用據點']) + ' 球敘' : '所有據點球敘'),
+      return row({ t: '<span class="badge ' + (expired ? '' : st === '可用' ? 'ok' : st === '已使用' ? 'info' : '') + '">' + esc(expired ? '已過期' : st) + '</span> <span class="num">' + (str(c['類型']) === '球敘券' ? '球敘券（免費一場）' : money(c['面額'])) + '</span> ' + esc(str(c['適用據點']) ? m.venueName(c['適用據點']) + ' 球敘' : '所有據點球敘'),
         s: esc([day(c['有效期限']) ? fmtD(c['有效期限']) + ' 以前的場次' : '', str(c['發放原因']), usedSig ? '用在 ' + m.sigTarget(usedSig) : '', str(c['備註'])].filter(Boolean).join('・')),
         r: st === '可用' && !expired ? btn('作廢', 'couponVoid', { id: c['券ID'] }, 'ghost') : '' });
     }).join('');

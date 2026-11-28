@@ -546,6 +546,9 @@
     const single = m.isSingle(c);
     // v3.8（10/31）：專項課的補課學員（期制課補課過來，不另收費）算成班人數、佔名額 — 與學員 OA v4.9 singleHeadcount_ 相同
     const makeups = single ? ses.reduce((n, s) => n + (ix.attBySes[str(s['場次ID'])] || []).filter((a) => str(a['狀態']) === '補課出席' && str(a['補課來源'])).length, 0) : 0;
+    // v4.42（11/28）：專項課請假的人名額釋出（成班與教練費人數照算）— 與學員 OA v4.51 singleLeaves_ 相同
+    const actIds = active.concat(hold).map((r) => str(r['學員']));
+    const leaves = single ? live.reduce((n, s) => n + (ix.attBySes[str(s['場次ID'])] || []).filter((a) => str(a['狀態']) === '請假' && actIds.indexOf(str(a['學員'])) >= 0).length, 0) : 0;
     const paid = active.filter((r) => m.sigPay(r['報名ID']).firstPaid).length + makeups;
     const decide = start ? addDays(start, -(single ? (C.singleDecideDays || 3) : (C.confirmDays || 7))) : '';
     // v3.8：2_課程班級.成班決定時間 有填就用（單堂例外）
@@ -562,7 +565,7 @@
       done: live.filter((s) => str(s['場次狀態']) === '已完成').length,
       total: num(c['總堂數']) || live.length,
       next: live.find((s) => str(s['場次狀態']) === '預定' && day(s['日期']) >= t) || null,
-      limit: limit, min: min, paid: paid, makeups: makeups, used: active.length + hold.length + makeups, decide: decide,
+      limit: limit, min: min, paid: paid, makeups: makeups, used: active.length + hold.length + makeups - leaves, leaves: leaves, decide: decide,
       canDecide: st === '籌備中' && !!start && (single || t >= decide || paid >= min), // v3.5：已付達人數下限就能確認成班（原本要額滿）
       pending: !!str(c['開班動作']) && !str(c['開班處理時間']),
       st: st,
